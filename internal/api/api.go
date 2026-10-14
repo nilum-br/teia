@@ -1,6 +1,6 @@
 // Package api serves the current snapshot over HTTP: the JSON API used by
-// the Backstage and Grafana plugins, Grafana Node Graph shaped endpoints,
-// and a small built-in UI for local use.
+// the Grafana panel (and the planned Backstage plugin), Grafana Node Graph
+// shaped endpoints, and a small built-in UI for local use.
 package api
 
 import (
@@ -47,6 +47,11 @@ type Options struct {
 	MaxStreams int
 	// Log receives what clients cannot see (encoding errors); nil discards.
 	Log *slog.Logger
+	// UI serves the built-in UI from these files instead of the copy
+	// embedded at build time, such as os.DirFS("internal/api/ui") while
+	// editing it: changes show on the next browser reload. Nil means the
+	// embedded copy.
+	UI fs.FS
 }
 
 // Handler returns the HTTP handler for the API and the UI.
@@ -95,8 +100,10 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 		}
 	})
 
-	// Shapes the Grafana Node Graph panel understands (through the Infinity
-	// data source, until the teia Grafana plugin exists).
+	// Flat frames for Grafana: the teia panel (nilum-teia-panel) reads them
+	// through dashboard queries (the Infinity data source in the lab, as
+	// there is no teia data source yet), and nodes and edges also fit the
+	// built-in Node Graph panel.
 	mux.HandleFunc("GET /api/v1/grafana/nodes", func(w http.ResponseWriter, _ *http.Request) {
 		send(w, grafanaNodes(snap()))
 	})
@@ -117,12 +124,26 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 		send(w, changes)
 	})
 
-	ui, _ := fs.Sub(uiFiles, "ui")
-	mux.Handle("GET /", http.FileServerFS(ui))
+	mux.Handle("GET /", uiHandler(opts.UI))
 
 	// CORS answers preflights before auth: browsers never send credentials
 	// on them.
 	return allowOrigins(requireToken(mux, opts.Token), opts.AllowedOrigins, opts.Token != "")
+}
+
+// uiHandler serves the built-in UI: the embedded copy, or files when set.
+// Files from disk are sent with "Cache-Control: no-cache", so the browser
+// revalidates them on every reload instead of keeping a stale teia-ui.js.
+func uiHandler(files fs.FS) http.Handler {
+	if files == nil {
+		embedded, _ := fs.Sub(uiFiles, "ui")
+		return http.FileServerFS(embedded)
+	}
+	fileServer := http.FileServerFS(files)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		fileServer.ServeHTTP(w, r)
+	})
 }
 
 // writeJSON encodes v before sending anything, so a value JSON cannot

@@ -4,8 +4,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +55,36 @@ func TestFailOn(t *testing.T) {
 				t.Errorf("error = %v, want %q", err, tt.fails)
 			}
 		})
+	}
+}
+
+func TestUIFiles(t *testing.T) {
+	if ui, err := uiFiles(""); ui != nil || err != nil {
+		t.Errorf("no --ui-dir means the embedded UI: got %v, %v", ui, err)
+	}
+	empty := t.TempDir()
+	if _, err := uiFiles(empty); err == nil || !strings.Contains(err.Error(), "internal/api/ui") {
+		t.Errorf("a directory without index.html should be refused with a hint, got %v", err)
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<p>from disk</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ui, err := uiFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(api.Handler(fixedEngine{}, api.Options{UI: ui}))
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "from disk") {
+		t.Errorf("status %d, body %q", resp.StatusCode, body)
 	}
 }
 

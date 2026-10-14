@@ -9,12 +9,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"math"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -33,16 +35,20 @@ var version = "dev"
 const usage = `teia maps service communication and tells you where it is blind.
 
 Usage:
-  teia serve    [--config teia.yaml]     run discovery continuously and serve the API and UI
-  teia discover [--config teia.yaml]     run one discovery round and print the report
-
-The config path defaults to $TEIA_CONFIG, then ./teia.yaml.
+  teia serve    [--config teia.yaml] [--ui-dir DIR]
+                                         run discovery continuously and serve the API and UI
+  teia discover [--config teia.yaml] [--output text|json] [--fail-on SEVERITY]
+                                         run one discovery round and print the report
   teia detect   [--prometheus URL] [--tempo URL] [--loki URL] [--kubernetes] [--docker]
                                          probe what the platform already runs and print a starting config
   teia export matrix [--config teia.yaml] [--lang pt-BR] [--declared-only]
                                          flow matrix (CSV) for firewall and security reviews
   teia validate FILE...                  check flows files
   teia version
+
+The config path defaults to $TEIA_CONFIG, then ./teia.yaml. --ui-dir (env
+TEIA_UI_DIR) serves the UI from a directory instead of the embedded copy, so
+edits to internal/api/ui show on the next browser reload.
 `
 
 func main() {
@@ -104,13 +110,21 @@ func newEngine(cfg *config.Config, log *slog.Logger) *engine.Engine {
 func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	path := fs.String("config", defaultConfig(), "config file (env TEIA_CONFIG)")
+	uiDir := fs.String("ui-dir", os.Getenv("TEIA_UI_DIR"), "serve the UI from this directory instead of the embedded copy (env TEIA_UI_DIR)")
 	_ = fs.Parse(args)
 
 	cfg, err := config.Load(*path)
 	if err != nil {
 		return err
 	}
+	ui, err := uiFiles(*uiDir)
+	if err != nil {
+		return err
+	}
 	log := newLogger()
+	if ui != nil {
+		log.Info("serving the UI from disk; edits show on the next reload", "dir", *uiDir)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -125,6 +139,7 @@ func serve(args []string) error {
 		AllowedOrigins: cfg.CORS.AllowedOrigins,
 		MaxStreams:     cfg.MaxStreams,
 		Log:            log,
+		UI:             ui,
 	}))
 	go func() {
 		<-ctx.Done()
@@ -137,6 +152,18 @@ func serve(args []string) error {
 		return err
 	}
 	return nil
+}
+
+// uiFiles opens the --ui-dir directory; empty means the embedded UI (nil).
+// A directory without index.html is an error, since the UI would only 404.
+func uiFiles(dir string) (fs.FS, error) {
+	if dir == "" {
+		return nil, nil
+	}
+	if _, err := os.Stat(filepath.Join(dir, "index.html")); err != nil {
+		return nil, fmt.Errorf("--ui-dir %s: %w (point it at internal/api/ui in a checkout)", dir, err)
+	}
+	return os.DirFS(dir), nil
 }
 
 // newServer builds the HTTP server. Shutdown cancels every request context,

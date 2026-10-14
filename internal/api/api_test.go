@@ -5,6 +5,8 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -124,6 +126,66 @@ func TestAuthCookieForTheUI(t *testing.T) {
 func TestNoTokenMeansOpen(t *testing.T) {
 	if rec := get(Handler(newFakeEngine(), Options{}), "/api/v1/snapshot", nil); rec.Code != http.StatusOK {
 		t.Errorf("status = %d", rec.Code)
+	}
+}
+
+func TestUIFromDisk(t *testing.T) {
+	dir := t.TempDir()
+	index := filepath.Join(dir, "index.html")
+	if err := os.WriteFile(index, []byte("<p>first draft</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := Handler(newFakeEngine(), Options{UI: os.DirFS(dir)})
+
+	rec := get(h, "/", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "first draft") {
+		t.Fatalf("status %d, body %q", rec.Code, rec.Body.String())
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("Cache-Control = %q: browsers must revalidate files served from disk", cc)
+	}
+
+	// An edit shows on the next request, with no restart.
+	if err := os.WriteFile(index, []byte("<p>second draft</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if rec := get(h, "/", nil); !strings.Contains(rec.Body.String(), "second draft") {
+		t.Errorf("edit not served: %q", rec.Body.String())
+	}
+	// The directory replaces the embedded copy; it does not fall back to it.
+	if rec := get(h, "/teia-ui.js", nil); rec.Code != http.StatusNotFound {
+		t.Errorf("teia-ui.js: status %d, want 404", rec.Code)
+	}
+	// The API is unaffected.
+	if rec := get(h, "/api/v1/snapshot", nil); rec.Code != http.StatusOK || rec.Header().Get("Cache-Control") != "" {
+		t.Errorf("api: status %d, Cache-Control %q", rec.Code, rec.Header().Get("Cache-Control"))
+	}
+}
+
+func TestUIFromDiskStillNeedsTheToken(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("ui"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := Handler(newFakeEngine(), Options{UI: os.DirFS(dir), Token: "s3cret"})
+	if rec := get(h, "/", nil); rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+	if rec := get(h, "/", map[string]string{"Authorization": "Bearer s3cret"}); rec.Code != http.StatusOK {
+		t.Errorf("with the token: status = %d", rec.Code)
+	}
+}
+
+func TestEmbeddedUIByDefault(t *testing.T) {
+	rec := get(Handler(newFakeEngine(), Options{}), "/", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "TeiaUI.mount") {
+		t.Fatalf("status %d, body %.80q", rec.Code, rec.Body.String())
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "" {
+		t.Errorf("the embedded UI keeps the default caching, got Cache-Control %q", cc)
+	}
+	if rec := get(Handler(newFakeEngine(), Options{}), "/teia-ui.js", nil); rec.Code != http.StatusOK {
+		t.Errorf("teia-ui.js: status %d", rec.Code)
 	}
 }
 
