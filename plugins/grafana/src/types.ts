@@ -6,6 +6,9 @@ export interface TeiaOptions {
   /** The journey shown: a journey label value, key=value, or from:node.
    * May hold dashboard variables. Empty shows the whole map. */
   journey: string;
+  /** The label naming journeys. Empty: the first of journey,
+   * app.kubernetes.io/part-of and system the services carry. */
+  journeyKey: string;
   /** Traffic and latency on every line. */
   values: boolean;
   /** Initial grouping label, e.g. team or k8s.namespace. */

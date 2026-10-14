@@ -8,6 +8,7 @@
 - **Blind spots**: card borders show how first-hand teia's view is, and the *Next steps* drawer says exactly what to do to see more.
 - **One icon library**: microservices, relational and document databases, caches, Kafka streams, queues, gateways, jobs, external SaaS.
 - **Group by any label** (team, system, namespace), search with `team:checkout` or `tech:postgresql`, drag, zoom, export PNG/SVG.
+- **Journeys and filters**: show one journey in a frame, with ports where it is entered and where it leaves (the **Journey** option takes a dashboard variable such as `${journey}`), or narrow the map by any label, health or kind of component. The journey label is found among `journey`, `app.kubernetes.io/part-of` and `system`; set another with **Journey label**.
 
 ## Data
 

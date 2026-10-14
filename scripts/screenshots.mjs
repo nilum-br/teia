@@ -23,6 +23,8 @@ const SHOTS = [
   { file: 'docs/assets/screenshots/teia-groups-light.png', url: `${teia}/?theme=light&flow=1&group=team`, width: 1600, height: 960 },
   { file: 'docs/assets/screenshots/teia-queue.png', url: `${teia}/?theme=dark&flow=1&select=${encodeURIComponent('email-worker->order-events')}`, width: 1600, height: 960 },
   { file: 'docs/assets/screenshots/teia-journey.png', url: `${teia}/?theme=dark&flow=1&journey=checkout`, width: 1600, height: 960 },
+  // the Filter panel, opened as a viewer would (key J)
+  { file: 'docs/assets/screenshots/teia-filters.png', url: `${teia}/?theme=dark&flow=1&filter=health:degraded`, width: 1600, height: 960, press: 'j' },
   { file: 'docs/assets/screenshots/teia-cache-light.png', url: `${teia}/?theme=light&flow=1&select=catalog-cache`, width: 1600, height: 960 },
   { file: 'docs/assets/screenshots/grafana-panel.png', url: `${grafana}/d/teia-overview?orgId=1&kiosk&theme=dark&viewPanel=1`, width: 1600, height: 900, wait: 15000 },
 ];
@@ -46,7 +48,7 @@ if (!browser) {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function capture({ file, url, width, height, wait = 9000 }) {
+async function capture({ file, url, width, height, wait = 9000, press }) {
   const port = 9300 + Math.floor(Math.random() * 600);
   const profile = mkdtempSync(join(tmpdir(), 'teia-shot-'));
   const proc = spawn(browser, ['--headless=new', '--disable-gpu', '--hide-scrollbars', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, `--window-size=${width},${height}`, 'about:blank'], { stdio: 'ignore' });
@@ -71,6 +73,10 @@ async function capture({ file, url, width, height, wait = 9000 }) {
     await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
     await send('Page.navigate', { url });
     await sleep(wait);
+    if (press) {
+      for (const type of ['keyDown', 'keyUp']) await send('Input.dispatchKeyEvent', { type, key: press, text: type === 'keyDown' ? press : undefined });
+      await sleep(800);
+    }
     const shot = await send('Page.captureScreenshot', { format: 'png' });
     if (!shot.result?.data) throw new Error(JSON.stringify(shot.error || shot));
     writeFileSync(join(root, file), Buffer.from(shot.result.data, 'base64'));

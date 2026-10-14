@@ -33,6 +33,7 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, wi
       groupBy: options.groupBy,
       flow: options.flow,
       journey,
+      journeyKey: options.journeyKey,
       values: options.values,
     });
     return () => {
@@ -48,8 +49,8 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, wi
   }, [mode]);
 
   useEffect(() => {
-    ui.current?.setOptions({ groupBy: options.groupBy, flow: options.flow, journey, values: options.values });
-  }, [options.groupBy, options.flow, journey, options.values]);
+    ui.current?.setOptions({ groupBy: options.groupBy, flow: options.flow, journey, journeyKey: options.journeyKey ?? '', values: options.values });
+  }, [options.groupBy, options.flow, journey, options.journeyKey, options.values]);
 
   useEffect(() => {
     if (options.teiaUrl || !ui.current) {

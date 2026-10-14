@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 import { describe, it } from 'node:test';
 
 const { core } = createRequire(import.meta.url)('./ui/teia-ui.js');
-const { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, journeySnapshot, journeyWhy, journeyNames } = core;
+const { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, scopeSnapshot, scopePins, journeyWhy, journeyNames, scopeOf, facetsOf, filtersFromParams, filtersToParams, filterLabel, journeyKeyOf, journeyPorts, packColumn, frameLayout, scopeStats } = core;
 
 const node = (id, extra = {}) => ({ id, kind: 'service', health: 'healthy', visibility: 'full', sources: [], ...extra });
 const edge = (from, to, extra = {}) => ({ from, to, state: 'ok', health: 'healthy', declared: true, observed: true, requestRate: 1, errorRate: 0, signals: ['traces'], sources: [], ...extra });
@@ -393,12 +393,10 @@ describe('journeys', () => {
     assert.equal(c.roles.get('payment-gateway'), 'dependency');
   });
 
-  it('shows where it is entered from and where it leaves, as stubs', () => {
-    const v = journeySnapshot(shop, journeyOf(shop, 'checkout'));
-    const stubs = v.nodes.filter(n => n.stub).map(n => n.id).sort();
-    assert.deepEqual(stubs, ['catalog', 'legacy-reports', 'recommendations']);
-    assert.ok(v.edges.find(e => e.from === 'legacy-reports' && e.to === 'orders-db').stubEdge);
-    assert.ok(!v.edges.some(e => e.from === 'catalog' && e.to === 'catalog-db'), 'nothing beyond a stub');
+  it('draws only what is inside its frame: outsiders become ports', () => {
+    const v = scopeSnapshot(shop, journeyOf(shop, 'checkout'));
+    assert.deepEqual(v.nodes.map(n => n.id).sort(), ['email-provider', 'email-worker', 'order-events', 'orders', 'orders-db', 'payment-gateway', 'payments', 'web']);
+    assert.ok(!v.edges.some(e => e.from === 'legacy-reports' || e.to === 'catalog'), 'no line leaves the frame');
   });
 
   it('shares a datastore without swallowing its other clients', () => {
@@ -420,15 +418,6 @@ describe('journeys', () => {
     assert.equal(capped.roles.size, 2);
   });
 
-  it('keeps the two busiest outside callers and folds the rest', () => {
-    const busy = snap([node('db', { kind: 'database', ...j('x') }), ...['a', 'b', 'c', 'd', 'e'].map(id => node(id))],
-      ['a', 'b', 'c', 'd', 'e'].map((id, i) => edge(id, 'db', { requestRate: i + 1 })));
-    const v = journeySnapshot(busy, journeyOf(busy, 'x'));
-    const stubs = v.nodes.filter(n => n.stub).map(n => n.id).sort();
-    assert.deepEqual(stubs, ['+3 callers of db', 'd', 'e']);
-    assert.equal(v.edges.find(e => e.from === '+3 callers of db').requestRate, 6);
-  });
-
   it('heads with the origin of its worst health', () => {
     const fail = { cause: 'errors', health: 'failing', value: 0.07, limit: 0.05, summary: '7.0% errors, over 5.0%' };
     const s = snap([
@@ -442,20 +431,155 @@ describe('journeys', () => {
     assert.equal(why.more, 1); // payments itself
   });
 
-  it('lists the journeys the label names', () => {
-    assert.deepEqual(journeyNames(shop), ['browse', 'checkout', 'partner-feed', 'reporting']);
+  it('is picked on its own bar, never offered as a grouping (a service lists several)', () => {
+    assert.equal(labelKeys(shop, 'journey').includes('journey'), false);
   });
 
-  it('never folds a stub into a group', () => {
-    const v = journeySnapshot(shop, journeyOf(shop, 'checkout'));
-    const grouped = view(v, { groupBy: 'journey' });
-    assert.ok(grouped.nodes.has('catalog'), 'catalog stays a stub, not part of group:browse');
+  it('finds the journey label a platform already has', () => {
+    const partOf = snap([node('web', { labels: { 'app.kubernetes.io/part-of': 'shop' } }), node('erp', { labels: { system: 'finance' } })], []);
+    assert.equal(journeyKeyOf(partOf), 'app.kubernetes.io/part-of');
+    assert.equal(journeyKeyOf(snap([node('erp', { labels: { system: 'finance' } })], [])), 'system');
+    assert.equal(journeyKeyOf(shop), 'journey');
+    assert.equal(journeyKeyOf(shop, 'team'), 'team');
+    assert.deepEqual([...journeyOf(partOf, 'shop', { key: 'app.kubernetes.io/part-of' }).roles.keys()], ['web']);
+  });
+
+  it('pins what the outside enters to the start and the resources that call nothing to the end', () => {
+    const scope = journeyOf(shop, 'browse');
+    const inner = view(sanitize(scopeSnapshot(shop, scope)));
+    const pin = scopePins(inner, journeyPorts(shop, scope));
+    assert.equal(pin.get('catalog'), undefined, 'web calls catalog inside the frame: not an entry');
+    assert.equal(pin.get('catalog-cache'), 'last');
+    assert.equal(pin.get('web'), undefined);
+    const lone = snap([node('api', j('y')), node('db', { kind: 'database', ...j('y') }), node('client')], [edge('client', 'api'), edge('api', 'db')]);
+    const ls = journeyOf(lone, 'y');
+    const lp = scopePins(view(sanitize(scopeSnapshot(lone, ls))), journeyPorts(lone, ls));
+    assert.deepEqual([lp.get('api'), lp.get('db')], ['first', 'last']);
+  });
+
+  it('pins entries to the first column and datastores, queues and third parties to the last', () => {
+    const scope = journeyOf(shop, 'checkout');
+    const inner = view(sanitize({ nodes: shop.nodes.filter(n => scope.roles.has(n.id)), edges: shop.edges.filter(e => scope.roles.has(e.from) && scope.roles.has(e.to)) }));
+    const pin = new Map([['web', 'first'], ...['payment-gateway', 'orders-db', 'order-events', 'email-provider'].map(id => [id, 'last'])]);
+    const pos = layered(inner, { pin });
+    const xs = new Set(['payment-gateway', 'orders-db', 'order-events', 'email-provider'].map(id => pos[id].x));
+    assert.equal(xs.size, 1, 'one lane for every resource');
+    const last = [...xs][0];
+    for (const id of ['web', 'orders', 'payments', 'email-worker']) assert.ok(pos[id].x < last, `${id} before the lane`);
+    assert.equal(pos.web.x, 0);
+  });
+
+  it('turns outsiders into ports: callers left, exits folded by journey, tenants beside their datastore', () => {
+    const ports = journeyPorts(shop, journeyOf(shop, 'checkout'));
+    const exit = ports.find(p => p.kind === 'exit');
+    assert.deepEqual([exit.side, exit.label, exit.of.sort(), exit.anchors], ['out', '↗ browse · 2', ['catalog', 'recommendations'], ['web']]);
+    const tenant = ports.find(p => p.kind === 'tenant');
+    assert.deepEqual([tenant.side, tenant.of, tenant.anchors], ['out', ['legacy-reports'], ['orders-db']]);
+    const browse = journeyPorts(shop, journeyOf(shop, 'browse'));
+    assert.ok(browse.some(p => p.kind === 'caller' && p.side === 'in' && p.of[0] === 'partner-sync'));
+  });
+
+  it('keeps the busiest ports on a side and folds the rest', () => {
+    const many = snap([node('db', { kind: 'database', labels: { journey: 'x' } }), ...Array.from({ length: 12 }, (_, i) => node('c' + i))],
+      Array.from({ length: 12 }, (_, i) => edge('c' + i, 'db', { requestRate: i + 1 })));
+    const ports = journeyPorts(many, journeyOf(many, 'x'), { maxPerSide: 5 });
+    assert.equal(ports.length, 5);
+    const more = ports.find(p => p.kind === 'more');
+    assert.deepEqual([more.label, more.of.length, more.requestRate], ['+8 more', 8, 36]);
+  });
+
+  it('stacks chips in order, without overlap, where they want to be when they can', () => {
+    assert.deepEqual(packColumn([{ desired: 0, size: 20 }, { desired: 100, size: 20 }], 8), [0, 100]);
+    const ys = packColumn([{ desired: 0, size: 20 }, { desired: 5, size: 20 }, { desired: 10, size: 20 }], 8);
+    for (let i = 1; i < ys.length; i++) assert.ok(ys[i] - ys[i - 1] >= 28 - 1e-9, `gap ${ys[i] - ys[i - 1]}`);
+    assert.ok(Math.abs((ys[0] + ys[1] + ys[2]) / 3 - 5) < 1e-9, 'the run centres on what it wants');
+  });
+
+  it('frames the cards, puts every chip outside the frame and routes around cards', () => {
+    const pos = { a: { x: 0, y: 0 }, b: { x: 300, y: 0 }, c: { x: 300, y: 112 } };
+    const ports = [
+      { id: 'in', side: 'in', kind: 'caller', label: 'caller', anchors: ['b'], of: ['x'] },
+      { id: 'out', side: 'out', kind: 'exit', label: '↗ other', anchors: ['a'], of: ['y'] },
+    ];
+    const f = frameLayout(pos, ports, { lane: ['c'] });
+    for (const id of Object.keys(pos)) assert.ok(pos[id].x - 98 > f.frame.x0 && pos[id].x + 98 < f.frame.x1, `${id} inside`);
+    const inChip = f.chips.find(c => c.port.id === 'in'), outChip = f.chips.find(c => c.port.id === 'out');
+    assert.ok(inChip.x + inChip.w / 2 < f.frame.x0 && outChip.x - outChip.w / 2 > f.frame.x1, 'chips outside the frame');
+    assert.equal(inChip.routes[0].mode, 'top', 'a caller of b would cross a: it takes a corridor');
+    assert.equal(outChip.routes[0].mode, 'top', 'an exit from a would cross b');
+    assert.ok(f.band && f.band.x0 < 300 && f.band.x1 > 300, 'a lane band behind c');
+  });
+
+  it('says what enters the scope: from callers outside and where it starts, not from tenants', () => {
+    const rated = snap(shop.nodes, shop.edges.map(e => ({ ...e, requestRate: 1 })));
+    assert.equal(scopeStats(rated, journeyOf(rated, 'reporting')).parts, 2);
+    // browse: web starts it (2 calls inside), partner-sync calls in (1)
+    assert.equal(scopeStats(rated, journeyOf(rated, 'browse')).rate, 3);
+    // checkout: web and email-worker start it; legacy-reports only shares orders-db
+    assert.equal(scopeStats(rated, journeyOf(rated, 'checkout')).rate, 3);
+  });
+
+  it('lists the journeys the label names', () => {
+    assert.deepEqual(journeyNames(shop), ['browse', 'checkout', 'partner-feed', 'reporting']);
   });
 
   it('searches an exact label value with key=value', () => {
     const vv = view(shop);
     const hits = [...vv.nodes.values()].filter(matcher('journey=checkout')).map(n => n.id);
     assert.ok(hits.includes('web') && hits.includes('orders') && !hits.includes('catalog'));
+  });
+});
+
+describe('filters', () => {
+  const lab = snap([
+    node('web', { labels: { journey: 'checkout,browse', 'k8s.namespace': 'shop', team: 'storefront' } }),
+    node('orders', { labels: { journey: 'checkout', 'k8s.namespace': 'shop', team: 'checkout' }, health: 'degraded' }),
+    node('payments', { labels: { journey: 'checkout', 'k8s.namespace': 'pay', team: 'checkout' }, health: 'failing' }),
+    node('orders-db', { kind: 'database', tech: 'postgresql', labels: { 'k8s.namespace': 'shop' } }),
+    node('catalog', { labels: { journey: 'browse', 'k8s.namespace': 'shop', team: 'catalog' } }),
+    node('catalog-cache', { kind: 'cache', tech: 'redis', labels: { journey: 'browse', team: 'catalog' } }),
+  ], [edge('web', 'orders'), edge('web', 'catalog'), edge('orders', 'payments'), edge('orders', 'orders-db'), edge('catalog', 'catalog-cache')]);
+  const kept = scope => [...scope.roles.keys()].sort();
+
+  it('keeps the whole map without filters', () => {
+    assert.equal(scopeOf(lab, { journeys: [], facets: {} }), null);
+    assert.equal(scopeOf(lab, { journeys: [], facets: { team: [] } }), null);
+  });
+
+  it('keeps the nodes holding one of a facet\'s values, and narrows across facets', () => {
+    assert.deepEqual(kept(scopeOf(lab, { journeys: [], facets: { 'k8s.namespace': ['shop'] } })), ['catalog', 'orders', 'orders-db', 'web']);
+    assert.deepEqual(kept(scopeOf(lab, { journeys: [], facets: { team: ['checkout', 'catalog'] } })), ['catalog', 'catalog-cache', 'orders', 'payments']);
+    assert.deepEqual(kept(scopeOf(lab, { journeys: [], facets: { team: ['checkout'], 'k8s.namespace': ['shop'] } })), ['orders']);
+    assert.deepEqual(kept(scopeOf(lab, { journeys: [], facets: { health: ['failing', 'degraded'] } })), ['orders', 'payments']);
+    assert.deepEqual(kept(scopeOf(lab, { journeys: [], facets: { tech: ['postgresql'] } })), ['orders-db']);
+    assert.deepEqual(kept(scopeOf(lab, { journeys: [], facets: { category: ['cache'] } })), ['catalog-cache']);
+  });
+
+  it('adds journeys up, then narrows them with the other facets', () => {
+    assert.deepEqual(kept(scopeOf(lab, { journeys: ['checkout', 'browse'], facets: {} })), ['catalog', 'catalog-cache', 'orders', 'orders-db', 'payments', 'web']);
+    assert.deepEqual(kept(scopeOf(lab, { journeys: ['checkout'], facets: { 'k8s.namespace': ['shop'] } })), ['orders', 'orders-db', 'web']);
+    assert.equal(scopeOf(lab, { journeys: ['nope'], facets: {} }).empty, true);
+  });
+
+  it('lists every facet with counts and the worst health of each value', () => {
+    const fs = facetsOf(lab);
+    assert.deepEqual(fs.map(f => f.key), ['journey', 'k8s.namespace', 'team', 'health', 'category', 'tech']);
+    const journeys = fs.find(f => f.key === 'journey').values;
+    assert.deepEqual(journeys.map(v => [v.value, v.health]), [['browse', 'healthy'], ['checkout', 'failing']]);
+    const ns = fs.find(f => f.key === 'k8s.namespace').values;
+    assert.deepEqual(ns.map(v => [v.value, v.count, v.health]), [['pay', 1, 'failing'], ['shop', 4, 'degraded']]);
+    assert.equal(fs.find(f => f.key === 'category').values.find(v => v.value === 'relational').label, 'Relational database');
+  });
+
+  it('round-trips through a shareable link', () => {
+    const f = filtersFromParams(new URLSearchParams('journey=checkout,browse&filter=k8s.namespace:shop,health:failing,health:degraded,journey:reporting'));
+    assert.deepEqual(f, { journeys: ['checkout', 'browse', 'reporting'], facets: { 'k8s.namespace': ['shop'], health: ['failing', 'degraded'] } });
+    assert.deepEqual(filtersToParams(f), { journey: 'checkout,browse,reporting', filter: 'k8s.namespace:shop,health:failing,health:degraded' });
+  });
+
+  it('names each filter in words', () => {
+    assert.deepEqual([filterLabel('journey', 'checkout'), filterLabel('journey', 'from:orders'), filterLabel('health', 'failing'), filterLabel('tech', 'redis'), filterLabel('team', 'catalog')],
+      ['journey checkout', 'depends on orders', 'failing', 'Redis', 'team catalog']);
   });
 });
 

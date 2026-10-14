@@ -14,6 +14,13 @@ export const plugin = new PanelPlugin<TeiaOptions>(TeiaPanel)
         defaultValue: '',
       })
       .addTextInput({
+        path: 'journeyKey',
+        name: 'Journey label',
+        description:
+          'The label that says which journeys a service takes part in. Empty: the first one your services already carry of journey, app.kubernetes.io/part-of and system.',
+        defaultValue: '',
+      })
+      .addTextInput({
         path: 'groupBy',
         name: 'Group by label',
         description: 'Initial grouping, for example team, system or k8s.namespace. Viewers can change it on the panel.',

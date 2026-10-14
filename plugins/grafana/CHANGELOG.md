@@ -13,5 +13,9 @@ First release of the teia panel.
 - Keyboard and screen-reader support; follows Grafana's theme and the reduced-motion setting.
 - Golden signals with their reasons: latency, errors, saturation, queue backlog and lag, locks and restarts, with a
   tag on each amber or red card and line saying why and where it comes from.
-- Journeys: show one journey (option **Journey**, dashboard variables welcome) with stubs where it enters and leaves.
+- Journeys: show one journey in a frame, with ports where it is entered and where it leaves (option **Journey**,
+  dashboard variables welcome). The journey label is found among `journey`, `app.kubernetes.io/part-of` and
+  `system`, or set with **Journey label**.
+- Filters: narrow the map by journeys, any shared label, health, kind of component, technology, drift state or
+  signal, from one Filter panel.
 - Values on lines: traffic and p95 on every line (option **Values on lines**).

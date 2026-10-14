@@ -58,7 +58,7 @@
   height: 100%; position: relative;
   background: var(--bg); color: var(--ink);
   font: 13px/1.45 "teia-outfit", Outfit, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  display: grid; grid-template-rows: auto 1fr; overflow: hidden;
+  display: grid; grid-template-rows: auto auto 1fr; overflow: hidden;
 }
 button, input, select { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -135,7 +135,6 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 410px; min-height: 0
   position: absolute; z-index: 5; background: color-mix(in srgb, var(--panel) 92%, transparent);
   border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); backdrop-filter: blur(6px);
 }
-.filters { left: 14px; top: 14px; padding: 8px; display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 110px); }
 .chip {
   display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 999px;
   border: 1px solid var(--line-2); background: transparent; cursor: pointer; font-size: 12px; color: var(--ink-2);
@@ -154,6 +153,12 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 410px; min-height: 0
 .legend h4 { margin: 0 0 2px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); grid-column: span 1; }
 .legend h4.span3 { grid-column: 1 / -1; margin-top: 6px; }
 .legend .lg.icon svg { width: 16px; height: 16px; color: var(--ink); flex: none; }
+.teia .floating.legend:not(.closed) { padding-right: 34px; } /* room for its close button */
+.legend.closed { display: block; padding: 0; }
+.legend .open-legend { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 0; background: none; color: var(--ink-2); cursor: pointer; font-size: 12px; font-weight: 600; }
+.legend .open-legend svg { width: 14px; height: 14px; }
+.legend .close-legend { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+.legend .close-legend:hover { background: var(--panel-2); color: var(--ink); }
 .legend-toggle { grid-column: 1 / -1; justify-self: start; background: none; border: 0; color: var(--accent); cursor: pointer; padding: 2px 0 0; font-size: 11px; }
 .zoom { right: 14px; bottom: 14px; display: flex; flex-direction: column; padding: 4px; gap: 4px; }
 .zoom .btn { width: 30px; height: 30px; padding: 0; justify-content: center; }
@@ -211,11 +216,45 @@ details summary { cursor: pointer; color: var(--accent); font-size: 12px; margin
 .why .btn { height: 26px; font-size: 11.5px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .search .isolate { position: absolute; right: 4px; top: 3px; height: 24px; padding: 0 8px; font-size: 11.5px; }
-.journey-chip { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 4px 0 10px; border-radius: 999px;
-  background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; }
-.journey-chip svg { width: 13px; height: 13px; }
-.journey-chip .why { font-weight: 500; display: inline-flex; gap: 5px; align-items: center; }
-.journey-chip button { height: 20px; min-width: 20px; border: 0; border-radius: 999px; background: rgba(2, 15, 89, .16); color: inherit; cursor: pointer; padding: 0 6px; font-size: 11.5px; }
+.scope { display: flex; align-items: center; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--line);
+  background: var(--bg-2); overflow-x: auto; scrollbar-width: thin; }
+.scope .caption { color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; margin-right: 6px; white-space: nowrap; }
+.filter-btn .count { background: var(--accent); color: var(--accent-ink); border-radius: 999px; padding: 0 6px; font-size: 11px; font-weight: 700; }
+.fchip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 10px; border-radius: 999px; white-space: nowrap;
+  background: var(--panel); border: 1px solid var(--accent); color: var(--ink); font-size: 12px; font-weight: 600; }
+.fchip button { height: 20px; min-width: 20px; border: 0; border-radius: 999px; background: var(--panel-2); color: var(--ink-2); cursor: pointer; padding: 0 6px; }
+.scope .clear { border: 0; background: none; color: var(--accent); cursor: pointer; font-size: 12px; white-space: nowrap; }
+.filter-panel { position: absolute; z-index: 30; left: 12px; top: 112px; width: min(760px, calc(100% - 24px)); max-height: min(70vh, calc(100% - 130px)); overflow: auto;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px 16px; }
+.teia.panel .filter-panel { top: 92px; }
+.filter-panel .top { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+.filter-panel .top input { flex: 1; background: var(--bg); border: 1px solid var(--line-2); border-radius: 10px; padding: 7px 10px; outline: none; }
+.filter-panel .top input:focus { border-color: var(--accent); }
+.filter-panel .facets { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px 18px; }
+.filter-panel h5 { margin: 0 0 6px; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.filter-panel .values { display: flex; flex-direction: column; gap: 2px; }
+.fv { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; border: 1px solid transparent; border-radius: 8px; background: none;
+  color: var(--ink-2); cursor: pointer; text-align: left; font-size: 12.5px; }
+.fv:hover { background: var(--panel-2); color: var(--ink); }
+.fv.on { border-color: var(--accent); background: var(--panel-2); color: var(--ink); }
+.fv .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.fv .check { width: 14px; height: 14px; border: 1.5px solid var(--line-2); border-radius: 4px; flex: none; display: grid; place-items: center; font-size: 10px; }
+.fv.on .check { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.fv .n { margin-left: auto; color: var(--muted); font-size: 11.5px; }
+.fv svg { width: 13px; height: 13px; }
+.jtab { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; border-radius: 999px; white-space: nowrap;
+  border: 1px solid transparent; background: none; color: var(--ink-2); cursor: pointer; font-size: 12.5px; font-weight: 600; }
+.jtab:hover { border-color: var(--line-2); color: var(--ink); }
+.jtab.on { background: var(--panel); border-color: var(--accent); color: var(--ink); }
+.jtab .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.jtab .x { margin-left: 2px; color: var(--muted); }
+.scope select.btn { height: 28px; }
+.scope .headline { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; padding-left: 16px; white-space: nowrap; font-size: 12.5px; color: var(--ink-2); }
+.scope .headline svg { width: 15px; height: 15px; }
+.scope .headline.failing svg { color: var(--err-text); } .scope .headline.degraded svg { color: var(--warn-text); }
+.scope .headline b { color: var(--ink); }
+.scope .headline .btn { height: 24px; padding: 0 8px; font-size: 11.5px; }
+.teia.panel .scope { padding: 4px 8px; }
 .legend .reasons { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .legend .reasons svg { width: 14px; height: 14px; color: var(--ink); flex: none; }
 .pill { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 1px 8px; font-size: 11px; border: 1px solid var(--line-2); color: var(--ink-2); }
@@ -264,7 +303,7 @@ button.label { cursor: pointer; }
 }
 
 /* ---- panel mode (inside Grafana): compact bar, drawer instead of column -- */
-.teia.panel { grid-template-rows: auto 1fr; }
+.teia.panel { grid-template-rows: auto auto 1fr; }
 .teia.panel header { min-height: 44px; padding: 6px 10px; gap: 10px; background: transparent; border-bottom: 1px solid var(--line); }
 .teia.panel .brand { display: none; }
 .teia.panel .ring svg { width: 28px; height: 28px; }
@@ -328,7 +367,6 @@ button.label { cursor: pointer; }
     <button type="button" class="btn isolate" id="isolateBtn" title="Show only what the search names, and what it calls (Shift+Enter)" hidden>Isolate</button>
   </label>
   <div class="ctl">
-    <select class="btn" id="journey" title="Show one journey (J)" aria-label="Show one journey" hidden></select>
     <select class="btn" id="groupBy" title="Group nodes by a label" aria-label="Group nodes by a label"></select>
     <button type="button" class="btn" id="valuesBtn" title="Traffic and latency on every line (V)"></button>
     <button type="button" class="btn" id="flowBtn" title="Animate traffic (space)"></button>
@@ -346,11 +384,12 @@ button.label { cursor: pointer; }
     </div>
   </div>
 </header>
+<nav class="scope" id="scope" aria-label="Filters"></nav>
+<div class="filter-panel" id="filterPanel" role="dialog" aria-label="Filter the map" hidden></div>
 <main>
   <div id="stage">
     <svg id="map" role="group" aria-label="Communication map. Drag to pan, F to fit, slash to search."></svg>
     <div class="empty-state" id="empty"><p>Waiting for the first discovery round…</p></div>
-    <div class="floating filters" id="filters"></div>
     <div class="floating legend" id="legend"></div>
     <div class="floating zoom">
       <button type="button" class="btn" id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
@@ -582,9 +621,9 @@ button.label { cursor: pointer; }
     return [...out].filter(s => has(SIGNAL, s));
   }
 
-  function labelKeys(snap) {
+  function labelKeys(snap, exclude = '') {
     const keys = new Map();
-    for (const n of snap.nodes) for (const k of Object.keys(n.labels || {})) if (userLabel(k)) keys.set(k, (keys.get(k) || 0) + 1);
+    for (const n of snap.nodes) for (const k of Object.keys(n.labels || {})) if (userLabel(k) && k !== exclude) keys.set(k, (keys.get(k) || 0) + 1);
     return [...keys.entries()].filter(([, c]) => c > 1).map(([k]) => k).sort();
   }
 
@@ -675,8 +714,7 @@ button.label { cursor: pointer; }
   // signals it has (traffic, latency, errors). When that does not fit, what
   // it is goes first: the icon and the details already say it.
   function cardSubtitle(n, max = 30) {
-    if (n.stubOf) return `${n.stubOf.length} more callers`;
-    const what = n.stub ? 'outside the journey' : n.group ? `${n.members.length} workload${n.members.length === 1 ? '' : 's'}` : techLabel(n);
+    const what = n.group ? `${n.members.length} workload${n.members.length === 1 ? '' : 's'}` : techLabel(n);
     const stats = [];
     if (n.requestRate > 0) stats.push(`${fmtRate(n.requestRate)}/s`);
     if (n.latencyP95Ms > 0) stats.push(fmtMs(n.latencyP95Ms));
@@ -692,16 +730,28 @@ button.label { cursor: pointer; }
   // (by a label, "journey" unless said otherwise), what they call
   // downstream, and stubs where it is entered from or leaves to the rest.
 
-  const JOURNEY_KEY = 'journey';
+  // The labels that can say which journeys a service takes part in, in the
+  // order teia looks for them: its own, Kubernetes' recommended
+  // app.kubernetes.io/part-of ("the higher-level application this is part
+  // of"), and Backstage's system. Nothing needs adding where one exists.
+  const JOURNEY_KEYS = ['journey', 'app.kubernetes.io/part-of', 'system'];
+  const JOURNEY_KEY = JOURNEY_KEYS[0];
+
+  // journeyKeyOf picks the journey label: the one asked for, else the first
+  // of JOURNEY_KEYS some node carries.
+  function journeyKeyOf(snap, preferred) {
+    if (preferred) return preferred;
+    return JOURNEY_KEYS.find(k => snap.nodes.some(n => labelValues(n, k).length)) || JOURNEY_KEY;
+  }
 
   // parseJourney reads "checkout" (a value of the journey label),
   // "team=checkout" or "team:checkout" (any label), or "from:orders" (what
   // a node depends on).
-  function parseJourney(spec) {
+  function parseJourney(spec, key = JOURNEY_KEY) {
     const text = String(spec || '').trim();
     if (!text) return null;
     const m = /^([^=:\s]+)\s*[=:]\s*(.+)$/.exec(text);
-    if (!m) return { text, key: JOURNEY_KEY, value: text };
+    if (!m) return { text, key, value: text };
     if (m[1].toLowerCase() === 'from') return { text, entry: m[2].trim() };
     return { text, key: m[1], value: m[2].trim() };
   }
@@ -717,8 +767,8 @@ button.label { cursor: pointer; }
   // past (their other clients are not part of this journey); a service that
   // belongs to another value of the same label is where the journey leaves;
   // unlabelled services are followed maxDepth hops past the last member.
-  function journeyOf(snap, spec, { maxDepth = 2, maxNodes = 200 } = {}) {
-    const j = typeof spec === 'string' ? parseJourney(spec) : spec;
+  function journeyOf(snap, spec, { maxDepth = 2, maxNodes = 200, key = JOURNEY_KEY } = {}) {
+    const j = typeof spec === 'string' ? parseJourney(spec, key) : spec;
     const roles = new Map(); // id -> 'member' | 'dependency'
     if (!j) return { spec: j, roles, truncated: false, empty: true };
     const nodes = new Map(snap.nodes.map(n => [n.id, n]));
@@ -750,41 +800,27 @@ button.label { cursor: pointer; }
     return { spec: j, roles, truncated, empty: roles.size === 0 };
   }
 
-  // journeySnapshot keeps the journey and, as stubs, the nodes right outside
-  // it: who calls into it and where it leaves to. A node called from more
-  // than three outsiders keeps its two busiest and one "+N" stub for the rest.
-  function journeySnapshot(snap, journey) {
-    const inside = id => journey.roles.has(id);
-    const callers = new Map(); // inside id -> outside caller edges
-    const keep = new Set();
-    for (const e of snap.edges) {
-      if (inside(e.from) && !inside(e.to)) keep.add(e.to);
-      if (!inside(e.from) && inside(e.to)) {
-        if (!callers.has(e.to)) callers.set(e.to, []);
-        callers.get(e.to).push(e);
-      }
+  // scopeSnapshot keeps what a scope draws inside its frame: its nodes and
+  // the communication between them. What crosses the frame becomes ports.
+  function scopeSnapshot(snap, scope) {
+    const inside = id => scope.roles.has(id);
+    return { ...snap, nodes: snap.nodes.filter(n => inside(n.id)), edges: snap.edges.filter(e => inside(e.from) && inside(e.to)) };
+  }
+
+  // scopePins fixes the columns of a scope: the services the outside calls
+  // into (and nothing inside calls) start it; datastores, queues and third
+  // parties that call nothing end it, in one lane.
+  function scopePins(view, ports) {
+    const called = new Set(), calls = new Set();
+    for (const e of view.edges.values()) { called.add(e.to); calls.add(e.from); }
+    const entered = new Set(ports.filter(p => p.side === 'in').flatMap(p => p.anchors));
+    const pin = new Map();
+    for (const n of view.nodes.values()) {
+      const resource = n.group ? n.members.every(isResource) : isResource(n);
+      if (resource && !calls.has(n.id)) pin.set(n.id, 'last');
+      else if (entered.has(n.id) && !called.has(n.id)) pin.set(n.id, 'first');
     }
-    const extra = [];
-    for (const [to, list] of callers) {
-      list.sort((a, b) => b.requestRate - a.requestRate || (a.from < b.from ? -1 : 1));
-      list.slice(0, list.length > 3 ? 2 : 3).forEach(e => keep.add(e.from));
-      if (list.length > 3) {
-        const rest = list.slice(2);
-        const id = `+${rest.length} callers of ${to}`;
-        extra.push({
-          node: { id, kind: 'unknown', health: 'unknown', visibility: 'none', requestRate: 0, errorRate: 0, latencyP50Ms: 0, latencyP95Ms: 0, reasons: [], measures: [], sources: [], addresses: [], labels: {}, stub: true, stubOf: rest.map(e => e.from) },
-          edge: { ...rest[0], from: id, to, requestRate: rest.reduce((a, e) => a + e.requestRate, 0), reasons: [], measures: [], stubEdge: true },
-        });
-      }
-    }
-    const role = id => journey.roles.get(id);
-    const nodes = snap.nodes
-      .filter(n => inside(n.id) || keep.has(n.id))
-      .map(n => inside(n.id) ? { ...n, journeyRole: role(n.id) } : { ...n, stub: true });
-    const edges = snap.edges
-      .filter(e => (inside(e.from) || keep.has(e.from)) && (inside(e.to) || keep.has(e.to)) && (inside(e.from) || inside(e.to)))
-      .map(e => inside(e.from) && inside(e.to) ? e : { ...e, stubEdge: true });
-    return { ...snap, nodes: [...nodes, ...extra.map(x => x.node)], edges: [...edges, ...extra.map(x => x.edge)] };
+    return pin;
   }
 
   // journeyWhy is a journey's headline: its worst health and the reason that
@@ -808,6 +844,269 @@ button.label { cursor: pointer; }
     return candidates.length ? { health, subject: candidates[0].subject, reason: candidates[0].reason, more: candidates.length - 1 } : { health, subject: '', reason: null, more: 0 };
   }
 
+  // --------------------------------------------------------- filters
+  // One filter model for the whole map. Journeys keep a journey and what it
+  // calls; every other facet (any label, health, kind of component,
+  // technology) keeps the nodes with one of its chosen values. Values of one
+  // facet add up; facets narrow each other.
+  //
+  //   { journeys: ['checkout'], facets: { 'k8s.namespace': ['shop'], health: ['failing'] } }
+
+  const BUILTIN_FACETS = ['health', 'category', 'tech'];
+
+  // facetValues is what a node holds for a facet: a label's values (a list
+  // for the journey label), its health, its kind of component, its tech.
+  function facetValues(n, key) {
+    if (key === 'health') return [n.health];
+    if (key === 'category') return [categoryOf(n)];
+    if (key === 'tech') return n.tech ? [n.tech] : [];
+    return labelValues(n, key);
+  }
+
+  const emptyFilters = () => ({ journeys: [], facets: {} });
+  const activeFacets = f => Object.entries(f.facets || {}).filter(([, v]) => v && v.length);
+  const filtersActive = f => !!f && ((f.journeys || []).length > 0 || activeFacets(f).length > 0);
+
+  // scopeOf keeps the nodes the filters name, as a journey does (a role per
+  // node, so the same stubs and headline apply), or null for the whole map.
+  function scopeOf(snap, filters) {
+    if (!filtersActive(filters)) return null;
+    const roles = new Map();
+    let truncated = false;
+    if (filters.journeys.length) {
+      for (const spec of filters.journeys) {
+        const j = journeyOf(snap, spec, { key: filters.journeyKey || JOURNEY_KEY });
+        truncated ||= j.truncated;
+        for (const [id, role] of j.roles) if (!roles.has(id) || role === 'member') roles.set(id, role);
+      }
+    } else {
+      for (const n of snap.nodes) roles.set(n.id, 'member');
+    }
+    const nodes = new Map(snap.nodes.map(n => [n.id, n]));
+    for (const [key, values] of activeFacets(filters)) {
+      const want = new Set(values.map(v => String(v).toLowerCase()));
+      for (const id of [...roles.keys()]) {
+        if (!facetValues(nodes.get(id), key).some(v => want.has(String(v).toLowerCase()))) roles.delete(id);
+      }
+    }
+    return { roles, truncated, empty: roles.size === 0, filters };
+  }
+
+  // facetsOf lists what the map can be filtered by, with how many nodes hold
+  // each value and the worst health among them: journeys first, then every
+  // label several nodes share, then health, kind of component, technology.
+  function facetsOf(snap, key = JOURNEY_KEY) {
+    const sections = [];
+    const tally = (key, label) => {
+      const values = new Map();
+      for (const n of snap.nodes) {
+        for (const v of facetValues(n, key)) {
+          const t = values.get(v) || { value: v, count: 0, health: 'unknown' };
+          t.count++;
+          if (HEALTH_RANK[n.health] > HEALTH_RANK[t.health]) t.health = n.health;
+          values.set(v, t);
+        }
+      }
+      return [...values.values()].map(t => ({ ...t, label: label ? label(t.value) : t.value }));
+    };
+    const journeys = journeyNames(snap, key).map(name => {
+      const j = journeyOf(snap, name, { key });
+      return { value: name, label: name, count: j.roles.size, health: journeyWhy(snap, j).health };
+    });
+    if (journeys.length) sections.push({ key: 'journey', title: 'Journeys', values: journeys });
+    for (const k of labelKeys(snap, key)) sections.push({ key: k, title: k, values: tally(k).sort((a, b) => a.label < b.label ? -1 : 1) });
+    const order = ['failing', 'degraded', 'healthy', 'unknown'];
+    sections.push({ key: 'health', title: 'Health', values: tally('health', v => HEALTH_LABEL[v]).sort((a, b) => order.indexOf(a.value) - order.indexOf(b.value)) });
+    sections.push({ key: 'category', title: 'Component', values: tally('category', v => CATEGORY[v]?.label || v).sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : 1)) });
+    const techs = tally('tech', v => has(TECH, v) ? TECH[v].label : v).sort((a, b) => a.label < b.label ? -1 : 1);
+    if (techs.length) sections.push({ key: 'tech', title: 'Technology', values: techs });
+    return sections;
+  }
+
+  // filtersFromParams reads a shareable view: ?journey=checkout,browse and
+  // ?filter=k8s.namespace:shop,health:failing (a key may repeat).
+  function filtersFromParams(params) {
+    const f = emptyFilters();
+    const list = v => String(v || '').split(',').map(x => x.trim()).filter(Boolean);
+    f.journeys = list(params.get('journey'));
+    for (const item of list(params.get('filter'))) {
+      const i = item.indexOf(':');
+      if (i <= 0) continue;
+      const key = item.slice(0, i), value = item.slice(i + 1);
+      if (key === 'journey') { if (!f.journeys.includes(value)) f.journeys.push(value); continue; }
+      (f.facets[key] ||= []).includes(value) || f.facets[key].push(value);
+    }
+    return f;
+  }
+
+  // filtersToParams writes them back the same way (empty strings: none).
+  function filtersToParams(f) {
+    const items = activeFacets(f).flatMap(([k, vs]) => vs.map(v => `${k}:${v}`));
+    return { journey: (f.journeys || []).join(','), filter: items.join(',') };
+  }
+
+  // filterLabel names a filter for its chip and the screen reader.
+  function filterLabel(key, value) {
+    if (key === 'journey') return value.startsWith('from:') ? `depends on ${value.slice(5)}` : `journey ${value}`;
+    if (key === 'health') return HEALTH_LABEL[value] || value;
+    if (key === 'category') return CATEGORY[value]?.label || value;
+    if (key === 'tech') return has(TECH, value) ? TECH[value].label : value;
+    return `${key} ${value}`;
+  }
+
+  // ------------------------------------------------------ scoped view
+  // A scope (a journey or any filter) is drawn inside a frame. Whatever is
+  // outside it becomes a port: a compact chip beyond the frame's edge,
+  // callers on the left, where it leaves to and who shares its datastores on
+  // the right, so outsiders never mix with the scope's own cards.
+
+  // isResource: datastores, caches, queues, third parties: they end a flow.
+  const isResource = n => !!n && !isService(n) && n.kind !== 'group';
+
+  // journeyPorts splits a snapshot into what the scope draws inside its
+  // frame and the ports around it. An outsider calling a service is a
+  // caller (left); one calling a datastore, queue or third party is a tenant
+  // (right, beside it); where the scope calls out is an exit (right), folded
+  // by the outsider's journey ("↗ browse · 2"). Each side keeps its busiest
+  // maxPerSide - 1 ports and one "+N more".
+  function journeyPorts(snap, scope, { maxPerSide = 8, journeyKey = JOURNEY_KEY } = {}) {
+    const inside = id => scope.roles.has(id);
+    const nodes = new Map(snap.nodes.map(n => [n.id, n]));
+    const ports = new Map();
+    const port = (side, kind, key, label, foldJourney) => {
+      const id = `port:${side}:${key}`;
+      if (!ports.has(id)) ports.set(id, { id, side, kind, label, journey: foldJourney || '', of: [], anchors: [], requestRate: 0, health: 'unknown', reasons: [], edges: [] });
+      return ports.get(id);
+    };
+    const add = (p, outsider, anchor, e) => {
+      if (!p.of.includes(outsider)) p.of.push(outsider);
+      if (!p.anchors.includes(anchor)) p.anchors.push(anchor);
+      p.requestRate += e.requestRate || 0;
+      if (HEALTH_RANK[e.health] > HEALTH_RANK[p.health]) p.health = e.health;
+      p.reasons.push(...(e.reasons || []));
+      p.edges.push(e);
+    };
+    for (const e of snap.edges) {
+      const fromIn = inside(e.from), toIn = inside(e.to);
+      if (fromIn === toIn) continue;
+      if (toIn) {
+        const target = nodes.get(e.to);
+        const kind = isResource(target) ? 'tenant' : 'caller';
+        add(port(kind === 'tenant' ? 'out' : 'in', kind, e.from, e.from), e.from, e.to, e);
+      } else {
+        const j = labelValues(nodes.get(e.to), journeyKey)[0];
+        add(port('out', 'exit', j ? 'journey:' + j : e.to, j ? `↗ ${j}` : `→ ${e.to}`, j), e.to, e.from, e);
+      }
+    }
+    const out = [];
+    for (const side of ['in', 'out']) {
+      const list = [...ports.values()].filter(p => p.side === side).sort((a, b) => b.requestRate - a.requestRate || (a.id < b.id ? -1 : 1));
+      if (list.length <= maxPerSide) { out.push(...list); continue; }
+      const keep = list.slice(0, maxPerSide - 1), rest = list.slice(maxPerSide - 1);
+      out.push(...keep, {
+        id: `port:${side}:more`, side, kind: 'more', label: `+${rest.reduce((a, p) => a + p.of.length, 0)} more`, journey: '',
+        of: rest.flatMap(p => p.of), anchors: [], requestRate: rest.reduce((a, p) => a + p.requestRate, 0),
+        health: rest.reduce((h, p) => HEALTH_RANK[p.health] > HEALTH_RANK[h] ? p.health : h, 'unknown'), reasons: [], edges: [],
+      });
+    }
+    for (const p of out) {
+      if (p.kind === 'exit' && p.journey) p.label = `↗ ${p.journey}${p.of.length > 1 ? ' · ' + p.of.length : ''}`;
+      p.reasons.sort((a, b) => HEALTH_RANK[b.health] - HEALTH_RANK[a.health]);
+    }
+    return out;
+  }
+
+  // packColumn stacks items of the given sizes in their order, each as close
+  // to where it wants to be (desired centre) as it can without overlapping:
+  // overlapping runs move together to the mean of what they want.
+  function packColumn(items, gap) {
+    const clusters = [];
+    items.forEach((it, i) => {
+      clusters.push({ first: i, last: i, size: it.size, want: it.desired - it.size / 2, n: 1 });
+      while (clusters.length > 1) {
+        const b = clusters[clusters.length - 1], a = clusters[clusters.length - 2];
+        const aTop = a.want / a.n, bTop = b.want / b.n;
+        if (aTop + a.size + gap <= bTop) break;
+        // b's items sit after a's: their wanted tops move up by a's size and the gap
+        const shift = a.size + gap;
+        clusters.splice(-2, 2, { first: a.first, last: b.last, size: a.size + gap + b.size, want: a.want + b.want - shift * b.n, n: a.n + b.n });
+      }
+    });
+    const ys = [];
+    for (const c of clusters) {
+      let top = c.want / c.n;
+      for (let i = c.first; i <= c.last; i++) { ys[i] = top + items[i].size / 2; top += items[i].size + gap; }
+    }
+    return ys;
+  }
+
+  // chipText is what a port's chip says: who, and how much traffic.
+  const chipText = p => (p.label.length > 18 ? p.label.slice(0, 17) + '…' : p.label) + (p.requestRate > 0 ? `  ${fmtRate(p.requestRate)}/s` : '');
+
+  // frameLayout places the frame around a scope's cards, the lane of its
+  // datastores, the port chips beyond the frame and the route of each port
+  // line. A line that would cross a card runs along the top or bottom
+  // corridor of the frame instead.
+  function frameLayout(pos, ports, { nodeW = 196, nodeH = 62, lane = [], pad = { x: 36, top: 108, bottom: 36 }, portGap = 70, pitch = 34 } = {}) {
+    const ids = Object.keys(pos);
+    if (!ids.length) return null;
+    const xs = ids.map(id => pos[id].x), ys = ids.map(id => pos[id].y);
+    const frame = {
+      x0: Math.min(...xs) - nodeW / 2 - pad.x, x1: Math.max(...xs) + nodeW / 2 + pad.x,
+      y0: Math.min(...ys) - nodeH / 2 - pad.top, y1: Math.max(...ys) + nodeH / 2 + pad.bottom,
+    };
+    const corridor = { top: frame.y0 + 64, bottom: frame.y1 - 16 }; // under the header, above the lane's caption
+    const laneXs = lane.filter(id => pos[id]).map(id => pos[id].x);
+    const band = laneXs.length ? { x0: Math.min(...laneXs) - nodeW / 2 - 18, x1: Math.max(...laneXs) + nodeW / 2 + 18 } : null;
+    const cards = ids.map(id => ({ id, x0: pos[id].x - nodeW / 2 - 6, x1: pos[id].x + nodeW / 2 + 6, y0: pos[id].y - nodeH / 2 - 10, y1: pos[id].y + nodeH / 2 + 10 }));
+    // blocked: a straight run at y from x0 to x1 would cross a card other than the anchor's
+    const blocked = (y, xa, xb, except) => cards.some(c => c.id !== except && c.y0 < y && y < c.y1 && Math.min(xa, xb) < c.x1 && c.x0 < Math.max(xa, xb));
+    const chipW = p => Math.round(Math.max(92, Math.min(196, 40 + chipText(p).length * 6.6)));
+    const routeFor = (p, anchor) => {
+      const a = pos[anchor];
+      const edgeX = p.side === 'in' ? frame.x0 : frame.x1;
+      const sideX = p.side === 'in' ? a.x - nodeW / 2 : a.x + nodeW / 2;
+      if (!blocked(a.y, sideX, edgeX, anchor)) return { anchor, mode: 'direct', y: a.y, from: { x: sideX, y: a.y } };
+      const viaTop = Math.abs(a.y - corridor.top) <= Math.abs(a.y - corridor.bottom);
+      const y = viaTop ? corridor.top : corridor.bottom;
+      return { anchor, mode: viaTop ? 'top' : 'bottom', y, from: { x: a.x, y: a.y + (viaTop ? -nodeH / 2 : nodeH / 2) } };
+    };
+    const chips = [];
+    for (const side of ['in', 'out']) {
+      const list = ports.filter(p => p.side === side).map(p => {
+        const routes = p.anchors.filter(id => pos[id]).map(id => routeFor(p, id));
+        const desired = routes.length ? routes.reduce((sum, r) => sum + r.y, 0) / routes.length : frame.y1 - 13;
+        return { port: p, routes, desired, w: chipW(p) };
+      }).sort((a, b) => a.desired - b.desired || (a.port.id < b.port.id ? -1 : 1));
+      const yAt = packColumn(list.map(c => ({ desired: c.desired, size: pitch - 8 })), 8);
+      list.forEach((c, i) => {
+        c.y = yAt[i];
+        c.x = side === 'in' ? frame.x0 - portGap - c.w / 2 : frame.x1 + portGap + c.w / 2;
+        chips.push(c);
+      });
+    }
+    return { frame, band, corridor, chips };
+  }
+
+  // scopeStats are the numbers on the frame's header: what enters the scope,
+  // with p95 and errors weighted the same way. Traffic enters from callers
+  // outside, and where it starts inside: the calls of a part nothing calls
+  // (a frontend fed by users teia does not see). A tenant's calls into a
+  // shared datastore are not the scope's traffic.
+  function scopeStats(snap, scope) {
+    const inside = id => scope.roles.has(id);
+    const nodes = new Map(snap.nodes.map(n => [n.id, n]));
+    const called = new Set(snap.edges.map(e => e.to));
+    let rate = 0, failed = 0, timed = 0, p95 = 0;
+    const into = snap.edges.filter(e => inside(e.to) && (inside(e.from) ? !called.has(e.from) : !isResource(nodes.get(e.to))));
+    for (const e of into) {
+      rate += e.requestRate;
+      if (!e.errorsUnknown) failed += e.requestRate * e.errorRate;
+      if (e.latencyP95Ms > 0) { timed += e.requestRate; p95 += e.requestRate * e.latencyP95Ms; }
+    }
+    return { parts: scope.roles.size, rate, errorRate: rate > 0 ? failed / rate : 0, p95: timed > 0 ? p95 / timed : 0 };
+  }
+
   // journeyNames lists the journeys the label names, for the selector.
   function journeyNames(snap, key = JOURNEY_KEY) {
     const names = new Set();
@@ -818,9 +1117,8 @@ button.label { cursor: pointer; }
   // buildView: what is drawn. Grouping by a label folds nodes into one card
   // and sums the traffic between groups.
   function buildView(snap, index, { groupBy = '', expanded = new Set() } = {}) {
-    const stubs = new Set(snap.nodes.filter(n => n.stub).map(n => n.id));
     const groupOf = id => {
-      if (!groupBy || stubs.has(id)) return null;
+      if (!groupBy) return null;
       const v = index.nodes.get(id)?.labels?.[groupBy];
       if (!v || expanded.has(v)) return null;
       return 'group:' + v;
@@ -849,7 +1147,7 @@ button.label { cursor: pointer; }
       const id = from + '->' + to;
       let ve = edges.get(id);
       if (!ve) {
-        ve = { id, from, to, members: [], requestRate: 0, failed: 0, latency: latencySum(), reasons: [], measures: [], stubEdge: true, errorsUnknown: true, signals: new Set(), states: new Set(), declared: false, observed: false, health: 'unknown', protocol: e.protocol, reason: e.reason, port: e.port, sources: new Set() };
+        ve = { id, from, to, members: [], requestRate: 0, failed: 0, latency: latencySum(), reasons: [], measures: [], errorsUnknown: true, signals: new Set(), states: new Set(), declared: false, observed: false, health: 'unknown', protocol: e.protocol, reason: e.reason, port: e.port, sources: new Set() };
         edges.set(id, ve);
       }
       ve.members.push(e);
@@ -862,7 +1160,6 @@ button.label { cursor: pointer; }
       e.sources.forEach(s => ve.sources.add(s));
       ve.states.add(e.state);
       ve.declared ||= e.declared; ve.observed ||= e.observed;
-      ve.stubEdge &&= !!e.stubEdge; // a stub line only when every member is one
       ve.errorsUnknown &&= !!e.errorsUnknown; // likewise for unmeasured failures
       if (HEALTH_RANK[e.health] > HEALTH_RANK[ve.health]) ve.health = e.health;
     }
@@ -912,7 +1209,9 @@ button.label { cursor: pointer; }
   // short. Back edges (cycles) are set aside first, columns are renumbered
   // without gaps, and neighbours are indexed once, so 500 nodes and 1000
   // edges lay out in a few milliseconds.
-  function layered(view, { colGap = 300, rowGap = 112 } = {}) {
+  // pin (id -> 'first' | 'last') fixes a column, as ELK's layer constraints
+  // do: entries start the flow, datastores and third parties end it.
+  function layered(view, { colGap = 300, rowGap = 112, pin = new Map() } = {}) {
     const ids = [...view.nodes.keys()].sort();
     const out = new Map(ids.map(id => [id, []])), inc = new Map(ids.map(id => [id, []]));
     for (const e of view.edges.values()) {
@@ -949,9 +1248,13 @@ button.label { cursor: pointer; }
     }
     // 3. nodes nobody calls sit right before their nearest callee
     for (const id of ids) {
-      if (inc.get(id).length || !forward.get(id).length) continue;
+      if (inc.get(id).length || !forward.get(id).length || pin.get(id) === 'first') continue;
       depth.set(id, Math.max(0, Math.min(...forward.get(id).map(t => depth.get(t))) - 1));
     }
+    // pinned columns: the first, and one past every other node
+    const free = ids.filter(id => pin.get(id) !== 'last');
+    const lastCol = (free.length ? Math.max(...free.map(id => depth.get(id))) : -1) + 1;
+    for (const [id, where] of pin) if (depth.has(id)) depth.set(id, where === 'first' ? 0 : lastCol);
     // 4. renumber columns without gaps
     const used = [...new Set(depth.values())].sort((a, b) => a - b);
     const colOf = new Map(used.map((d, i) => [d, i]));
@@ -995,7 +1298,7 @@ button.label { cursor: pointer; }
     } catch { return null; }
   }
 
-  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, journeySnapshot, journeyWhy, journeyNames, TECH, CATEGORY, SIGNAL, REASON };
+  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, scopeSnapshot, scopePins, journeyWhy, journeyNames, scopeOf, facetsOf, facetValues, journeyKeyOf, JOURNEY_KEYS, filtersFromParams, filtersToParams, filterLabel, filtersActive, emptyFilters, journeyPorts, packColumn, frameLayout, scopeStats, TECH, CATEGORY, SIGNAL, REASON };
 
   // ============================================================== mount
   function mount(host, opts = {}) {
@@ -1072,7 +1375,10 @@ button.label { cursor: pointer; }
       tab: 'steps',
       activity: [],
       legendIcons: false,
-      journey: '', // the journey shown: a value of the journey label, any key=value, or from:node
+      legend: stored('legend', page), // open on teia's page; a panel has less room
+      filters: emptyFilters(), // what the map shows: journeys and facets (see scopeOf)
+      journeyKey: opts.journeyKey || '', // the label naming journeys; empty: detected
+      jkey: JOURNEY_KEY,
       values: stored('values', opts.values !== false), // traffic and latency on every line
     };
     let index = indexSnapshot(sanitize({}));
@@ -1080,7 +1386,8 @@ button.label { cursor: pointer; }
     // ------------------------------------------------------------------- the map
     const svg = $('#map');
     const stage = $('#stage');
-    let viewport, layerEdges, layerMarks, layerReasons, layerParticles, layerLabels, layerNodes;
+    let viewport, layerFrame, layerEdges, layerPorts, layerMarks, layerReasons, layerParticles, layerLabels, layerNodes;
+    const portEls = new Map(); // port id -> { port, g }
     const nodeEls = new Map(), edgeEls = new Map();
     let currentView = null, layoutPos = {}, topologyKey = '';
 
@@ -1116,10 +1423,25 @@ button.label { cursor: pointer; }
       .value-tag text { fill: var(--ink-2); font-size: 10px; font-weight: 600; }
       .value-tag { cursor: pointer; }
       .far .value-tag { display: none; }
-      .node.stub .card { fill: transparent; stroke: var(--line-2); stroke-dasharray: 4 4; }
-      .node.stub .tile { fill: var(--line-2); }
-      .node.stub { opacity: .8; }
-      .edge.to-stub path.line { stroke-opacity: .3; }
+      .frame { fill: color-mix(in srgb, var(--accent-2) 5%, transparent); stroke: var(--line-2); stroke-width: 1.2; }
+      .lane { fill: color-mix(in srgb, var(--ink) 4%, transparent); }
+      .lane-caption, .frame-stats { fill: var(--muted); font-size: 10.5px; letter-spacing: .06em; }
+      .frame-name { fill: var(--ink); font-size: 15px; font-weight: 600; }
+      .frame-health.healthy { fill: var(--healthy); } .frame-health.degraded { fill: var(--degraded); }
+      .frame-health.failing { fill: var(--failing); } .frame-health.unknown { fill: var(--unknown); }
+      .anchor { fill: var(--panel); stroke: var(--muted); stroke-width: 1.2; }
+      .port { cursor: pointer; outline: none; }
+      .port rect.chip { fill: var(--panel); stroke: var(--line-2); stroke-width: 1.2; }
+      .port:hover rect.chip, .port:focus-visible rect.chip, .port.sel rect.chip { stroke: var(--accent); }
+      .port.degraded rect.chip { stroke: var(--degraded); } .port.failing rect.chip { stroke: var(--failing); }
+      .port.sel rect.chip, .port:focus-visible rect.chip { stroke: var(--accent); stroke-width: 2; }
+      .port text { fill: var(--ink-2); font-size: 11.5px; font-weight: 600; }
+      .port text .rate { fill: var(--muted); font-weight: 500; }
+      .port svg { color: var(--muted); }
+      .port.degraded svg { color: var(--degraded); } .port.failing svg { color: var(--failing); }
+      .port-line { fill: none; stroke: var(--muted); stroke-opacity: .55; stroke-width: 1.3; stroke-linejoin: round; }
+      .port-line.degraded { stroke: var(--degraded); stroke-opacity: .9; } .port-line.failing { stroke: var(--failing); stroke-opacity: .9; }
+      .port-line.ghost { stroke-dasharray: 8 6; }
       .flowing .h-failing .halo { animation: halo 1.6s ease-out infinite; }
       @keyframes halo { 0% { opacity: .7; transform: scale(1); } 100% { opacity: 0; transform: scale(1.12); } }
       .node.match .card { stroke: var(--accent); stroke-width: 2.2; }
@@ -1151,6 +1473,11 @@ button.label { cursor: pointer; }
     function initSVG() {
       svg.replaceChildren();
       const defs = sv('defs');
+      for (const [id, d] of [['arrow-port', 'M0,1 L9,5 L0,9 z'], ['arrow-port-in', 'M9,1 L0,5 L9,9 z']]) {
+        const m = sv('marker', { id, viewBox: '0 0 10 10', refX: id === 'arrow-port' ? '9' : '0', refY: '5', markerWidth: '6', markerHeight: '6', orient: 'auto' });
+        m.append(sv('path', { d, class: 'arrow unknown' }));
+        defs.append(m);
+      }
       for (const h of ['healthy', 'degraded', 'failing', 'unknown', 'ghost', 'accent']) {
         const m = sv('marker', { id: 'arrow-' + h, viewBox: '0 0 10 10', refX: '9', refY: '5', markerWidth: '7', markerHeight: '7', orient: 'auto-start-reverse' });
         m.append(sv('path', { d: 'M0,1 L9,5 L0,9 z', class: 'arrow ' + h }));
@@ -1161,8 +1488,8 @@ button.label { cursor: pointer; }
       defs.append(st);
       svg.append(defs);
       viewport = sv('g', { id: 'viewport' });
-      layerEdges = sv('g'); layerMarks = sv('g'); layerReasons = sv('g'); layerParticles = sv('g', { class: 'particles' }); layerLabels = sv('g'); layerNodes = sv('g', { role: 'list' });
-      viewport.append(layerEdges, layerParticles, layerMarks, layerReasons, layerLabels, layerNodes);
+      layerFrame = sv('g'); layerEdges = sv('g'); layerPorts = sv('g'); layerMarks = sv('g'); layerReasons = sv('g'); layerParticles = sv('g', { class: 'particles' }); layerLabels = sv('g'); layerNodes = sv('g', { role: 'list' });
+      viewport.append(layerFrame, layerEdges, layerPorts, layerParticles, layerMarks, layerReasons, layerLabels, layerNodes);
       svg.append(viewport);
     }
 
@@ -1174,14 +1501,25 @@ button.label { cursor: pointer; }
       return true;
     }
 
-    // posKey stores each view's own layout: the whole map, or one journey.
-    const posKey = () => 'positions' + (state.journey ? '@' + state.journey.toLowerCase() : '');
+    // scopeKey names the filters, so each filtered view keeps its own layout.
+    const scopeKey = () => {
+      const f = state.filters;
+      return [[...f.journeys].sort().join(','), ...Object.keys(f.facets).sort().map(k => k + '=' + [...f.facets[k]].sort().join(','))].join('|').toLowerCase();
+    };
+    // ("@scope:" keeps layouts saved before frames, laid out for stubs, out)
+    const posKey = () => 'positions' + (filtersActive(state.filters) ? '@scope:' + scopeKey() : '');
 
+    let ports = [];
     function renderMap() {
-      const view = buildView(state.j ? journeySnapshot(state.snap, state.j) : state.snap, index, state);
+      const scope = state.scope;
+      const view = buildView(scope ? scopeSnapshot(state.snap, scope) : state.snap, index, state);
       currentView = view;
-      const key = [...view.nodes.keys()].sort().join('|') + '#' + [...view.edges.keys()].sort().join('|');
-      if (key !== topologyKey) { layoutPos = layered(view); topologyKey = key; }
+      ports = scope ? journeyPorts(state.snap, scope, { journeyKey: state.jkey, maxPerSide: page ? 8 : 5 }) : [];
+      // in a grouped view, a port anchors on the group card
+      for (const p of ports) p.anchors = [...new Set(p.anchors.map(id => view.nodes.has(id) ? id : view.groupOf(id)).filter(Boolean))];
+      const pin = scope ? scopePins(view, ports) : new Map();
+      const key = [...view.nodes.keys()].sort().join('|') + '#' + [...view.edges.keys()].sort().join('|') + '#' + [...pin].sort().join(';');
+      if (key !== topologyKey) { layoutPos = layered(view, { pin }); topologyKey = key; }
       if (state.hover && !view.nodes.has(state.hover)) state.hover = null;
       if (state.hoverEdge && !view.edges.has(state.hoverEdge)) state.hoverEdge = null;
 
@@ -1204,7 +1542,7 @@ button.label { cursor: pointer; }
         if (!g) { g = createEdge(); edgeEls.set(e.id, g); layerEdges.append(g); }
         g._edge = e;
         g.style.display = edgeVisible(e) ? '' : 'none';
-        g.setAttribute('class', `edge s-${e.state} h-${e.health}${e.stubEdge ? ' to-stub' : ''}${state.selected?.id === e.id ? ' sel' : ''}`);
+        g.setAttribute('class', `edge s-${e.state} h-${e.health}${state.selected?.id === e.id ? ' sel' : ''}`);
         routeEdge(g, posOf(e.from), posOf(e.to), view.edges.has(e.to + '->' + e.from) ? 7 : 0);
       }
       for (const [id, g] of edgeEls) if (!eSeen.has(id)) { g.remove(); edgeEls.delete(id); }
@@ -1212,17 +1550,112 @@ button.label { cursor: pointer; }
       const empty = $('#empty');
       empty.hidden = view.nodes.size > 0;
       if (!empty.hidden) {
-        empty.firstChild.textContent = state.j
-          ? `Nothing takes part in the journey "${state.journey}". Clear it with ✕ above, or search for the label your services carry.`
+        empty.firstChild.textContent = scope
+          ? 'Nothing matches these filters. Remove one in the bar above, or clear them all.'
           : 'No communication discovered yet. The Sources tab shows what teia reads and what failed.';
       }
 
+      renderFrame(scope, pin);
       renderMarks();
       renderReasons();
       rebuildParticles();
       applyHighlight();
       renderEdgeLabel();
       if (!state.fitted && view.nodes.size) state.fitted = fit();
+    }
+
+    // renderFrame draws a scope: the frame with its name, health and what
+    // enters it; the lane of its datastores, queues and third parties; and
+    // the ports beyond the frame, each line routed around the cards.
+    function renderFrame(scope, pin) {
+      layerFrame.replaceChildren();
+      layerPorts.replaceChildren();
+      portEls.clear();
+      state.frameBox = null;
+      if (!scope || !nodeEls.size) return;
+      const pos = {};
+      for (const [id, g] of nodeEls) pos[id] = g._pos;
+      const lane = [...pin].filter(([, where]) => where === 'last').map(([id]) => id);
+      const f = frameLayout(pos, ports, { nodeW: NODE_W, nodeH: NODE_H, lane });
+      const fr = f.frame;
+      state.frameBox = { ...fr, chips: f.chips };
+      layerFrame.append(sv('rect', { class: 'frame', x: fr.x0, y: fr.y0, width: fr.x1 - fr.x0, height: fr.y1 - fr.y0, rx: 22 }));
+      if (f.band) {
+        layerFrame.append(sv('rect', { class: 'lane', x: f.band.x0, y: fr.y0 + 74, width: f.band.x1 - f.band.x0, height: fr.y1 - fr.y0 - 82, rx: 14 }));
+        const cap = sv('text', { class: 'lane-caption', x: (f.band.x0 + f.band.x1) / 2, y: fr.y0 + 91, 'text-anchor': 'middle' });
+        cap.textContent = 'DATA · QUEUES · THIRD PARTIES';
+        layerFrame.append(cap);
+      }
+      // the header: health, name, what enters it
+      const why = journeyWhy(state.snap, scope), st = scopeStats(state.snap, scope);
+      layerFrame.append(sv('circle', { class: 'frame-health ' + why.health, cx: fr.x0 + 26, cy: fr.y0 + 27, r: 6 }));
+      const name = sv('text', { class: 'frame-name', x: fr.x0 + 42, y: fr.y0 + 32 });
+      const f0 = state.filters, single = f0.journeys.length === 1 && !activeFacets(f0).length && !f0.journeys[0].startsWith('from:');
+      name.textContent = single ? f0.journeys[0] : scopeName();
+      layerFrame.append(name);
+      const stats = [...(single ? ['journey'] : []), `${st.parts}${scope.truncated ? '+' : ''} parts`];
+      if (st.rate > 0) stats.push(`in ${fmtRate(st.rate)}/s`);
+      if (st.p95 > 0) stats.push(`p95 ${fmtMs(st.p95)}`);
+      if (st.rate > 0) stats.push(`${pct(st.errorRate)} err`);
+      const line = sv('text', { class: 'frame-stats num', x: fr.x0 + 42, y: fr.y0 + 50 });
+      line.textContent = stats.join(' · ');
+      layerFrame.append(line);
+      // the ports
+      for (const c of f.chips) drawPort(c, fr);
+    }
+
+    // scopeName says what the filters keep, for the frame and announcements.
+    function scopeName() {
+      const f = state.filters;
+      return [...f.journeys.map(j => filterLabel('journey', j)), ...Object.entries(f.facets).flatMap(([k, vs]) => vs.map(v => filterLabel(k, v)))].join(' · ');
+    }
+
+    // drawPort draws one chip beyond the frame and its lines into the scope.
+    // A line runs straight when nothing is in its way, else along the top or
+    // bottom corridor of the frame, and never across a card.
+    function drawPort(c, fr) {
+      const p = c.port, side = p.side === 'in' ? 1 : -1;
+      const chipEdge = c.x - side * c.w / 2, frameEdge = side > 0 ? fr.x0 : fr.x1;
+      const edgeState = p.edges.length && p.edges.every(e => e.state === 'ghost') ? ' ghost' : '';
+      for (const r of c.routes) {
+        let pts;
+        if (r.mode === 'direct') {
+          const mx = (frameEdge + r.from.x) / 2;
+          pts = `M${chipEdge},${c.y} L${frameEdge},${c.y} C${mx},${c.y} ${mx},${r.from.y} ${r.from.x},${r.from.y}`;
+        } else {
+          pts = `M${chipEdge},${c.y} L${frameEdge},${c.y} L${frameEdge + side * 16},${r.y} L${r.from.x},${r.y} L${r.from.x},${r.from.y}`;
+        }
+        // calls run from the caller: into the scope for callers and tenants, out for exits
+        const path = sv('path', { class: `port-line ${p.health}${edgeState}`, d: pts });
+        if (p.kind === 'exit') path.setAttribute('marker-start', 'url(#arrow-port-in)'); else path.setAttribute('marker-end', 'url(#arrow-port)');
+        layerPorts.append(path);
+      }
+      if (c.routes.length) layerPorts.append(sv('rect', { class: 'anchor', x: frameEdge - 4, y: c.y - 4, width: 8, height: 8, rx: 2 }));
+      const g = sv('g', { class: `port ${p.health}${state.selected?.id === p.id ? ' sel' : ''}`, tabindex: '0', role: 'button', transform: `translate(${c.x - c.w / 2},${c.y - 13})` });
+      g.append(sv('rect', { class: 'chip', width: c.w, height: 26, rx: 13 }));
+      const first = state.snap.nodes.find(n => n.id === p.of[0]);
+      const worst = p.reasons[0];
+      const ic = iconSVG(worst ? REASON[worst.cause].icon : p.kind === 'more' ? ICON.group : first ? iconOf(first) : ICON.unknown);
+      ic.setAttribute('x', 8); ic.setAttribute('y', 6); ic.setAttribute('width', 14); ic.setAttribute('height', 14);
+      const text = sv('text', { x: 27, y: 17 });
+      const [who, rateText] = chipText(p).split('  ');
+      text.textContent = who;
+      if (rateText) {
+        const rate = sv('tspan', { class: 'rate', dx: 6 });
+        rate.textContent = rateText;
+        text.append(rate);
+      }
+      const tip = sv('title');
+      const role = { caller: `calls into ${p.anchors.join(', ')}`, tenant: `also uses ${p.anchors.join(', ')}`, exit: `called by ${p.anchors.join(', ')}`, more: 'outside the view' }[p.kind];
+      tip.textContent = `${p.of.join(', ')}: ${role}${worst ? ' · ' + (worst.summary || reasonTag(worst)) : ''}`;
+      g.setAttribute('aria-label', tip.textContent);
+      g.append(ic, text, tip);
+      g.addEventListener('click', ev => { ev.stopPropagation(); select({ type: 'port', id: p.id }); });
+      g.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); select({ type: 'port', id: p.id }); }
+      });
+      layerPorts.append(g);
+      portEls.set(p.id, { port: p, g });
     }
 
     function createNode(n) {
@@ -1259,7 +1692,7 @@ button.label { cursor: pointer; }
     function updateNode(g, n) {
       const p = g._parts;
       const sel = state.selected?.id === n.id;
-      g.setAttribute('class', `node kind-${n.kind} h-${n.health} vis-${n.visibility}${n.stub ? ' stub' : ''}${sel ? ' sel' : ''}${g.classList.contains('enter') ? ' enter' : ''}`);
+      g.setAttribute('class', `node kind-${n.kind} h-${n.health} vis-${n.visibility}${sel ? ' sel' : ''}${g.classList.contains('enter') ? ' enter' : ''}`);
       const cat = categoryOf(n);
       if (p.cat !== cat) {
         p.icon.replaceChildren(iconSVG(iconOf(n)));
@@ -1386,6 +1819,11 @@ button.label { cursor: pointer; }
         x0: n._pos.x - NODE_W / 2 - 6, x1: n._pos.x + NODE_W / 2 + 6,
         y0: n._pos.y - NODE_H / 2 - 14, y1: n._pos.y + NODE_H / 2 + 12, // the card's own tag and badges
       }));
+      if (state.frameBox) {
+        const fb = state.frameBox;
+        obstacles.push({ x0: fb.x0, x1: fb.x1, y0: fb.y0, y1: fb.y0 + 70 }); // the frame's header and its corridor
+        for (const c of fb.chips) obstacles.push({ x0: c.x - c.w / 2, x1: c.x + c.w / 2, y0: c.y - 13, y1: c.y + 13 });
+      }
       const shown = [...edgeEls.values()].filter(g => g.style.display !== 'none');
       const spotsOf = g => { const pts = samples(g); return [24, 20, 28, 16, 32, 12, 36, 8, 40, 5, 43].map(i => ({ x: pts[i][0], y: pts[i][1] })); };
       const pin = (tag, g, w, at) => {
@@ -1411,7 +1849,7 @@ button.label { cursor: pointer; }
       for (const g of shown) {
         const e = g._edge;
         const text = lineValue(e);
-        if (e.reasons.length || e.stubEdge || !text) continue;
+        if (e.reasons.length || !text) continue;
         const tag = sv('g', { class: 'value-tag' });
         tag._edge = e;
         const label = sv('text', { x: 7, y: 3.5 });
@@ -1463,7 +1901,7 @@ button.label { cursor: pointer; }
       const old = new Map(particles.map(p => [p.key, p]));
       particles = [];
       layerParticles.replaceChildren();
-      const visible = [...edgeEls.values()].filter(g => g.style.display !== 'none' && !g._edge.stubEdge);
+      const visible = [...edgeEls.values()].filter(g => g.style.display !== 'none');
       const budget = particleBudget(visible.map(g => g._edge));
       for (const g of visible) {
         const e = g._edge, count = budget.get(e.id) || 0;
@@ -1536,8 +1974,13 @@ button.label { cursor: pointer; }
         x0 = Math.min(x0, p.x - NODE_W / 2); x1 = Math.max(x1, p.x + NODE_W / 2);
         y0 = Math.min(y0, p.y - NODE_H / 2); y1 = Math.max(y1, p.y + NODE_H / 2 + 12);
       }
-      const padTop = page ? 70 : 56, pad = page ? 60 : 24;
-      const k = Math.max(0.05, Math.min(1.25, (r.width - pad * 2) / (x1 - x0), (r.height - padTop - pad) / (y1 - y0)));
+      if (state.frameBox) {
+        const fb = state.frameBox;
+        x0 = Math.min(x0, fb.x0, ...fb.chips.map(c => c.x - c.w / 2)); x1 = Math.max(x1, fb.x1, ...fb.chips.map(c => c.x + c.w / 2));
+        y0 = Math.min(y0, fb.y0, ...fb.chips.map(c => c.y - 13)); y1 = Math.max(y1, fb.y1, ...fb.chips.map(c => c.y + 13));
+      }
+      const padTop = page ? 24 : 16, pad = page ? 40 : 16;
+      const k = Math.max(0.05, Math.min(state.frameBox ? 1.1 : 1.25, (r.width - pad * 2) / (x1 - x0), (r.height - padTop - pad) / (y1 - y0)));
       state.view = { k, x: (r.width - (x1 - x0) * k) / 2 - x0 * k, y: padTop + (r.height - padTop - pad - (y1 - y0) * k) / 2 - y0 * k };
       state.userMoved = false;
       applyView();
@@ -1652,6 +2095,7 @@ button.label { cursor: pointer; }
       state.selected = sel;
       for (const [id, g] of nodeEls) g.classList.toggle('sel', sel?.type === 'node' && sel.id === id);
       for (const [id, g] of edgeEls) g.classList.toggle('sel', sel?.type === 'edge' && sel.id === id);
+      for (const [id, { g }] of portEls) g.classList.toggle('sel', sel?.type === 'port' && sel.id === id);
       applyHighlight();
       renderEdgeLabel();
       renderDetails();
@@ -1713,53 +2157,15 @@ button.label { cursor: pointer; }
           : opts.api ? `live · round ${state.snap?.round ?? '–'} · ${ago}s ago` : `updated ${ago}s ago`;
     }
 
-    function renderFilters() {
-      const edges = state.snap.edges;
-      const present = new Map();
-      for (const e of edges) for (const s of e.signals) present.set(s, (present.get(s) || 0) + 1);
-      // A saved filter on a signal the data no longer has would hide everything.
-      for (const s of [...state.signals]) if (!present.has(s)) state.signals.delete(s);
-      const chips = [];
-      if (state.j) {
-        const why = journeyWhy(state.snap, state.j);
-        const parts = [iconSVG('<circle cx="5" cy="12" r="2.4"/><circle cx="19" cy="6" r="2.4"/><circle cx="19" cy="18" r="2.4"/><path d="M7.2 11l9.6-4M7.2 13l9.6 4"/>'),
-          el('span', {}, `${state.journey} · ${state.j.roles.size}${state.j.truncated ? '+' : ''}`)];
-        if (why.reason) {
-          parts.push(el('button', { type: 'button', title: `Show ${why.subject.replace('->', ' → ')}`, onclick: () => locate(why.subject) },
-            iconSVG(REASON[why.reason.cause].icon), `${why.subject.replace('->', ' → ')} · ${reasonTag(why.reason, why.more)}`));
-        }
-        parts.push(el('button', { type: 'button', 'aria-label': 'Show the whole map', title: 'Show the whole map', onclick: () => setJourney('') }, '✕'));
-        chips.push(el('div', { class: 'journey-chip' }, ...parts), el('span', { class: 'sep' }));
-      }
-      if (state.snap.drift) {
-        const count = st => edges.filter(e => e.state === st).length;
-        const stateChip = (st, label, style) => el('button', {
-          type: 'button', class: 'chip' + (state.states[st] ? '' : ' off'), title: STATE_LABEL[st], 'aria-pressed': String(!!state.states[st]),
-          onclick: () => { state.states[st] = !state.states[st]; store.set('states', state.states); renderAll(); },
-        }, el('i', { class: 'ln', style }), label, el('b', { class: 'num' }, count(st)));
-        chips.push(stateChip('ok', 'declared', `border-color:${css('--healthy')}`));
-        chips.push(stateChip('ghost', 'undeclared', `border-color:${css('--ghost')};border-top-style:dashed`));
-        chips.push(stateChip('stale', 'not seen', `border-color:${css('--stale')};border-top-style:dotted`));
-        chips.push(el('span', { class: 'sep' }));
-      }
-      for (const [s, n] of [...present.entries()].sort()) {
-        if (!has(SIGNAL, s)) continue;
-        const on = !state.signals.size || state.signals.has(s);
-        chips.push(el('button', {
-          type: 'button', class: 'chip' + (on ? '' : ' off'), 'aria-pressed': String(state.signals.has(s)),
-          title: `Only communication seen by ${SIGNAL[s].label.toLowerCase()} (click again to clear)`,
-          onclick: () => {
-            if (state.signals.has(s) && state.signals.size === 1) state.signals.clear();
-            else { state.signals.clear(); state.signals.add(s); }
-            store.set('signals', [...state.signals]); renderAll();
-          },
-        }, iconSVG(SIGNAL[s].icon), SIGNAL[s].label, el('b', { class: 'num' }, n)));
-      }
-      $('#filters').replaceChildren(...chips);
-      $('#filters').hidden = chips.length === 0;
-    }
-
     function renderLegend() {
+      const box = $('#legend');
+      box.classList.toggle('closed', !state.legend);
+      const setLegend = open => { state.legend = open; store.set('legend', open); renderLegend(); $(open ? '#legend .close-legend' : '#legend .open-legend')?.focus(); };
+      if (!state.legend) {
+        box.replaceChildren(el('button', { type: 'button', class: 'open-legend', 'aria-expanded': 'false', title: 'What the colours, lines and tags mean', onclick: () => setLegend(true) },
+          iconSVG('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>'), 'Legend'));
+        return;
+      }
       const sw = (color, label) => el('div', { class: 'lg' }, el('i', { class: 'sw', style: `background:${color}` }), label);
       const ln = (style, label) => el('div', { class: 'lg' }, el('i', { class: 'ln', style }), label);
       const bx = (style, label) => el('div', { class: 'lg' }, el('i', { class: 'bx', style }), label);
@@ -1780,57 +2186,159 @@ button.label { cursor: pointer; }
       }
       parts.push(el('button', { type: 'button', class: 'legend-toggle', 'aria-expanded': String(state.legendIcons), onclick: () => { state.legendIcons = !state.legendIcons; renderLegend(); } },
         state.legendIcons ? 'hide icon library' : 'icon library ▸'));
-      $('#legend').replaceChildren(...parts);
+      parts.push(el('button', { type: 'button', class: 'close-legend', 'aria-label': 'Hide the legend', 'aria-expanded': 'true', title: 'Hide the legend', onclick: () => setLegend(false) }, '✕'));
+      box.replaceChildren(...parts);
     }
 
-    // setJourney shows one journey, or the whole map for "". It keeps the
-    // view's own layout, says so to screen readers and, on teia's page, in
-    // the address bar so the view can be shared.
-    function setJourney(spec) {
-      spec = String(spec || '').trim();
-      if (spec === state.journey) return;
-      state.journey = spec;
+    // setFilters changes what the map shows. Each filtered view keeps its
+    // own layout; on teia's page the filters go in the address bar, so the
+    // view can be shared; screen readers hear what is shown.
+    function setFilters(next) {
+      next = { journeys: [...new Set(next.journeys || [])], facets: Object.fromEntries(Object.entries(next.facets || {}).filter(([, v]) => v.length)) };
+      state.filters = next;
       state.positions = stored(posKey(), {});
       topologyKey = '';
       state.fitted = false;
-      state.j = spec && state.snap ? journeyOf(state.snap, spec) : null;
-      if (state.selected && state.j && !state.j.roles.has(state.selected.id)) state.selected = null;
       if (page && typeof history !== 'undefined' && typeof location !== 'undefined') {
         const url = new URL(location.href);
-        if (spec) url.searchParams.set('journey', spec); else url.searchParams.delete('journey');
+        const { journey, filter } = filtersToParams(next);
+        for (const [k, v] of [['journey', journey], ['filter', filter]]) { if (v) url.searchParams.set(k, v); else url.searchParams.delete(k); }
         history.replaceState(null, '', url);
       }
       if (!state.snap) return;
       renderAll();
+      if (state.selected && state.scope && !state.scope.roles.has(state.selected.id) && !String(state.selected.id).startsWith('port:')) select(null);
       state.fitted = fit();
-      const j = state.j;
-      $('#announce').textContent = !j ? 'Whole map' : `Journey ${spec}: ${j.roles.size} components${journeyLine(j)}`;
+      if (filterPanelOpen()) renderFilterPanel();
+      const sc = state.scope;
+      $('#announce').textContent = !sc ? 'Whole map' : `${scopeName()}: ${sc.roles.size} components${headlineText(sc)}`;
+    }
+    // setJourney shows one journey (the Grafana option and older links).
+    const setJourney = spec => setFilters({ journeys: spec ? [String(spec).trim()] : [], facets: state.filters.facets });
+
+    const toggle = (list, v) => list.includes(v) ? list.filter(x => x !== v) : [...list, v];
+    function toggleFacet(key, value) {
+      const f = state.filters;
+      if (key === 'journey') setFilters({ ...f, journeys: toggle(f.journeys, value) });
+      else setFilters({ ...f, facets: { ...f.facets, [key]: toggle(f.facets[key] || [], value) } });
     }
 
-    // journeyLine is the journey's headline: why it is amber or red.
-    function journeyLine(j) {
-      const why = journeyWhy(state.snap, j);
+    // headlineText says why a scope is amber or red.
+    function headlineText(sc) {
+      const why = journeyWhy(state.snap, sc);
       return why.reason ? `, ${why.health} because of ${why.subject.replace('->', ' → ')}: ${why.reason.summary || reasonTag(why.reason)}` : '';
     }
 
-    let journeyKeys = null;
-    function renderJourneys() {
-      const sel = $('#journey');
-      const names = journeyNames(state.snap);
-      const keys = names.join('|') + '#' + state.journey;
-      sel.hidden = names.length === 0 && !state.journey;
-      if (journeyKeys !== keys) { // rebuilding would close an open dropdown on every update
-        journeyKeys = keys;
-        const custom = state.journey && !names.includes(state.journey) ? [el('option', { value: state.journey }, 'Journey ' + state.journey)] : [];
-        sel.replaceChildren(el('option', { value: '' }, 'Whole map'), ...names.map(n => el('option', { value: n }, 'Journey ' + n)), ...custom);
+    // renderScope draws the bar under the header: the Filter button, the
+    // filters in use as chips (or the journeys, one click away, with their
+    // health), and why the filtered view is amber or red.
+    function renderScope() {
+      const bar = $('#scope');
+      const f = state.filters;
+      const edgeFilters = ['ok', 'ghost', 'stale'].filter(st => !state.states[st]).length + state.signals.size;
+      const count = f.journeys.length + activeFacets(f).reduce((a, [, v]) => a + v.length, 0) + edgeFilters;
+      const parts = [el('button', {
+        type: 'button', class: 'btn filter-btn', id: 'filterBtn', 'aria-expanded': String(filterPanelOpen()), 'aria-controls': 'filterPanel',
+        title: 'Filter by journey, namespace, team, health, component… (J)', onclick: ev => { ev.stopPropagation(); setFilterPanel(!filterPanelOpen()); },
+      }, iconSVG('<path d="M3 5h18l-7 8.5V19l-4 2v-7.5z"/>'), 'Filter', count ? el('span', { class: 'count' }, String(count)) : null)];
+      const chip = (label, onRemove) => el('span', { class: 'fchip' }, label, el('button', { type: 'button', 'aria-label': 'Remove ' + label, title: 'Remove', onclick: onRemove }, '✕'));
+      for (const j of f.journeys) parts.push(chip(filterLabel('journey', j), () => toggleFacet('journey', j)));
+      for (const [k, vs] of activeFacets(f)) for (const v of vs) parts.push(chip(filterLabel(k, v), () => toggleFacet(k, v)));
+      for (const st of ['ok', 'ghost', 'stale']) if (!state.states[st]) parts.push(chip(`without ${STATE_LABEL[st]}`, () => toggleEdgeState(st)));
+      for (const sg of state.signals) parts.push(chip(`seen by ${SIGNAL[sg]?.label.toLowerCase() || sg}`, () => toggleSignal(sg)));
+      if (count) {
+        parts.push(el('button', { type: 'button', class: 'clear', onclick: () => { state.states = { ok: true, ghost: true, stale: true }; state.signals.clear(); store.set('states', state.states); store.set('signals', []); setFilters(emptyFilters()); } }, 'Clear all'));
+      } else {
+        const names = journeyNames(state.snap, state.jkey);
+        if (names.length) {
+          parts.push(el('span', { class: 'caption' }, 'Journeys'));
+          for (const name of names.slice(0, 8)) {
+            const health = journeyWhy(state.snap, journeyOf(state.snap, name, { key: state.jkey })).health;
+            parts.push(el('button', { type: 'button', class: 'jtab', title: `Show only the journey ${name}`, onclick: () => setJourney(name) },
+              el('i', { class: 'dot', style: `background:${css('--' + health)}`, 'aria-hidden': 'true' }), name,
+              health === 'failing' || health === 'degraded' ? el('span', { class: 'sr-only' }, ` (${health})`) : null));
+          }
+          if (names.length > 8) parts.push(el('span', { class: 'caption' }, `+${names.length - 8} in Filter`));
+        }
       }
-      sel.value = state.journey;
+      if (state.scope) {
+        const sc = state.scope, why = journeyWhy(state.snap, sc);
+        const line = el('span', { class: 'headline ' + why.health }, el('span', {}, `${sc.roles.size}${sc.truncated ? '+' : ''} components`));
+        if (why.reason) {
+          line.append(iconSVG(REASON[why.reason.cause].icon), el('b', {}, why.subject.replace('->', ' → ')), reasonTag(why.reason, why.more),
+            el('button', { type: 'button', class: 'btn', title: 'Show it on the map', onclick: () => locate(why.subject) }, 'go to'));
+        } else if (why.health === 'healthy') {
+          line.append(' · every signal within its limits');
+        }
+        parts.push(line);
+      }
+      bar.replaceChildren(...parts);
+    }
+
+    // ----------------------------------------------------- the filter panel
+    const filterPanelOpen = () => !$('#filterPanel').hidden;
+    let panelQuery = '';
+    function setFilterPanel(open) {
+      const panel = $('#filterPanel');
+      panel.hidden = !open;
+      $('#filterBtn')?.setAttribute('aria-expanded', String(open));
+      if (open) { renderFilterPanel(); panel.querySelector('input')?.focus(); }
+    }
+    function toggleEdgeState(st) { state.states[st] = !state.states[st]; store.set('states', state.states); renderAll(); if (filterPanelOpen()) renderFilterPanel(); }
+    function toggleSignal(sg) {
+      if (state.signals.has(sg)) state.signals.delete(sg); else state.signals.add(sg);
+      store.set('signals', [...state.signals]); renderAll(); if (filterPanelOpen()) renderFilterPanel();
+    }
+
+    // renderFilterPanel lists everything the map can be filtered by, with
+    // counts and health: journeys, every label the services share, health,
+    // kind of component, technology, and the communication itself.
+    function renderFilterPanel() {
+      const panel = $('#filterPanel');
+      const q = panelQuery.trim().toLowerCase();
+      const f = state.filters;
+      const value = (on, label, n, dot, icon, onclick) => el('button', { type: 'button', class: 'fv' + (on ? ' on' : ''), 'aria-pressed': String(on), onclick },
+        el('span', { class: 'check', 'aria-hidden': 'true' }, on ? '✓' : ''), dot ? el('i', { class: 'dot', style: `background:${css('--' + dot)}` }) : null,
+        icon ? iconSVG(icon) : null, label, el('span', { class: 'n num' }, String(n)));
+      const sections = [];
+      for (const sec of facetsOf(state.snap, state.jkey)) {
+        const chosen = sec.key === 'journey' ? f.journeys : (f.facets[sec.key] || []);
+        const values = sec.values.filter(v => !q || String(v.label).toLowerCase().includes(q) || sec.title.toLowerCase().includes(q));
+        if (!values.length) continue;
+        const icon = v => sec.key === 'category' && has(CATEGORY, v.value) ? CATEGORY[v.value].icon : null;
+        const dot = v => sec.key === 'category' || sec.key === 'tech' ? null : v.health;
+        sections.push(el('section', {}, el('h5', {}, sec.title), el('div', { class: 'values' },
+          ...values.map(v => value(chosen.includes(v.value), v.label, v.count, dot(v), icon(v), () => toggleFacet(sec.key, v.value))))));
+      }
+      if (state.snap.drift) {
+        const count = st => state.snap.edges.filter(e => e.state === st).length;
+        const states = [['ok', 'declared and seen'], ['ghost', 'not declared'], ['stale', 'declared, not seen']].filter(([, l]) => !q || l.includes(q) || 'communication'.includes(q));
+        if (states.length) sections.push(el('section', {}, el('h5', {}, 'Communication'), el('div', { class: 'values' },
+          ...states.map(([st, label]) => value(state.states[st], label, count(st), null, null, () => toggleEdgeState(st))))));
+      }
+      const present = new Map();
+      for (const e of state.snap.edges) for (const sg of e.signals) present.set(sg, (present.get(sg) || 0) + 1);
+      const signals = [...present.entries()].filter(([sg]) => has(SIGNAL, sg) && (!q || SIGNAL[sg].label.toLowerCase().includes(q) || 'seen by'.includes(q))).sort();
+      if (signals.length) sections.push(el('section', {}, el('h5', {}, 'Seen by'), el('div', { class: 'values' },
+        ...signals.map(([sg, n]) => value(state.signals.has(sg), SIGNAL[sg].label, n, null, SIGNAL[sg].icon, () => toggleSignal(sg))))));
+      const search = el('input', { type: 'search', placeholder: 'Find a journey, namespace, team…', 'aria-label': 'Find a filter', value: panelQuery });
+      search.addEventListener('input', ev => {
+        panelQuery = ev.target.value;
+        const at = ev.target.selectionStart;
+        renderFilterPanel();
+        const again = panel.querySelector('input');
+        again.focus(); again.setSelectionRange(at, at);
+      });
+      panel.replaceChildren(
+        el('div', { class: 'top' }, search, el('button', { type: 'button', class: 'btn', onclick: () => setFilterPanel(false) }, 'Done')),
+        sections.length ? el('div', { class: 'facets' }, ...sections) : el('p', { class: 'muted' }, 'Nothing matches.'),
+      );
     }
 
     let groupKeys = null;
     function renderGroupBy() {
       const sel = $('#groupBy');
-      const keys = labelKeys(state.snap);
+      const keys = labelKeys(state.snap, state.jkey);
       if (state.groupBy && !keys.includes(state.groupBy)) { state.groupBy = ''; state.expanded.clear(); }
       if (groupKeys !== keys.join('|')) { // rebuilding would close an open dropdown on every update
         groupKeys = keys.join('|');
@@ -1939,6 +2447,7 @@ button.label { cursor: pointer; }
       const pane = $('#pane-details');
       const sel = state.selected;
       if (!sel || !currentView) { pane.replaceChildren(el('p', { class: 'muted' }, 'Click a service, a datastore or a communication on the map.')); return; }
+      if (sel.type === 'port') { renderPortDetails(pane, portEls.get(sel.id)?.port); return; }
       if (sel.type === 'node') {
         const n = currentView.nodes.get(sel.id);
         if (!n) { pane.replaceChildren(el('p', { class: 'muted' }, 'That node is no longer in the graph.')); return; }
@@ -1952,16 +2461,12 @@ button.label { cursor: pointer; }
           parts.push(el('button', { type: 'button', class: 'btn', onclick: () => toggleGroup(n.id) }, 'Expand group'));
           parts.push(el('h3', {}, 'Members'));
           parts.push(...n.members.map(m => rel(m.id, m.kind, m.health, () => { state.expanded.add(n.title); renderMap(); focusNode(m.id); })));
-        } else if (n.stubOf) {
-          parts.push(el('p', { class: 'explain' }, `${n.stubOf.length} more callers outside the journey: ${n.stubOf.join(', ')}.`));
         } else {
-          if (n.stub) {
-            parts.push(el('p', { class: 'explain' }, `Outside the journey ${state.journey}: it calls into it, or the journey leaves to it.`));
-            parts.push(el('button', { type: 'button', class: 'btn', onclick: () => { setJourney(''); locate(n.id); } }, 'Show on the whole map'));
-          } else if (n.journeyRole) {
-            parts.push(el('p', { class: 'explain' }, n.journeyRole === 'member'
-              ? `Part of the journey ${state.journey}.`
-              : `Used by the journey ${state.journey}${(state.snap.edges.some(e => e.to === n.id && !state.j.roles.has(e.from))) ? ', and by others outside it: its health includes their traffic' : ''}.`));
+          if (state.scope) {
+            const others = state.snap.edges.some(e => e.to === n.id && !state.scope.roles.has(e.from));
+            parts.push(el('p', { class: 'explain' }, state.scope.roles.get(n.id) === 'dependency'
+              ? `Used by ${scopeName()}${others ? ', and by others outside it: its health includes their traffic' : ''}.`
+              : `Part of ${scopeName()}${others ? '; others outside it call it too' : ''}.`));
           }
           parts.push(el('p', { class: 'explain' }, VIS_EXPLAIN[n.visibility]));
           const kv = el('dl', { class: 'kv' });
@@ -2026,6 +2531,28 @@ button.label { cursor: pointer; }
       parts.push(kv);
       const fs = state.snap.findings.filter(f => e.members.some(m => f.subject === m.from + '->' + m.to) || (e.state === 'ghost' && f.subject === e.from && f.rule === 'undeclared-flow'));
       if (fs.length) { parts.push(el('h3', {}, 'Next steps')); parts.push(...fs.map(f => findingCard(f, true))); }
+      pane.replaceChildren(...parts);
+    }
+
+    // renderPortDetails explains a port: who is outside the view, how they
+    // touch it, and ways to see them.
+    function renderPortDetails(pane, p) {
+      if (!p) { pane.replaceChildren(el('p', { class: 'muted' }, 'That port is no longer on the map.')); return; }
+      const role = {
+        caller: `Outside ${scopeName()}, calling into ${p.anchors.join(', ')}.`,
+        tenant: `Outside ${scopeName()}, using ${p.anchors.join(', ')} too: their traffic is part of its health.`,
+        exit: `Where ${scopeName()} leaves to, from ${p.anchors.join(', ')}.`,
+        more: `More outside nodes around ${scopeName()}.`,
+      }[p.kind];
+      const parts = [el('h2', {}, p.label), el('p', { class: 'explain' }, role), ...whyBlock(p.reasons.slice(0, 3))];
+      parts.push(el('h3', {}, `Outside (${p.of.length})`));
+      for (const id of p.of) {
+        const n = state.snap.nodes.find(x => x.id === id);
+        parts.push(rel(id, n ? techLabel(n) : '', n ? n.health : 'unknown', () => { setFilters(emptyFilters()); locate(id); }));
+      }
+      const actions = [el('button', { type: 'button', class: 'btn', onclick: () => { setFilters(emptyFilters()); locate(p.of[0]); } }, 'Show on the whole map')];
+      if (p.journey) actions.push(el('button', { type: 'button', class: 'btn', onclick: () => setFilters({ journeys: [p.journey], facets: {} }) }, `Open journey ${p.journey}`));
+      parts.push(el('div', { class: 'labels' }, ...actions));
       pane.replaceChildren(...parts);
     }
 
@@ -2133,8 +2660,9 @@ button.label { cursor: pointer; }
     // ----------------------------------------------------------------- data
     function renderAll() {
       index = indexSnapshot(state.snap);
-      state.j = state.journey ? journeyOf(state.snap, state.journey) : null;
-      renderRings(); renderFilters(); renderGroupBy(); renderJourneys(); renderButtons();
+      state.jkey = journeyKeyOf(state.snap, state.journeyKey);
+      state.scope = scopeOf(state.snap, { ...state.filters, journeyKey: state.jkey });
+      renderRings(); renderGroupBy(); renderScope(); renderButtons();
       renderMap(); renderSteps(); renderSources(); renderDetails(); renderLive();
     }
 
@@ -2192,6 +2720,7 @@ button.label { cursor: pointer; }
       if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) { if (ev.key === 'Escape') t.blur(); return; }
       const onControl = t && (t.tagName === 'BUTTON' || t.tagName === 'A' || t.tagName === 'SUMMARY');
+      if (ev.key === 'Escape' && filterPanelOpen()) { ev.stopPropagation(); setFilterPanel(false); $('#filterBtn')?.focus(); return; }
       if (ev.key === 'Escape') {
         const open = !page && $('aside').classList.contains('open');
         if (state.selected || open) { ev.stopPropagation(); select(null); setDrawer(false); }
@@ -2199,7 +2728,7 @@ button.label { cursor: pointer; }
       }
       if (onControl) return;
       if (ev.key === 'f') fit();
-      else if (ev.key === 'j' && !$('#journey').hidden) { ev.preventDefault(); $('#journey').focus(); }
+      else if (ev.key === 'j') { ev.preventDefault(); setFilterPanel(true); }
       else if (ev.key === 'v') $('#valuesBtn').click();
       else if (ev.key === ' ') { ev.preventDefault(); $('#flowBtn').click(); }
       else if (ev.key === '/') { ev.preventDefault(); $('#search').focus(); }
@@ -2226,18 +2755,24 @@ button.label { cursor: pointer; }
     });
     $('#flowBtn').addEventListener('click', () => { state.flow = !state.flow; store.set('flow', state.flow); renderButtons(); wake(); });
     $('#valuesBtn').addEventListener('click', () => { state.values = !state.values; store.set('values', state.values); renderButtons(); renderReasons(); applyHighlight(); });
-    $('#journey').addEventListener('change', ev => setJourney(ev.target.value));
     // isolate turns what the search names into the journey shown.
     const isolate = () => {
       let q = $('#search').value.trim();
       if (!q) return;
-      // One word that names a node, not a journey: what that node depends on.
-      if (/^[^\s=:]+$/.test(q) && state.snap && !journeyNames(state.snap).includes(q)) {
+      $('#search').value = ''; state.query = ''; $('#isolateBtn').hidden = true;
+      // key=value (or key:value) filters by that label; a journey's name opens
+      // it; a node's name shows what it depends on.
+      const m = /^([^=:\s]+)\s*[=:]\s*(.+)$/.exec(q);
+      if (m && m[1].toLowerCase() !== 'from' && m[1] !== state.jkey && m[1] !== 'journey') {
+        setFilters({ ...state.filters, facets: { ...state.filters.facets, [m[1]]: [m[2].trim()] } });
+        return;
+      }
+      if (m) q = m[1].toLowerCase() === 'from' ? q : m[2].trim();
+      else if (state.snap && !journeyNames(state.snap, state.jkey).includes(q)) {
         const n = state.snap.nodes.find(x => x.id.toLowerCase() === q.toLowerCase());
         if (n) q = 'from:' + n.id;
       }
-      $('#search').value = ''; state.query = ''; $('#isolateBtn').hidden = true;
-      setJourney(q);
+      setFilters({ ...state.filters, journeys: [q] });
     };
     $('#isolateBtn').addEventListener('click', isolate);
     $('#liveBtn').addEventListener('click', () => {
@@ -2252,7 +2787,10 @@ button.label { cursor: pointer; }
     $('#resetBtn').addEventListener('click', () => { state.positions = {}; store.set(posKey(), {}); topologyKey = ''; renderMap(); fit(); });
     const setMenu = open => { $('#exportMenu').classList.toggle('open', open); $('#exportBtn').setAttribute('aria-expanded', String(open)); };
     $('#exportBtn').addEventListener('click', ev => { ev.stopPropagation(); setMenu(!$('#exportMenu').classList.contains('open')); });
-    app.addEventListener('click', () => setMenu(false));
+    app.addEventListener('click', ev => {
+      setMenu(false);
+      if (filterPanelOpen() && !ev.composedPath().some(x => x === $('#filterPanel') || x?.id === 'filterBtn')) setFilterPanel(false);
+    });
     app.querySelectorAll('[data-export]').forEach(b => b.addEventListener('click', () => exportMap(b.dataset.export)));
     svg.addEventListener('wheel', onWheel, { passive: false });
     svg.addEventListener('pointerdown', onPointerDown);
@@ -2285,12 +2823,15 @@ button.label { cursor: pointer; }
       if (params.has('theme')) host.dataset.theme = params.get('theme');
       if (params.get('live') === '0') opts.stream = false;
       if (params.has('select')) opts.select = params.get('select');
-      if (params.get('legend') === 'icons') state.legendIcons = true;
+      if (params.get('legend') === 'icons') { state.legend = true; state.legendIcons = true; }
+      else if (params.get('legend') === '0') state.legend = false;
       if (params.has('flow')) state.flow = params.get('flow') !== '0';
-      if (params.has('journey')) state.journey = params.get('journey').trim();
+      state.filters = filtersFromParams(params);
+      if (params.has('journeyKey')) state.journeyKey = params.get('journeyKey').trim();
       if (params.has('values')) state.values = params.get('values') !== '0';
     }
-    if (opts.journey) state.journey = String(opts.journey).trim();
+    if (opts.journey) state.filters.journeys = [String(opts.journey).trim()];
+    let hostJourney = opts.journey || '';
     state.positions = stored(posKey(), {});
     if (opts.theme) host.dataset.theme = opts.theme;
 
@@ -2320,9 +2861,11 @@ button.label { cursor: pointer; }
       update(snap, changes) { apply(snap, true); if (changes) pushActivity(changes, state.activity.length > 0); },
       // setStatus reports the host's own query state (the panel's data.state).
       setStatus(error) { state.error = error || ''; renderLive(); },
-      setOptions({ groupBy, flow, journey, values } = {}) {
-        // A journey from the host (a dashboard variable) is the viewer's choice.
-        if (journey != null) setJourney(journey);
+      setOptions({ groupBy, flow, journey, journeyKey, values } = {}) {
+        // A journey from the host (a dashboard variable) is the viewer's
+        // choice; it applies when it changes, keeping filters picked since.
+        if (journey != null && journey !== hostJourney) { hostJourney = journey; setJourney(journey); }
+        if (journeyKey != null && journeyKey !== state.journeyKey) { state.journeyKey = journeyKey; topologyKey = ''; if (state.snap) { renderAll(); state.fitted = fit(); } }
         if (values != null && store.get('values', null) == null && values !== state.values) { state.values = values; renderButtons(); if (state.snap) renderReasons(); }
         if (groupBy != null && store.get('groupBy', null) == null && groupBy !== state.groupBy) { state.groupBy = groupBy; state.expanded.clear(); if (state.snap) { renderGroupBy(); renderMap(); fit(); } }
         if (flow != null && store.get('flow', null) == null && flow !== state.flow) { state.flow = flow; renderButtons(); wake(); }

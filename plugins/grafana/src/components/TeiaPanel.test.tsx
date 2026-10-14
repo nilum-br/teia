@@ -96,7 +96,7 @@ describe('TeiaPanel', () => {
     expect(details).toContain('1.5k');
   });
 
-  it('shows only the journey a dashboard variable picks, with stubs where it leaves', () => {
+  it('shows only the journey a dashboard variable picks, with a port where it leaves', () => {
     const shop = [
       toDataFrame({
         refId: 'nodes',
@@ -110,12 +110,31 @@ describe('TeiaPanel', () => {
     ];
     const { container, rerender } = render(<TeiaPanel {...props({ data: { series: shop, state: LoadingState.Done }, options: { teiaUrl: '', groupBy: '', flow: false, journey: '${journey}', values: true } } as never)} />);
     const root = shadow(container);
-    const drawn = () => [...root.querySelectorAll('.node')].map((n) => `${(n as HTMLElement).dataset.id}${n.classList.contains('stub') ? ' (stub)' : ''}`).sort();
-    expect(drawn()).toEqual(['catalog (stub)', 'orders', 'web']);
-    expect(root.querySelector('.journey-chip')?.textContent).toContain('checkout');
+    const drawn = () => [...root.querySelectorAll('.node')].map((n) => (n as HTMLElement).dataset.id).sort();
+    expect(drawn()).toEqual(['orders', 'web']);
+    expect(root.querySelector('.port')?.textContent).toContain('browse');
+    expect(root.querySelector('.frame-name')?.textContent).toBe('checkout');
+    expect(root.querySelector('.scope .fchip')?.textContent).toContain('checkout');
+    expect(root.querySelector('.scope .headline')?.textContent).toContain('components');
     rerender(<TeiaPanel {...props({ data: { series: shop, state: LoadingState.Done }, options: { teiaUrl: '', groupBy: '', flow: false, journey: '', values: true } } as never)} />);
     expect(drawn()).toEqual(['catalog', 'orders', 'web']);
     expect(localStorage.getItem('teia.panel-dash-1-7.journey')).toBeNull();
+  });
+
+  it('finds journeys in the label the services already carry', () => {
+    const partOf = [
+      toDataFrame({
+        refId: 'nodes',
+        fields: [
+          { name: 'id', values: ['web', 'orders', 'ledger'] },
+          { name: 'labels', values: ['{"app.kubernetes.io/part-of":"shop"}', '{"app.kubernetes.io/part-of":"shop"}', '{"app.kubernetes.io/part-of":"finance"}'] },
+        ],
+      }),
+      toDataFrame({ refId: 'edges', fields: [{ name: 'source', values: ['web'] }, { name: 'target', values: ['orders'] }] }),
+    ];
+    const { container } = render(<TeiaPanel {...props({ data: { series: partOf, state: LoadingState.Done }, options: { teiaUrl: '', groupBy: '', flow: false, journey: 'shop', journeyKey: '', values: true } } as never)} />);
+    const root = shadow(container);
+    expect([...root.querySelectorAll('.node')].map((n) => (n as HTMLElement).dataset.id).sort()).toEqual(['orders', 'web']);
   });
 
   it('treats an All choice or an unresolved variable as the whole map', () => {
