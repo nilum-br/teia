@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -183,11 +184,17 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 	e.memory.Retain(g, now)
 	graph.ApplyTech(g)
 	graph.ApplyHealth(g, e.opts.Health)
+	// Explorers name their node as configured; the graph may spell it otherwise.
+	for i := range statuses {
+		for j, id := range statuses[i].Explores {
+			statuses[i].Explores[j] = g.Canonical(id)
+		}
+	}
 
 	var fromSources []model.Finding
 	for _, r := range results {
 		for _, f := range r.Observation.Findings {
-			if !g.Ignored[f.Subject] {
+			if !g.Ignored[g.Canonical(f.Subject)] {
 				fromSources = append(fromSources, f)
 			}
 		}
@@ -327,8 +334,8 @@ func status(src source.Source, obs source.Observation, err error, d time.Duratio
 		Type:     src.Type(),
 		State:    model.SourceOK,
 		Message:  obs.Message,
-		Explores: obs.Explores,
-		Nodes:    len(obs.Nodes),
+		Explores: slices.Clone(obs.Explores),
+		Nodes:    source.CountNodes(obs),
 		Edges:    len(obs.Edges),
 		Duration: d,
 	}

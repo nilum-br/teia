@@ -134,7 +134,7 @@ func report(out io.Writer, obs source.Observation, err error) {
 	case obs.Degraded:
 		fmt.Fprintf(out, "  !  %s\n", obs.Message)
 	default:
-		fmt.Fprintf(out, "  ok %s (%d nodes, %d edges)\n", obs.Message, len(obs.Nodes), len(obs.Edges))
+		fmt.Fprintf(out, "  ok %s (%d nodes, %d edges)\n", obs.Message, source.CountNodes(obs), len(obs.Edges))
 	}
 	for _, f := range obs.Findings {
 		fmt.Fprintf(out, "     %s: %s\n", severityLabel(f.Severity), f.Title)

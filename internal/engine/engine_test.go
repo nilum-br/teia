@@ -262,3 +262,36 @@ func (r *recorder) Notify(_ context.Context, changes []model.Change) error {
 	r.once.Do(func() { r.got <- changes })
 	return nil
 }
+
+func TestRefreshMatchesExplorersAndIgnoresWhateverTheirSpelling(t *testing.T) {
+	traffic := source.Observation{
+		Nodes: []source.NodeObservation{{ID: "orders-db", Kind: model.KindDatabase}},
+		Edges: []source.EdgeObservation{{From: "web", To: "orders-db", Signal: source.SignalTraces}},
+		Findings: []model.Finding{
+			{Rule: "own", Severity: model.SeverityWarning, Subject: "Legacy-Batch", Title: "about an ignored node"},
+		},
+	}
+	traces := &scripted{name: "traces", typ: "prometheus", steps: []func(context.Context) (source.Observation, error){returns(traffic)}}
+	pg := &scripted{name: "postgres/orders", typ: "postgres", steps: []func(context.Context) (source.Observation, error){
+		returns(source.Observation{Explores: []string{"Orders"}}),
+	}}
+
+	e := New([]source.Source{traces, pg}, Options{
+		Interval: time.Second, Retention: time.Minute,
+		Aliases: map[string]string{"orders": "orders-db"},
+		Ignore:  []string{"legacy-batch"},
+	}, quiet())
+	snap := e.Refresh(context.Background())
+
+	if got := statusOf(t, snap, "postgres/orders").Explores; len(got) != 1 || got[0] != "orders-db" {
+		t.Errorf("explores = %v, want [orders-db]", got)
+	}
+	for _, f := range snap.Findings {
+		if f.Subject == "orders-db" && strings.Contains(f.Title, "cannot look inside") {
+			t.Errorf("orders-db is explored, yet: %s", f.Title)
+		}
+		if f.Rule == "own" {
+			t.Errorf("a finding about an ignored node survived: %+v", f)
+		}
+	}
+}

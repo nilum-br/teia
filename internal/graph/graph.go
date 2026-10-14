@@ -27,6 +27,18 @@ type Graph struct {
 	// UnknownCallers maps a node, then a signal, to the traffic it receives
 	// from callers that signal could not identify.
 	UnknownCallers map[string]map[string]UnknownCallers
+
+	canonical func(string) string
+}
+
+// Canonical returns the node ID the graph uses for id: normalised, then
+// aliased. Anything that names nodes outside the graph (findings, explorer
+// targets) goes through it before comparing.
+func (g *Graph) Canonical(id string) string {
+	if g.canonical == nil {
+		return NormalizeID(id)
+	}
+	return g.canonical(id)
 }
 
 // UnknownCallers is traffic into a node from callers one signal cannot name.
@@ -158,7 +170,7 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 		return ok && !o.since.IsZero() && o.since.After(now.Add(-window))
 	}
 
-	g := &Graph{Nodes: map[string]*model.Node{}, Edges: map[string]*model.Edge{}, Ignored: ignored, UnknownCallers: map[string]map[string]UnknownCallers{}}
+	g := &Graph{Nodes: map[string]*model.Node{}, Edges: map[string]*model.Edge{}, Ignored: ignored, UnknownCallers: map[string]map[string]UnknownCallers{}, canonical: canonical}
 	kindRank := map[string]int{}
 	selfReported := map[string]bool{}
 

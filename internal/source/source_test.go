@@ -51,3 +51,10 @@ func TestSafeLabels(t *testing.T) {
 		t.Error("SafeLabels(nil) must return an empty map callers can add to")
 	}
 }
+
+func TestCountNodesCountsDistinctIDs(t *testing.T) {
+	obs := Observation{Nodes: []NodeObservation{{ID: "orders"}, {ID: "orders"}, {ID: "web"}}}
+	if got := CountNodes(obs); got != 2 {
+		t.Fatalf("CountNodes = %d, want 2", got)
+	}
+}

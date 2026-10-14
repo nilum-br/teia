@@ -149,3 +149,13 @@ type Source interface {
 	Type() string
 	Discover(ctx context.Context) (Observation, error)
 }
+
+// CountNodes is the number of distinct nodes an observation names. An
+// inventory reports a workload once per pod and once per Service address.
+func CountNodes(obs Observation) int {
+	seen := make(map[string]struct{}, len(obs.Nodes))
+	for _, n := range obs.Nodes {
+		seen[n.ID] = struct{}{}
+	}
+	return len(seen)
+}
