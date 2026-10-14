@@ -70,15 +70,28 @@ Everything ends up keyed by a **node ID**, which is a plain name such as `orders
 | `ip:172.18.0.14`, seen by the postgres explorer | `orders`, if an inventory source owns that address |
 | anything listed in `aliases:` | its alias target |
 
+IDs are case-insensitive: every source's names are lowercased (OTel `OrderService` and a flows file's
+`orderservice` are one node), and `aliases:` and `ignore:` match whatever the case. `ip:...` IDs are
+kept as they are.
+
 Unresolved addresses stay as `ip:...` nodes and trigger the `unresolved-address` finding. This is the
 riskiest part of the design: poolers (PgBouncer), SNAT, sidecars and recycled pod IPs all blur
-identity. The plan is to add confidence and provenance per resolution, and a Kubernetes inventory with
-IP history.
+identity. Inventories report since when each address is held, per pod and per Service ClusterIP, so a
+rollout only makes the new pods' addresses ambiguous for a while. The plan is to add confidence and
+provenance per resolution.
+
+**Known limitation: the namespace is not part of the ID.** `redis` running in ten namespaces (or a
+`redis` compose service in two projects) becomes one node, with every caller and address of all ten.
+Set `teia.nilum.io/node-id` (Kubernetes) or `teia.node` (Docker) to tell them apart for now. The planned
+option is namespace-qualified IDs (`shop/redis`).
 
 ## Merge rules
 
-- **Kind** comes from the most trusted opinion: an operator label (`teia.kind`) beats a flows file, which
-  beats a guess from traffic (`db.system` on client spans).
+- **Kind** comes from the most trusted opinion: an operator label (`teia.kind`, `teia.nilum.io/kind`)
+  beats a flows file, which beats a guess from traffic (`db.system` on client spans). Without that label an
+  inventory has no opinion; if nobody has one, the technology (from the image, for instance) decides.
+- **External**: a node no inventory lists, that only its callers report, is marked external, but only when
+  every inventory answered in full; a failed or degraded inventory leaves it `unknown`.
 - **Visibility** of a node:
   - `full`: it reports its own telemetry, or an explorer can see inside it;
   - `partial`: it is only seen through peers;

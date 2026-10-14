@@ -72,6 +72,50 @@ const (
 // SignalLabel is the node label recording that a signal saw the node.
 func SignalLabel(signal string) string { return "teia.signal." + signal }
 
+// sensitiveLabelKeys are substrings (matched case-insensitively) of label keys
+// that tend to carry credentials or whole manifests: basic-auth hashes in
+// Traefik labels, tokens and keys passed as labels, the last applied
+// configuration kubectl keeps. Labels end up in the unauthenticated API, so
+// inventories drop these rather than trust every team to keep labels clean.
+var sensitiveLabelKeys = []string{
+	"password", "passwd", "secret", "token",
+	"apikey", "api-key", "api_key",
+	"credential", "basicauth", "auth.users",
+	"private-key", "private_key", "cert",
+	"kubectl.kubernetes.io/last-applied-configuration",
+}
+
+// MaxLabelValue is the longest label value kept: anything longer is a blob
+// (a manifest, a certificate, a script), not something to group or filter by.
+const MaxLabelValue = 256
+
+// SensitiveLabel reports whether a label should be kept out of the graph,
+// by its key or by the size of its value.
+func SensitiveLabel(key, value string) bool {
+	if len(value) > MaxLabelValue {
+		return true
+	}
+	key = strings.ToLower(key)
+	for _, s := range sensitiveLabelKeys {
+		if strings.Contains(key, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// SafeLabels copies the labels that are safe to expose. It never returns nil,
+// so callers can add their own labels to the result.
+func SafeLabels(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		if !SensitiveLabel(k, v) {
+			out[k] = v
+		}
+	}
+	return out
+}
+
 // UnknownCaller is traffic into Callee whose callers Signal cannot name: the
 // service graph "user" (callers without traces), Istio "unknown" (callers
 // without a sidecar).

@@ -117,25 +117,92 @@ func LookupTech(name string) (Tech, bool) {
 	return t, ok
 }
 
-var imageWord = regexp.MustCompile(`[a-z0-9]+(?:\.[a-z0-9]+)?`)
+// vendorImages are repositories whose name does not start with the
+// technology they run. Keys are the repository name, or "namespace/name"
+// when the name alone is too generic.
+var vendorImages = map[string]string{
+	"cp-kafka":                        "kafka", // confluentinc
+	"cp-server":                       "kafka",
+	"cp-enterprise-kafka":             "kafka",
+	"percona-server-mongodb":          "mongodb", // "percona" alone is MySQL
+	"percona-distribution-postgresql": "postgresql",
+	"postgis":                         "postgresql",
+	"pgvector":                        "postgresql",
+	"azure-sql-edge":                  "mssql",
+	"mssql/server":                    "mssql", // mcr.microsoft.com/mssql/server
+	"couchbase/server":                "couchbase",
+	"ingress-nginx/controller":        "nginx", // registry.k8s.io/ingress-nginx/controller
+}
+
+// companionWords mark images built around a technology that carry its name
+// without being it: UIs and admin tools (kafka-ui, mongo-express,
+// redis-commander), exporters and agents, proxies and poolers (pg-bouncer),
+// operators, clients, and apps or jobs that use it (kafka-consumer,
+// postgres-migrations). They are matched as whole words, since "cli" is
+// inside "clickhouse" and "ui" inside "druid".
+var companionWords = map[string]bool{
+	"exporter": true, "agent": true,
+	"ui": true, "gui": true, "console": true, "dashboard": true, "dashboards": true,
+	"admin": true, "commander": true, "express": true, "manager": true,
+	"proxy": true, "bouncer": true, "router": true,
+	"operator": true, "controller": true,
+	"client": true, "cli": true, "box": true, "connect": true, "rest": true,
+	"consumer": true, "producer": true, "worker": true,
+	"backup": true, "init": true, "migrate": true, "migrations": true, "migrator": true,
+}
+
+var imageWords = regexp.MustCompile(`[a-z0-9]+`)
+
+// imageTech looks a name up among the technologies an image can reveal:
+// products, not workload shapes, since "api" or "web" in an image name says
+// little about what runs.
+func imageTech(name string) (Tech, bool) {
+	t, ok := techs[name]
+	if !ok {
+		return Tech{}, false
+	}
+	switch t.Category {
+	case CatService, CatFrontend, CatJob, CatFunction, CatExternal:
+		return Tech{}, false
+	}
+	return t, true
+}
 
 // techFromImage reads a container image reference such as
-// "docker.io/bitnami/postgresql:16" or "redis:8.2-alpine".
+// "docker.io/bitnami/postgresql:16" or "redis:8.2-alpine". Only the
+// repository name counts (not the registry, namespace or tag), and it has to
+// be the technology itself ("postgres", "bitnami/postgresql"), a known vendor
+// variant, or start with it ("redis-stack-server", "timescaledb-ha"), with no
+// word naming a companion tool.
 func techFromImage(image string) (Tech, bool) {
-	image = strings.ToLower(image)
-	if i := strings.LastIndex(image, "/"); i >= 0 {
-		image = image[i+1:]
-	}
-	if i := strings.IndexAny(image, ":@"); i >= 0 {
+	image = strings.ToLower(strings.TrimSpace(image))
+	if i := strings.IndexByte(image, '@'); i >= 0 { // digest
 		image = image[:i]
 	}
-	if t, ok := techs[image]; ok && t.Category != CatService && t.Category != CatFrontend && t.Category != CatJob {
+	if i := strings.LastIndexByte(image, ':'); i > strings.LastIndexByte(image, '/') { // tag, not a registry port
+		image = image[:i]
+	}
+	segments := strings.Split(image, "/")
+	repo := segments[len(segments)-1]
+	if len(segments) > 1 {
+		if id, ok := vendorImages[segments[len(segments)-2]+"/"+repo]; ok {
+			return techs[id], true
+		}
+	}
+	if id, ok := vendorImages[repo]; ok {
+		return techs[id], true
+	}
+	if t, ok := imageTech(repo); ok {
 		return t, true
 	}
-	for _, w := range imageWord.FindAllString(image, -1) {
-		if t, ok := techs[w]; ok && t.Category != CatService && t.Category != CatFrontend && t.Category != CatJob && t.Category != CatExternal {
-			return t, true
+	words := imageWords.FindAllString(repo, -1)
+	for _, w := range words {
+		if companionWords[w] {
+			return Tech{}, false
 		}
+	}
+	if len(words) > 0 {
+		return imageTech(words[0])
 	}
 	return Tech{}, false
 }

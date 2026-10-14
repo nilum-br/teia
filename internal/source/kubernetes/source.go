@@ -9,6 +9,10 @@
 //	teia.nilum.io/kind:    service | database | cache | queue | external
 //	teia.nilum.io/tech:    technology for the icon (postgresql, redis, kafka...)
 //	teia.nilum.io/ignore:  "true" to keep it out of the graph
+//
+// Without the kind annotation a workload reports kind "unknown": a pod
+// running is no evidence of what it is, so flows files, explorers and the
+// image decide.
 package kubernetes
 
 import (
@@ -21,11 +25,14 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	k8s "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/pager"
 
 	"github.com/nilum-br/teia/internal/model"
 	"github.com/nilum-br/teia/internal/source"
@@ -114,50 +121,61 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		excluded[ns] = true
 	}
 
-	nodes := map[string]*source.NodeObservation{}
-	podWorkload := map[string]string{} // namespace/pod -> node ID
+	// A workload's pods start at different times (rollouts, scale-ups), and
+	// an address is only trusted over a time window if its holder had it for
+	// the whole window. So every pod, and every Service IP, is its own
+	// observation of the workload, carrying its own addresses and since when
+	// it holds them; the graph merges them back into one node.
+	workloads := map[string]*source.NodeObservation{} // node ID -> kind, labels, ignore
+	held := map[string][]source.NodeObservation{}     // node ID -> addresses and since when
+	podWorkload := map[string]string{}                // namespace/pod -> node ID
+	podsByNamespace := map[string][]*corev1.Pod{}
 	for i := range pods {
 		p := &pods[i]
 		if excluded[p.Namespace] || p.Status.Phase != corev1.PodRunning {
 			continue
 		}
 		id, workloadKind := workloadOf(p)
-		n, ok := nodes[id]
+		w, ok := workloads[id]
 		if !ok {
-			n = &source.NodeObservation{
+			w = &source.NodeObservation{
 				ID:     id,
-				Kind:   model.NodeKind(p.Annotations[annotationPrefix+"kind"]),
+				Kind:   model.KindUnknown,
 				Labels: userLabels(p.Labels),
 			}
-			n.Labels["k8s.namespace"] = p.Namespace
-			n.Labels["k8s.workload"] = workloadKind
+			if k := strings.TrimSpace(p.Annotations[annotationPrefix+"kind"]); k != "" {
+				w.Kind = model.NodeKind(strings.ToLower(k))
+			}
+			w.Labels["k8s.namespace"] = p.Namespace
+			w.Labels["k8s.workload"] = workloadKind
 			if len(p.Spec.Containers) > 0 {
-				n.Labels["image"] = p.Spec.Containers[0].Image
+				w.Labels["image"] = p.Spec.Containers[0].Image
 			}
 			if t := p.Annotations[annotationPrefix+"tech"]; t != "" {
-				n.Labels["teia.tech"] = t
+				w.Labels["teia.tech"] = t
 			}
-			if n.Kind == "" {
-				n.Kind = model.KindService
-			}
-			nodes[id] = n
+			workloads[id] = w
 		}
 		if p.Annotations[annotationPrefix+"ignore"] == "true" {
-			n.Ignore = true
+			w.Ignore = true
 		}
-		if p.Status.StartTime != nil && p.Status.StartTime.Time.After(n.Since) {
-			n.Since = p.Status.StartTime.Time
+		h := source.NodeObservation{ID: id}
+		if p.Status.StartTime != nil {
+			h.Since = p.Status.StartTime.Time
 		}
 		if !p.Spec.HostNetwork { // host-network pods share the node IP
 			for _, ip := range p.Status.PodIPs {
-				n.Addresses = append(n.Addresses, ip.IP)
+				h.Addresses = append(h.Addresses, ip.IP)
 			}
 		}
+		held[id] = append(held[id], h)
 		podWorkload[p.Namespace+"/"+p.Name] = id
+		podsByNamespace[p.Namespace] = append(podsByNamespace[p.Namespace], p)
 	}
 
 	// A Service whose selector picks exactly one workload lends it its
-	// ClusterIP, so connections to the Service IP resolve too.
+	// ClusterIP, so connections to the Service IP resolve too. The ClusterIP
+	// belongs to the Service since it was created, whatever its pods do.
 	for i := range services {
 		svc := &services[i]
 		if excluded[svc.Namespace] || len(svc.Spec.Selector) == 0 {
@@ -165,39 +183,54 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		}
 		sel := labels.SelectorFromSet(svc.Spec.Selector)
 		owners := map[string]bool{}
-		for j := range pods {
-			p := &pods[j]
-			if p.Namespace == svc.Namespace && sel.Matches(labels.Set(p.Labels)) {
-				if id, ok := podWorkload[p.Namespace+"/"+p.Name]; ok {
-					owners[id] = true
-				}
+		for _, p := range podsByNamespace[svc.Namespace] {
+			if sel.Matches(labels.Set(p.Labels)) {
+				owners[podWorkload[p.Namespace+"/"+p.Name]] = true
 			}
 		}
 		if len(owners) != 1 {
 			continue
 		}
 		for id := range owners {
+			h := source.NodeObservation{ID: id, Since: svc.CreationTimestamp.Time}
 			for _, ip := range svc.Spec.ClusterIPs {
 				if ip != "" && ip != corev1.ClusterIPNone {
-					nodes[id].Addresses = append(nodes[id].Addresses, ip)
+					h.Addresses = append(h.Addresses, ip)
 				}
 			}
-			nodes[id].Labels["k8s.service"] = svc.Name
+			if len(h.Addresses) > 0 {
+				held[id] = append(held[id], h)
+			}
+			workloads[id].Labels["k8s.service"] = svc.Name
 		}
 	}
 
-	ids := make([]string, 0, len(nodes))
-	for id := range nodes {
+	ids := make([]string, 0, len(workloads))
+	for id := range workloads {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	for _, id := range ids {
-		obs.Nodes = append(obs.Nodes, *nodes[id])
+		w := workloads[id]
+		for _, h := range held[id] {
+			n := *w // every observation describes the whole workload
+			n.Addresses, n.Since = h.Addresses, h.Since
+			obs.Nodes = append(obs.Nodes, n)
+		}
 	}
-	obs.Message = fmt.Sprintf("%d workloads from %d pods", len(nodes), len(podWorkload))
+	obs.Message = fmt.Sprintf("%d workloads from %d pods", len(workloads), len(podWorkload))
 	return obs, nil
 }
 
+// pageSize bounds each list response, so a large cluster is read in chunks
+// rather than one huge response.
+const pageSize = 500
+
+// list reads pods and services every round. ResourceVersion "0" lets the API
+// server answer from its watch cache instead of a quorum read from etcd, and
+// the pager follows Continue tokens (falling back to a full list if a token
+// expires). The next step for very large clusters is shared informers, which
+// watch for changes instead of listing every round.
 func (s *Source) list(ctx context.Context) ([]corev1.Pod, []corev1.Service, error) {
 	namespaces := s.cfg.Namespaces
 	if len(namespaces) == 0 {
@@ -206,18 +239,46 @@ func (s *Source) list(ctx context.Context) ([]corev1.Pod, []corev1.Service, erro
 	var pods []corev1.Pod
 	var services []corev1.Service
 	for _, ns := range namespaces {
-		pl, err := s.client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
+		err := listAll(ctx, func(ctx context.Context, opts metav1.ListOptions) (runtime.Object, error) {
+			return s.client.CoreV1().Pods(ns).List(ctx, opts)
+		}, func(obj runtime.Object) error {
+			p, ok := obj.(*corev1.Pod)
+			if !ok {
+				return fmt.Errorf("unexpected %T in a pod list", obj)
+			}
+			pods = append(pods, *p)
+			return nil
+		})
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("listing pods: %w", err)
 		}
-		pods = append(pods, pl.Items...)
-		sl, err := s.client.CoreV1().Services(ns).List(ctx, metav1.ListOptions{})
+		err = listAll(ctx, func(ctx context.Context, opts metav1.ListOptions) (runtime.Object, error) {
+			return s.client.CoreV1().Services(ns).List(ctx, opts)
+		}, func(obj runtime.Object) error {
+			svc, ok := obj.(*corev1.Service)
+			if !ok {
+				return fmt.Errorf("unexpected %T in a service list", obj)
+			}
+			services = append(services, *svc)
+			return nil
+		})
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("listing services: %w", err)
 		}
-		services = append(services, sl.Items...)
 	}
 	return pods, services, nil
+}
+
+// listAll pages through one list from the API server's cache and calls each
+// for every item.
+func listAll(ctx context.Context, page pager.ListPageFunc, each func(runtime.Object) error) error {
+	p := pager.New(page)
+	p.PageSize = pageSize
+	list, _, err := p.List(ctx, metav1.ListOptions{ResourceVersion: "0"})
+	if err != nil {
+		return err
+	}
+	return meta.EachListItem(list, each)
 }
 
 var cronJobSuffix = regexp.MustCompile(`^(.+)-\d{8,}$`)
@@ -230,11 +291,13 @@ var machineLabels = map[string]bool{
 	"batch.kubernetes.io/controller-uid": true, "apps.kubernetes.io/pod-index": true,
 }
 
+// userLabels keeps the labels people set, minus those that may carry
+// credentials (see source.SafeLabels).
 func userLabels(in map[string]string) map[string]string {
-	out := map[string]string{}
-	for k, v := range in {
-		if !machineLabels[k] {
-			out[k] = v
+	out := source.SafeLabels(in)
+	for k := range out {
+		if machineLabels[k] {
+			delete(out, k)
 		}
 	}
 	return out

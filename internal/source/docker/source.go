@@ -8,6 +8,9 @@
 //	teia.kind:   service | database | cache | queue | external
 //	teia.tech:   technology for the icon (postgresql, redis, kafka...)
 //	teia.ignore: "true" to keep it out of the graph
+//
+// Without teia.kind a container reports kind "unknown": the inventory knows
+// it runs, not what it is, so flows files, explorers and the image decide.
 package docker
 
 import (
@@ -150,18 +153,16 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 // noise to grouping and filtering.
 var machineLabelPrefixes = []string{"com.docker.", "org.opencontainers.", "desktop.docker.io/", "teia."}
 
+// userLabels keeps the labels people set, minus those that may carry
+// credentials (see source.SafeLabels).
 func userLabels(in map[string]string) map[string]string {
-	out := map[string]string{}
-	for k, v := range in {
-		machine := false
+	out := source.SafeLabels(in)
+	for k := range out {
 		for _, p := range machineLabelPrefixes {
 			if strings.HasPrefix(k, p) {
-				machine = true
+				delete(out, k)
 				break
 			}
-		}
-		if !machine {
-			out[k] = v
 		}
 	}
 	return out

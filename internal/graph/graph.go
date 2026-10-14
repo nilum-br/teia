@@ -68,7 +68,9 @@ func (g *Graph) Callers(id string) []string {
 }
 
 // kindPriority decides whose opinion about a node's kind wins: an operator
-// label on a container beats a declaration, which beats a guess from traffic.
+// label or annotation (teia.kind, teia.nilum.io/kind) beats a declaration,
+// which beats a guess from traffic. Inventories report a kind only when it is
+// set explicitly; otherwise they say "unknown", which never wins.
 var kindPriority = map[string]int{
 	"docker":     3,
 	"kubernetes": 3,
@@ -85,6 +87,18 @@ func priorityOf(sourceType string) int {
 	return 1
 }
 
+// NormalizeID is the form every node ID takes in the graph: trimmed and
+// lowercased, so OpenTelemetry's "OrderService" and a flows file's
+// "orderservice" are one node whatever source names it. Unresolved addresses
+// ("ip:...") are kept as they are.
+func NormalizeID(id string) string {
+	id = strings.TrimSpace(id)
+	if source.IsAddressID(id) {
+		return id
+	}
+	return strings.ToLower(id)
+}
+
 // Build merges every source's observations into one graph.
 func Build(results []Result, aliases map[string]string, ignore []string) *Graph {
 	return BuildAt(results, aliases, ignore, time.Now())
@@ -94,11 +108,15 @@ func Build(results []Result, aliases map[string]string, ignore []string) *Graph 
 func BuildAt(results []Result, aliases map[string]string, ignore []string, now time.Time) *Graph {
 	ignored := map[string]bool{}
 	for _, id := range ignore {
-		ignored[id] = true
+		ignored[NormalizeID(id)] = true
+	}
+	aliasOf := make(map[string]string, len(aliases))
+	for from, to := range aliases {
+		aliasOf[NormalizeID(from)] = NormalizeID(to)
 	}
 	canonical := func(id string) string {
-		id = strings.TrimSpace(id)
-		if a, ok := aliases[id]; ok {
+		id = NormalizeID(id)
+		if a, ok := aliasOf[id]; ok {
 			return a
 		}
 		return id
@@ -236,7 +254,7 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 		}
 	}
 
-	markOutside(g, results, selfReported)
+	markOutside(g, results, canonical, selfReported)
 
 	seen := map[string]bool{}
 	for _, e := range g.Edges {
@@ -328,20 +346,27 @@ func appendUnique(s []string, v string) []string {
 // markOutside: when an inventory lists what runs on the platform, a node of
 // unknown kind that no inventory lists and that only its callers report is
 // outside the platform (a SaaS, a partner API): external.
-func markOutside(g *Graph, results []Result, selfReported map[string]bool) {
+//
+// Only a complete list supports that conclusion. An inventory that failed or
+// saw less than it could (missing RBAC, no socket) may have missed workloads
+// that are very much inside, and one that lists nothing proves nothing, so
+// in either case kinds are left unknown rather than called external.
+func markOutside(g *Graph, results []Result, canonical func(string) string, selfReported map[string]bool) {
 	inventoried := map[string]bool{}
-	hasInventory := false
+	listed := false
 	for _, r := range results {
-		t := r.Source.Type()
-		if r.Err != nil || (t != "docker" && t != "kubernetes") {
+		if t := r.Source.Type(); t != "docker" && t != "kubernetes" {
 			continue
 		}
-		hasInventory = true
+		if r.Err != nil || r.Observation.Degraded {
+			return
+		}
 		for _, n := range r.Observation.Nodes {
-			inventoried[n.ID] = true
+			inventoried[canonical(n.ID)] = true
+			listed = true
 		}
 	}
-	if !hasInventory {
+	if !listed {
 		return
 	}
 	for id, n := range g.Nodes {

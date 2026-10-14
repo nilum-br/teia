@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -118,6 +119,110 @@ func TestBuildKindPriorityAndAliases(t *testing.T) {
 	}
 }
 
+// An inventory knows a workload runs, not what it is: without an explicit
+// kind it must not outrank flows files, explorers or the image.
+func TestInventoryKindIsOnlyAnOpinionWhenExplicit(t *testing.T) {
+	results := []Result{
+		result("kubernetes", "kubernetes", source.Observation{Nodes: []source.NodeObservation{
+			{ID: "orders-db", Kind: model.KindUnknown, Labels: map[string]string{"image": "postgres:18"}},
+			{ID: "billing-db", Kind: model.KindUnknown, Labels: map[string]string{"image": "bitnami/postgresql:17"}},
+			{ID: "sessions", Kind: model.KindUnknown, Labels: map[string]string{"image": "redis:8"}},
+			{ID: "orders", Kind: model.KindUnknown, Labels: map[string]string{"image": "ghcr.io/acme/orders:1.2"}},
+			{ID: "ledger", Kind: model.KindUnknown, Labels: map[string]string{"image": "ghcr.io/acme/ledger:3"}},
+			{ID: "partner-mock", Kind: model.KindExternal}, // teia.nilum.io/kind annotation
+		}}),
+		result("declared", "declared", source.Observation{Nodes: []source.NodeObservation{
+			{ID: "ledger", Kind: model.KindDatabase},
+			{ID: "partner-mock", Kind: model.KindService},
+		}}),
+		result("servicegraph", "servicegraph", source.Observation{Nodes: []source.NodeObservation{
+			{ID: "orders-db", Kind: model.KindDatabase},
+		}}),
+	}
+	g := Build(results, nil, nil)
+	ApplyTech(g)
+	want := map[string]model.NodeKind{
+		"orders-db":    model.KindDatabase, // traffic says so, nobody says otherwise
+		"billing-db":   model.KindDatabase, // from the image
+		"sessions":     model.KindCache,    // from the image
+		"orders":       model.KindUnknown,  // still a workload for the advisor
+		"ledger":       model.KindDatabase, // the flows file decides
+		"partner-mock": model.KindExternal, // an explicit annotation beats a flows file
+	}
+	for id, w := range want {
+		if got := g.Nodes[id].Kind; got != w {
+			t.Errorf("%s: kind %s, want %s", id, got, w)
+		}
+	}
+}
+
+func TestMarkOutsideTrustsOnlyCompleteInventories(t *testing.T) {
+	traffic := result("servicegraph", "servicegraph", source.Observation{
+		Nodes: []source.NodeObservation{{ID: "orders", SelfReported: true}},
+		Edges: []source.EdgeObservation{
+			{From: "orders", To: "stripe"},
+			{From: "orders", To: "orders-db"},
+		},
+	})
+	inventory := func(obs source.Observation, err error) Result {
+		r := result("kubernetes", "kubernetes", obs)
+		r.Err = err
+		return r
+	}
+	listed := source.Observation{Nodes: []source.NodeObservation{{ID: "orders"}, {ID: "pg-main"}}}
+	cases := []struct {
+		name      string
+		inventory Result
+		external  bool // whether stripe becomes external
+	}{
+		{"complete", inventory(listed, nil), true},
+		{"failed", inventory(source.Observation{}, errors.New("connection refused")), false},
+		{"degraded", inventory(source.Observation{Degraded: true}, nil), false},
+		{"empty", inventory(source.Observation{}, nil), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			g := Build([]Result{traffic, c.inventory}, map[string]string{"pg-main": "orders-db"}, nil)
+			if got := g.Nodes["stripe"].Kind == model.KindExternal; got != c.external {
+				t.Errorf("stripe external = %v, want %v", got, c.external)
+			}
+			if g.Nodes["orders-db"].Kind == model.KindExternal {
+				t.Error("an inventoried node known under an alias is not external")
+			}
+		})
+	}
+}
+
+func TestIDsAreCaseInsensitive(t *testing.T) {
+	results := []Result{
+		result("declared", "declared", source.Observation{Edges: []source.EdgeObservation{
+			{From: "orderservice", To: "payments", Declared: true},
+		}}),
+		result("servicegraph", "servicegraph", source.Observation{
+			Nodes: []source.NodeObservation{{ID: "OrderService", SelfReported: true}},
+			Edges: []source.EdgeObservation{
+				{From: "OrderService", To: "Payments"},
+				{From: "OrderService", To: "PG-Main"},
+				{From: "OrderService", To: "LoadGen"},
+				{From: source.AddressID("FE80::1"), To: "OrderService"},
+			},
+		}),
+	}
+	g := Build(results, map[string]string{"pg-main": "Orders-DB"}, []string{"LOADGEN"})
+	want := []string{"orderservice->payments", "orderservice->orders-db", "ip:FE80::1->orderservice"}
+	if len(g.Edges) != len(want) {
+		t.Fatalf("got edges %v, want %v", g.SortedEdges(), want)
+	}
+	for _, key := range want {
+		if _, ok := g.Edges[key]; !ok {
+			t.Errorf("missing edge %s in %v", key, g.SortedEdges())
+		}
+	}
+	if e := g.Edges["orderservice->payments"]; e != nil && e.State != model.EdgeOK {
+		t.Errorf("declared and observed edge should be ok, got %s", e.State)
+	}
+}
+
 func TestCoverage(t *testing.T) {
 	g := &Graph{
 		Nodes: map[string]*model.Node{
@@ -164,5 +269,28 @@ func TestRecycledAddressesAreNotMisattributed(t *testing.T) {
 	}
 	if _, ok := g.Edges["newcomer->db"]; !ok {
 		t.Error("a point-in-time observation resolves to the current owner")
+	}
+}
+
+// Inventories report one observation per pod, so a rollout only makes the
+// new pod's address ambiguous, not every address of the workload.
+func TestAddressesAreTimedPerObservation(t *testing.T) {
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	results := []Result{
+		result("kubernetes", "kubernetes", source.Observation{Nodes: []source.NodeObservation{
+			{ID: "orders", Addresses: []string{"10.0.0.7"}, Since: now.Add(-time.Hour)},
+			{ID: "orders", Addresses: []string{"10.0.0.8"}, Since: now.Add(-30 * time.Second)},
+			{ID: "catalog", Addresses: []string{"10.0.0.9"}, Since: now.Add(-time.Hour)},
+		}}),
+		result("loki/access-logs", "loki-query", source.Observation{Edges: []source.EdgeObservation{
+			{From: source.AddressID("10.0.0.7"), To: source.AddressID("10.0.0.9"), Window: 2 * time.Minute},
+		}}),
+	}
+	g := BuildAt(results, nil, nil, now)
+	if _, ok := g.Edges["orders->catalog"]; !ok {
+		t.Errorf("the older pod held its address for the whole window: %v", g.SortedEdges())
+	}
+	if got := g.Nodes["orders"].Addresses; len(got) != 2 {
+		t.Errorf("orders addresses = %v, want both pods'", got)
 	}
 }
