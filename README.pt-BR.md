@@ -106,11 +106,11 @@ Atrás de proxy com inspeção TLS? Coloque a CA como `.crt` em `certs/` antes d
 
 Depois, `teia detect` mostra o que a plataforma oferece e gera um `teia.yaml` inicial, e `teia serve` sobe a API e
 a interface. Antes de expor a API além do localhost, configure `auth.token` (e `cors.allowedOrigins` para o modo
-direto do painel do Grafana): veja [Configuração](docs/configuration.md).
+direto do painel do Grafana): veja [Expondo a API](docs/architecture.md#exposing-the-api).
 
 ## Documentação
 
-[Sinais e fontes](docs/sources.md) · [Configuração](docs/configuration.md) · [Arquitetura](docs/architecture.md) ·
+[Sinais e fontes](docs/sources.md) · [Arquitetura](docs/architecture.md) ·
 [Regras do advisor](docs/advisor.md) · [Ícones](docs/icons.md) · [Especificação dos flows](docs/flows-spec.md) ·
 [Roadmap](docs/roadmap.md) · [Panorama](docs/landscape.md)
 

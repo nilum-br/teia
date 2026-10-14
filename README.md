@@ -127,7 +127,7 @@ Behind a TLS-inspecting proxy? Drop its CA as a `.crt` in `certs/` before buildi
 
 Then `teia detect` prints what your platform offers and a starting `teia.yaml`, and `teia serve` runs the API and
 the UI. Before exposing the API beyond localhost, set `auth.token` (and `cors.allowedOrigins` for the Grafana
-panel's direct mode): see [Configuration](docs/configuration.md).
+panel's direct mode): see [Exposing the API](docs/architecture.md#exposing-the-api).
 
 ## Declaring flows
 
@@ -155,7 +155,7 @@ traffic. See [docs/flows-spec.md](docs/flows-spec.md).
 
 ## Docs
 
-[Signals and sources](docs/sources.md) · [Configuration](docs/configuration.md) · [Architecture](docs/architecture.md) ·
+[Signals and sources](docs/sources.md) · [Architecture](docs/architecture.md) ·
 [Advisor rules](docs/advisor.md) · [Icon library](docs/icons.md) · [Flows spec](docs/flows-spec.md) · [Roadmap](docs/roadmap.md) ·
 [Landscape](docs/landscape.md)
 
