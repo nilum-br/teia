@@ -1,0 +1,147 @@
+# A complete teia.yaml: every key teia accepts and every source type, with
+# made-up names. Everything is optional; copy what your platform has.
+# Reference: docs/configuration.md. A test loads this file, so it stays valid.
+#
+# ${NAME} is replaced by the environment variable NAME, and ${NAME:-default}
+# by default when NAME is unset or empty. An unset ${NAME} without a default is
+# an error, so a missing secret cannot quietly turn a setting off. Only the
+# braced form is expanded: $window and regex anchors in queries stay as they
+# are. Unknown keys are errors too.
+
+# --- API and UI --------------------------------------------------------------
+
+# ":8080" binds every interface; "127.0.0.1:8080" this machine only.
+listen: ${TEIA_LISTEN:-:8080}
+
+# Every endpoint but /healthz then needs "Authorization: Bearer <token>".
+# Browsers open /?token=<token> once and get a session cookie.
+auth:
+  token: ${TEIA_TOKEN}
+
+# Browser origins that may read /api/v1/* from another site: the Grafana panel
+# in direct mode. Scheme and host only, no path. "*" allows any origin.
+cors:
+  allowedOrigins: [https://grafana.example.com]
+
+# Concurrent /api/v1/stream clients; more get 503 with Retry-After.
+maxStreams: 100
+
+# --- discovery rounds --------------------------------------------------------
+
+# Durations use Go syntax: 30s, 2m, 1h30m.
+interval: 30s  # one discovery round every 30 seconds
+timeout: 20s   # each source gets this long per round
+retention: 90s # keep an edge (and a failing source's last good answer) this long; default 3 x interval
+
+# yellow from 1% errors, red from 5% (error rates between 0 and 1)
+health:
+  degraded: 0.01
+  failing: 0.05
+
+# One node for things known under several names (matched case-insensitively).
+# A key can also be an address no inventory knows.
+aliases:
+  orders-service: orders
+  "ip:192.0.2.10": payment-gateway
+
+# Nodes left out of the graph, with their edges and findings.
+ignore: [loadgen, otel-collector]
+
+# --- changes pushed elsewhere ------------------------------------------------
+
+notify:
+  webhooks:
+    - url: ${SLACK_WEBHOOK_URL}
+      format: slack
+      events: [edge.added, edge.health, node.health, finding.opened]
+    - url: https://hooks.example.com/teia
+      format: json # the default
+      headers:
+        Authorization: Bearer ${HOOK_TOKEN}
+      # no events: every change is sent
+
+# --- sources -----------------------------------------------------------------
+
+sources:
+  # Intent: Flows documents (*.yaml, *.yml) anywhere under these paths.
+  declared:
+    paths: [./flows, ../services]
+
+  # Prometheus-compatible APIs: Prometheus, Thanos, Mimir, VictoriaMetrics.
+  prometheus:
+    - name: main
+      url: http://prometheus:9090
+      window: 5m
+      presets: [auto] # detect every known metric family (the default)
+    - name: mesh
+      url: https://mimir.example.com/prometheus
+      window: 5m
+      presets: [istio, istio-tcp] # skip detection, use these
+      headers:
+        Authorization: Bearer ${MIMIR_TOKEN}
+        X-Scope-OrgID: platform
+
+  # Traces straight from Tempo, even without the metrics-generator.
+  tempo:
+    - name: traces
+      url: http://tempo:3200
+      window: 15m
+      tracesPerService: 20 # sample per service and round
+      maxTraces: 400       # sample per round
+      headers:
+        X-Scope-OrgID: platform
+
+  # Any PromQL or LogQL query that returns one series per caller/callee pair.
+  queries:
+    # Access logs in Loki name callers that emit nothing themselves.
+    - name: access-logs
+      dialect: loki
+      url: http://loki:3100
+      window: 5m
+      query: sum by (service, remote_addr, protocol) (rate({namespace="shop"} | json | __error__="" [$window]))
+      from: remote_addr
+      fromAddress: true # an IP, resolved through the inventory
+      to: service
+      protocolLabel: protocol
+      protocol: http # for series without that label
+      headers:
+        X-Scope-OrgID: platform
+    # A custom exporter that names both ends.
+    - name: kafka-clients
+      dialect: prometheus # the default
+      url: http://prometheus:9090
+      window: 5m
+      query: sum by (client_id, topic) (rate(kafka_server_client_produce_requests_total[$window]))
+      from: client_id
+      to: topic
+      protocol: kafka
+      toKind: queue
+    # Egress flow metrics keyed by destination address.
+    - name: egress-flows
+      url: http://prometheus:9090
+      query: sum by (src_workload, dst_ip) (rate(egress_flow_packets_total[$window]))
+      from: src_workload
+      to: dst_ip
+      toAddress: true
+      toKind: external
+
+  # Inventory: workloads, pod and Service IPs, labels and images.
+  # Both keys empty: in-cluster config, else KUBECONFIG / ~/.kube/config.
+  kubernetes:
+    kubeconfig: /etc/teia/kubeconfig
+    context: platform
+    namespaces: [shop, payments] # empty: all namespaces
+    excludeNamespaces: [kube-system, kube-public, kube-node-lease, monitoring]
+
+  # Inventory: containers. Point it at a socket proxy that only allows
+  # listing containers (see docs/sources.md). Empty host: DOCKER_HOST, then the
+  # usual place for this OS. "socket: /path" is a shorthand for
+  # "host: unix:///path".
+  docker:
+    host: tcp://docker-proxy:2375
+    project: shop # one compose project only
+
+  # Inside a database: every client connected to it, from pg_stat_activity.
+  postgres:
+    - node: orders-db
+      dsn: postgres://teia:${TEIA_PG_PASSWORD}@orders-db:5432/orders?sslmode=disable
