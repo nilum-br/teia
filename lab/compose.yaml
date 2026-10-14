@@ -266,7 +266,7 @@ services:
   # Builds the teia Grafana panel (plugins/grafana) so the lab needs nothing
   # but Docker. Runs once; Grafana starts after it.
   teia-panel:
-    image: node:24-bookworm
+    image: node:24.21.0-trixie
     restart: "no"
     labels:
       teia.ignore: "true"

@@ -9,6 +9,6 @@ COPY lab/demo/ .
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/demo .
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian13:nonroot
 COPY --from=build /out/demo /usr/local/bin/demo
 ENTRYPOINT ["/usr/local/bin/demo"]
