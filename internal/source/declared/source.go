@@ -118,9 +118,10 @@ var skipDirs = map[string]bool{".git": true, "node_modules": true, "vendor": tru
 const maxFileSize = 1 << 20
 
 // files lists the YAML files under the configured paths, and the
-// subdirectories that could not be read. Links inside the paths are not
-// followed, so the walk stays in the tree it was given; the configured paths
-// themselves may be links (a mounted volume).
+// subdirectories that could not be read. The walk stays in the tree it was
+// given: a link is followed only when it ends inside it, as a mounted
+// ConfigMap's do. The configured paths themselves may be links (a mounted
+// volume).
 func (s *Source) files() (files, problems []string, err error) {
 	for _, root := range s.paths {
 		resolved, err := filepath.EvalSymlinks(root)
@@ -128,7 +129,7 @@ func (s *Source) files() (files, problems []string, err error) {
 			return nil, nil, fmt.Errorf("reading %s: %w", root, err)
 		}
 		err = filepath.WalkDir(resolved, func(path string, d fs.DirEntry, err error) error {
-			isRoot := path == resolved
+			isRoot, real := path == resolved, path
 			// Report paths under the configured name, not the link target.
 			if rel, relErr := filepath.Rel(resolved, path); relErr == nil {
 				path = filepath.Join(root, rel)
@@ -141,25 +142,24 @@ func (s *Source) files() (files, problems []string, err error) {
 				return nil
 			}
 			if d.IsDir() {
-				if !isRoot && skipDirs[d.Name()] {
+				// kubelet keeps a mounted ConfigMap's files in ..<timestamp>
+				// and links each name to it: read them once, by their names.
+				if !isRoot && (skipDirs[d.Name()] || strings.HasPrefix(d.Name(), "..")) {
 					return filepath.SkipDir
 				}
 				return nil
-			}
-			if !d.Type().IsRegular() {
-				return nil // links, sockets, devices
 			}
 			switch strings.ToLower(filepath.Ext(path)) {
 			case ".yaml", ".yml":
 			default:
 				return nil
 			}
-			info, err := d.Info()
+			info, ok, err := target(resolved, real, d)
 			if err != nil {
 				problems = append(problems, problem(path, err))
 				return nil
 			}
-			if info.Size() <= maxFileSize {
+			if ok && info.Size() <= maxFileSize {
 				files = append(files, path)
 			}
 			return nil
@@ -169,6 +169,35 @@ func (s *Source) files() (files, problems []string, err error) {
 		}
 	}
 	return files, problems, nil
+}
+
+// target describes what the walk reads at path: the file itself, or what a
+// link points to when it ends inside root, as a mounted ConfigMap's links do
+// (orders.yaml -> ..data/orders.yaml). ok is false for anything else: a link
+// out of the tree or dangling (kubelet swaps ..data while it updates), a
+// socket, a device.
+func target(root, path string, d fs.DirEntry) (info fs.FileInfo, ok bool, err error) {
+	if d.Type().IsRegular() {
+		info, err = d.Info()
+		return info, err == nil, err
+	}
+	if d.Type()&fs.ModeSymlink == 0 {
+		return nil, false, nil
+	}
+	dest, err := filepath.EvalSymlinks(path)
+	if err == nil && within(root, dest) {
+		if info, err = os.Stat(dest); err != nil {
+			return nil, false, err
+		}
+		return info, info.Mode().IsRegular(), nil
+	}
+	return nil, false, nil
+}
+
+// within reports whether path is root or below it.
+func within(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
 // problem renders a file error once: fs errors already quote their path.

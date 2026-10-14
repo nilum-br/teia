@@ -116,6 +116,17 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		return obs, err
 	}
 
+	// A workload's labels and annotations come from its newest pod that is
+	// not on its way out: during a rollout the old pods still run and hold
+	// their addresses, but no longer say what the workload is now.
+	sort.SliceStable(pods, func(i, j int) bool {
+		a, b := &pods[i], &pods[j]
+		if (a.DeletionTimestamp == nil) != (b.DeletionTimestamp == nil) {
+			return a.DeletionTimestamp == nil
+		}
+		return b.CreationTimestamp.Before(&a.CreationTimestamp)
+	})
+
 	excluded := map[string]bool{}
 	for _, ns := range s.cfg.ExcludeNamespaces {
 		excluded[ns] = true

@@ -1,0 +1,24 @@
+apiVersion: v2
+name: teia
+description: >-
+  Maps how your services communicate from the telemetry you already run, compares it with what teams declared,
+  and says where it is blind. One pod; no CRD, no operator, no agent.
+type: application
+# The chart's own version; appVersion is teia's, and the image tag by default.
+version: 0.1.0
+appVersion: "0.1.0-alpha.1"
+kubeVersion: ">=1.27.0-0"
+home: https://github.com/nilum-br/teia
+sources:
+  - https://github.com/nilum-br/teia
+icon: https://raw.githubusercontent.com/nilum-br/teia/main/docs/assets/logo-mark.svg
+keywords:
+  - observability
+  - service-map
+  - grafana
+  - opentelemetry
+  - prometheus
+  - tempo
+maintainers:
+  - name: Nilum
+    url: https://nilum.com.br

@@ -118,6 +118,27 @@ func TestInventory(t *testing.T) {
 	}
 }
 
+// During a rollout the old pods still run: their addresses still count, but
+// the workload's labels are the new pods' (a label added in this rollout,
+// such as the journey, must not flicker away until the old pods are gone).
+func TestRolloutTakesLabelsFromTheNewPods(t *testing.T) {
+	gone := metav1.Now()
+	old := pod("shop", "web-1111-aaaaa", "10.1.0.5", ctrl("ReplicaSet", "web-1111"), map[string]string{"app": "web", "pod-template-hash": "1111"}, nil)
+	old.CreationTimestamp = metav1.Time{Time: time.Now().Add(-time.Hour)}
+	old.DeletionTimestamp = &gone
+	older := pod("shop", "web-0000-zzzzz", "10.1.0.4", ctrl("ReplicaSet", "web-0000"), map[string]string{"app": "web", "pod-template-hash": "0000"}, nil)
+	older.CreationTimestamp = metav1.Time{Time: time.Now().Add(-2 * time.Hour)}
+	fresh := pod("shop", "web-2222-bbbbb", "10.1.0.6", ctrl("ReplicaSet", "web-2222"), map[string]string{"app": "web", "app.kubernetes.io/part-of": "shop", "pod-template-hash": "2222"}, nil)
+	fresh.CreationTimestamp = metav1.Time{Time: time.Now().Add(-time.Minute)}
+	web := byID(discover(t, fake.NewSimpleClientset(old, older, fresh)).Nodes)["web"]
+	if web.Labels["app.kubernetes.io/part-of"] != "shop" {
+		t.Errorf("labels should come from the newest pod, got %v", web.Labels)
+	}
+	if len(web.Addresses) != 3 {
+		t.Errorf("every pod still holds its address, got %+v", web.Addresses)
+	}
+}
+
 // A rollout or scale-up must not make the addresses of the workload's older
 // pods look recently reassigned.
 func TestAddressesCarryTheirOwnSince(t *testing.T) {

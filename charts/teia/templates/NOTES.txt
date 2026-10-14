@@ -1,0 +1,23 @@
+teia is running as {{ include "teia.fullname" . }} in {{ .Release.Namespace }}: one pod, read-only.
+
+1. Open the map:
+
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "teia.fullname" . }} 8480:{{ .Values.service.port }}
+     open http://localhost:8480{{ if include "teia.authSecret" . }}/?token=<your token>{{ end }}
+
+   The Next steps tab says what teia cannot see yet and how to fix it.
+{{- $sources := default (dict) .Values.config.sources }}
+{{- if not (or $sources.prometheus $sources.tempo $sources.queries) }}
+
+2. Point it at your telemetry. No Prometheus, Tempo or Loki is configured yet, so
+   the map only shows the inventory. Ask teia what yours offer:
+
+     kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "teia.fullname" . }} -- \
+       teia detect --prometheus http://prometheus-operated.monitoring:9090 --tempo http://tempo.monitoring:3200
+
+   and copy its sources into config.sources in your values.
+{{- end }}
+
+Grafana: add an Infinity data source with URL
+http://{{ include "teia.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }} and import the teia dashboard
+(see "Use it in your Grafana" in the README).

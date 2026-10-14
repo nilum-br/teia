@@ -159,7 +159,7 @@ func TestSourceIgnoresOtherYAML(t *testing.T) {
 	// Over the size cap, a broken Flows document is not even read.
 	write(t, filepath.Join(dir, "huge.yaml"), bad+strings.Repeat("# padding\n", maxFileSize/10+1))
 
-	// Links inside the tree are not followed, to files or directories.
+	// Links out of the tree are not followed, to files or directories.
 	outside := t.TempDir()
 	write(t, filepath.Join(outside, "flows.yaml"), bad)
 	if err := os.Symlink(filepath.Join(outside, "flows.yaml"), filepath.Join(dir, "link.yaml")); err != nil {
@@ -177,6 +177,37 @@ func TestSourceIgnoresOtherYAML(t *testing.T) {
 	}
 	if len(obs.Edges) != 2 {
 		t.Errorf("want the 2 edges of catalog-info.yaml, got %+v", obs.Edges)
+	}
+}
+
+// A ConfigMap mounted by kubelet: the files live in ..<timestamp>, ..data
+// links to it and each name links through ..data. Each file is read once,
+// and named by its own name.
+func TestFlowsFromAMountedConfigMap(t *testing.T) {
+	dir := t.TempDir()
+	stamp := "..2026_10_14_21_00_00.000000001"
+	write(t, filepath.Join(dir, stamp, "orders.yaml"), flows)
+	write(t, filepath.Join(dir, stamp, "broken.yaml"), bad)
+	if err := os.Symlink(stamp, filepath.Join(dir, "..data")); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	for _, name := range []string{"orders.yaml", "broken.yaml"} {
+		if err := os.Symlink(filepath.Join("..data", name), filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	obs, err := New("declared", []string{dir}).Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(obs.Edges) != 2 {
+		t.Errorf("want the 2 edges of orders.yaml once, got %d: %+v", len(obs.Edges), obs.Edges)
+	}
+	if len(obs.Findings) != 1 {
+		t.Fatalf("want one finding for broken.yaml, got %+v", obs.Findings)
+	}
+	if d := obs.Findings[0].Detail; !strings.Contains(d, filepath.Join(dir, "broken.yaml")) || strings.Contains(d, stamp) {
+		t.Errorf("the finding should name broken.yaml by its own name, got %q", d)
 	}
 }
 

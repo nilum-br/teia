@@ -1,0 +1,39 @@
+# Exercised by CI (helm lint/template): every optional part on.
+config:
+  cors:
+    allowedOrigins: [https://grafana.example.com]
+  sources:
+    kubernetes: {}
+    prometheus:
+      - name: prometheus
+        url: http://prometheus-operated.monitoring:9090
+    tempo:
+      - name: tempo
+        url: http://tempo.monitoring:3200
+flows:
+  orders.yaml: |
+    apiVersion: teia.nilum.io/v1alpha1
+    kind: Flows
+    metadata:
+      name: orders
+    spec:
+      owner: component:default/orders
+      egress:
+        - to: component:default/payments
+          protocol: http
+          port: 8080
+          reason: charge the customer
+auth:
+  token: change-me
+env:
+  - name: TEIA_PG_PASSWORD
+    valueFrom:
+      secretKeyRef: { name: orders-db-teia, key: password }
+ingress:
+  enabled: true
+  className: nginx
+  tls:
+    - hosts: [teia.example.com]
+      secretName: teia-tls
+serviceMonitor:
+  enabled: true

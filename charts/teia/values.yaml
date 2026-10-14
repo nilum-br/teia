@@ -1,0 +1,137 @@
+# teia is one pod. It reads the telemetry you already run, the cluster's
+# inventory and the flows files teams declare, and serves the map, the API
+# (which the Grafana panel reads) and /metrics on one port. It installs no
+# CRD, no operator and no agent, and writes nothing to the cluster.
+
+image:
+  repository: ghcr.io/nilum-br/teia
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# teia's configuration, written to teia.yaml as is: every key is in
+# docs/configuration.md. ${NAME} reads the environment variable NAME, so
+# secrets stay in Secrets (see env). The chart sets three things itself:
+# listen, auth.token (from auth below) and sources.declared (the flows below).
+config:
+  interval: 30s
+  # Origins of a Grafana that reads teia from the browser (the panel's direct
+  # mode), such as https://grafana.example.com. Not needed for dashboard queries.
+  cors:
+    allowedOrigins: []
+  sources:
+    # The cluster's inventory: workloads, their labels and owners, and which
+    # pod or Service IP belongs to whom. Read-only (see rbac).
+    kubernetes:
+      excludeNamespaces: [kube-system, kube-public, kube-node-lease]
+    # The telemetry you already run. List what you have; teia detects what
+    # each one offers (`teia detect` prints these for you, see NOTES).
+    # prometheus:
+    #   - name: prometheus
+    #     url: http://prometheus-operated.monitoring:9090
+    # tempo:
+    #   - name: tempo
+    #     url: http://tempo.monitoring:3200
+
+# Flows documents: what each service is meant to call. They are files, not
+# Kubernetes objects (no CRD): teia reads them from /etc/teia/flows, and
+# picks up changes without a restart. Each key is a file name.
+flows: {}
+#  orders.yaml: |
+#    apiVersion: teia.nilum.io/v1alpha1
+#    kind: Flows
+#    metadata:
+#      name: orders
+#    spec:
+#      owner: component:default/orders
+#      egress:
+#        - to: component:default/payments
+#          protocol: http
+#          port: 8080
+#          reason: charge the customer
+
+# A ConfigMap you manage instead (from CI or GitOps), each key a flows file.
+# When set, flows above is ignored.
+flowsConfigMap: ""
+
+# Without a token, the API and the UI are open to whoever reaches the Service.
+auth:
+  # A Secret you manage, holding the token under the key "token". It turns on
+  # "Authorization: Bearer <token>" for the API, the UI and /metrics.
+  # Letters, digits, - and _ only: openssl rand -hex 32.
+  existingSecret: ""
+  # Or a token the chart keeps in a Secret of its own.
+  token: ""
+
+# Extra environment, such as a password a source's config reads with ${NAME}.
+env: []
+#  - name: TEIA_PG_PASSWORD
+#    valueFrom:
+#      secretKeyRef: { name: orders-db-teia, key: password }
+envFrom: []
+
+rbac:
+  # A ClusterRole that can only get, list and watch pods, services and
+  # namespaces: no Secrets, no exec, no logs, no writes.
+  create: true
+
+serviceAccount:
+  create: true
+  # Defaults to the release's full name.
+  name: ""
+  annotations: {}
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: teia.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# A ServiceMonitor for the Prometheus Operator: teia's own metrics, including
+# edge and node health, for alerts.
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  labels: {}
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 512Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+podAnnotations: {}
+podLabels: {}
+priorityClassName: ""
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# The image `helm test` runs to call /healthz.
+test:
+  image: busybox:1.37.0
