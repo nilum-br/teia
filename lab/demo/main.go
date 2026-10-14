@@ -61,6 +61,15 @@ func env(key, def string) string {
 }
 
 func main() {
+	if err := run(); err != nil {
+		log.Error("stopped", "err", err)
+		os.Exit(1)
+	}
+}
+
+// run plays the container's ROLE until it is done or signalled. Returning,
+// rather than exiting, lets the deferred telemetry flush run first.
+func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -69,8 +78,7 @@ func main() {
 	if env("TELEMETRY", "on") == "on" {
 		shutdown, err := setupTelemetry(ctx, name)
 		if err != nil {
-			log.Error("telemetry setup failed", "err", err)
-			os.Exit(1)
+			return fmt.Errorf("telemetry setup: %w", err)
 		}
 		defer shutdown()
 	}
@@ -88,10 +96,10 @@ func main() {
 	default:
 		err = serve(ctx)
 	}
-	if err != nil && !errors.Is(err, context.Canceled) {
-		log.Error("stopped", "err", err)
-		os.Exit(1)
+	if errors.Is(err, context.Canceled) {
+		return nil
 	}
+	return err
 }
 
 func setupTelemetry(ctx context.Context, name string) (func(), error) {
@@ -232,7 +240,8 @@ func pingRedis(ctx context.Context, addr, peer string) {
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(time.Second))
-	if _, err := conn.Write([]byte("*1\r\n$4\r\nPING\r\n")); err == nil {
+	// A read error must reach the span too, not only a write error.
+	if _, err = conn.Write([]byte("*1\r\n$4\r\nPING\r\n")); err == nil {
 		_, err = bufio.NewReader(conn).ReadString('\n')
 	}
 	if err != nil {

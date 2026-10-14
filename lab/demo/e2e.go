@@ -190,7 +190,12 @@ func e2e(ctx context.Context) error {
 	if err := pgExec(ctx, dsn, "GRANT pg_monitor TO teia"); err != nil {
 		return err
 	}
-	defer pgExec(context.WithoutCancel(ctx), dsn, "REVOKE pg_monitor FROM teia")
+	// Leave the lab as it was, so the next run starts from the same picture.
+	defer func() {
+		if err := pgExec(context.WithoutCancel(ctx), dsn, "REVOKE pg_monitor FROM teia"); err != nil {
+			fmt.Println("  could not revoke pg_monitor again:", err)
+		}
+	}()
 
 	after, ok := waitFor(ctx, url, "The hidden client shows up", []check{
 		{"database: legacy-reports -> orders-db, seen only from inside postgres", func(s *snapshot) bool { return s.edge("legacy-reports", "orders-db", "postgres/orders-db") }},
