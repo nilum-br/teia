@@ -1,28 +1,50 @@
 name: release
 
-# Tag vX.Y.Z to publish binaries for Linux, macOS and Windows (amd64, arm64)
-# and a multi-arch image on ghcr.io. Run it by hand to build everything
-# without publishing.
+# Push a tag vX.Y.Z to release. CI runs first; then the binaries (Linux, macOS
+# and Windows, amd64 and arm64) and the Grafana panel zip are attached to a
+# draft release, the multi-arch image is pushed to ghcr.io, and only then is
+# the release published. A tag with a hyphen (v1.2.0-rc.1) is a pre-release.
+#
+# Run it by hand (workflow_dispatch) to build everything without publishing.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
 
-permissions:
-  contents: write
-  packages: write
+# Every job asks for what it needs.
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # vX.Y.Z for a tag, dev-<commit> for a manual run. Scripts read it from the
+  # environment, never through ${{ }}, because a tag name is user input.
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   binaries:
+    needs: ci
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # Release builds start clean: no cache restored from other runs.
+          cache: false
       - name: build
-        env:
-          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}
         run: |
           mkdir -p dist
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
@@ -39,25 +61,108 @@ jobs:
               tar -C build -czf "dist/$name.tar.gz" "$name"
             fi
           done
-          (cd dist && sha256sum * > checksums.txt)
           ls -l dist
       - uses: actions/upload-artifact@v7
         with:
-          name: teia-binaries
+          name: binaries
           path: dist/*
-      - name: publish release
-        if: github.ref_type == 'tag'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          prerelease=""
-          case "${{ github.ref_name }}" in *-*) prerelease="--prerelease";; esac
-          gh release create "${{ github.ref_name }}" dist/* --generate-notes $prerelease
+          if-no-files-found: error
 
-  image:
+  panel:
+    needs: ci
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: plugins/grafana
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm ci --no-audit --no-fund
+      - name: version the panel like the release
+        if: github.ref_type == 'tag'
+        # plugin.json takes its version from package.json at build time.
+        run: npm pkg set "version=${VERSION#v}"
+      - run: npm run build
+      - name: package nilum-teia-panel-<version>.zip
+        # The layout Grafana expects: one top-level folder named after the plugin ID.
+        run: |
+          mkdir -p package
+          cp -R dist package/nilum-teia-panel
+          (cd package && zip -qr "nilum-teia-panel-${VERSION#v}.zip" nilum-teia-panel)
+          unzip -l "package/nilum-teia-panel-${VERSION#v}.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: panel
+          path: plugins/grafana/package/*.zip
+          if-no-files-found: error
+
+  draft:
+    needs: [binaries, panel]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the draft release and upload its assets
+      id-token: write # sign the build provenance attestation
+      attestations: write # store it
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: binaries
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: panel
+          path: dist
+      - name: checksums
+        working-directory: dist
+        run: |
+          sha256sum -- * > checksums.txt
+          cat checksums.txt
+      - name: attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-checksums: dist/checksums.txt
+      - name: create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=()
+          case "$TAG" in *-*) prerelease=(--prerelease) ;; esac
+          if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$draft" != true ]; then
+              echo "::error::release $TAG is already published; tag a new version instead"
+              exit 1
+            fi
+            # A re-run: refresh the assets of the existing draft.
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --draft --verify-tag --generate-notes --title "$TAG" "${prerelease[@]}"
+          fi
+
+  image:
+    needs: draft
+    # Also runs on manual runs, where draft is skipped, but never after a failure.
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write # push to ghcr.io
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
@@ -81,4 +186,22 @@ jobs:
           push: ${{ github.ref_type == 'tag' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: VERSION=${{ github.ref_name }}
+          build-args: VERSION=${{ env.VERSION }}
+          # SBOM and full provenance, attached to the pushed image.
+          sbom: ${{ github.ref_type == 'tag' }}
+          provenance: ${{ github.ref_type == 'tag' && 'mode=max' || 'false' }}
+
+  publish:
+    needs: [draft, image]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # turn the draft into a published release
+    steps:
+      - name: publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release edit "$TAG" --draft=false

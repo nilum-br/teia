@@ -4,9 +4,18 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The release workflow runs this first, so nothing that fails here is released.
+  workflow_call:
 
 permissions:
   contents: read
+
+concurrency:
+  # A new push to a pull request cancels its previous run. Runs on main and
+  # release calls are never cancelled. The "ci-" prefix keeps this group apart
+  # from the release workflow's own group when it calls this workflow.
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -16,8 +25,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -39,10 +51,53 @@ jobs:
         working-directory: lab/demo
         run: go vet ./... && go build .
 
-  cross-compile:
+  lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # The checks below run even when an earlier one fails, so one run reports them all.
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          # Keep in sync with GOLANGCI_LINT_VERSION in the Makefile.
+          version: v2.14.0
+      - name: go.mod and go.sum are tidy
+        if: ${{ !cancelled() }}
+        run: |
+          go mod tidy -diff
+          (cd lab/demo && go mod tidy -diff)
+      - name: actionlint
+        if: ${{ !cancelled() }}
+        # Also runs shellcheck on every run: block (shellcheck is on the runner).
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: shellcheck
+        if: ${{ !cancelled() }}
+        run: git ls-files -z '*.sh' | xargs -0 --no-run-if-empty shellcheck
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: golang/govulncheck-action@v1
+        with:
+          repo-checkout: false
+          go-version-file: go.mod
+
+  cross-compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -54,41 +109,85 @@ jobs:
 
   grafana-panel:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: plugins/grafana
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: plugins/grafana/package-lock.json
+      - name: map component tests (teia-ui.js, shared with teia's own UI)
+        working-directory: .
+        run: node --test internal/api/teia-ui.test.mjs
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
+      - run: npm run lint
       - run: npm run test:ci
       - run: npm run build
       - uses: actions/upload-artifact@v7
         with:
           name: nilum-teia-panel
           path: plugins/grafana/dist
+          if-no-files-found: error
 
   image:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Pull requests build the native platform only, without QEMU.
+      # main and release calls build every platform the release publishes.
+      PLATFORMS: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: docker/setup-qemu-action@v4
+        if: github.event_name != 'pull_request'
       - uses: docker/setup-buildx-action@v4
-      - name: build linux/amd64 and linux/arm64
-        run: docker buildx build --platform linux/amd64,linux/arm64 -t teia:ci .
+      - name: build ${{ env.PLATFORMS }}
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: ${{ env.PLATFORMS }}
+          push: false
+          tags: teia:ci
 
   lab-e2e:
     runs-on: ubuntu-latest
     needs: test
+    timeout-minutes: 30
+    env:
+      COMPOSE_FILE: lab/compose.yaml
     steps:
       - uses: actions/checkout@v7
-      - name: run the lab and check what teia finds
-        run: bash lab/e2e.sh
+        with:
+          persist-credentials: false
+      - name: start the lab
+        # Everything except Grafana and the panel build, which the check does not use.
+        run: |
+          mapfile -t services < <(docker compose config --services | grep -vxE 'grafana|teia-panel')
+          docker compose up -d --build "${services[@]}"
+      - name: check what teia finds
+        run: docker compose run --rm e2e
       - name: lab logs on failure
         if: failure()
-        run: docker compose -f lab/compose.yaml logs --tail 80
+        run: |
+          mkdir -p lab-logs
+          docker compose ps --all > lab-logs/ps.txt 2>&1 || true
+          docker compose logs --no-color --timestamps > lab-logs/compose.log 2>&1 || true
+          docker compose logs --no-color --tail 80 || true
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: lab-logs
+          path: lab-logs/
+          retention-days: 14
+      - name: stop the lab
+        if: always()
+        run: docker compose down -v --remove-orphans

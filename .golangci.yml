@@ -1,0 +1,43 @@
+# golangci-lint v2. Run locally with `make lint` or `make check`.
+# The set is meant to catch bugs, not to enforce taste: add a linter only if
+# it stays quiet on the current code or its findings are worth fixing.
+version: "2"
+
+linters:
+  # errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  enable:
+    - bodyclose
+    - copyloopvar
+    - durationcheck
+    - errorlint
+    - gocritic
+    - makezero
+    - misspell
+    - nilerr
+    - nolintlint
+    - unconvert
+    - usestdlibvars
+    - wastedassign
+  # misspell keeps its default locale: British and American spellings are both fine.
+  exclusions:
+    generated: strict
+    presets:
+      - comments
+      - std-error-handling
+      - common-false-positives
+    rules:
+      # Test helpers write canned responses and compare errors by identity on purpose.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - errorlint
+      # A usage line may end with "FILE...".
+      - linters:
+          - staticcheck
+        text: "ST1005"
+        source: '"usage: '
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
