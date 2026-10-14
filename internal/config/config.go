@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 
 	"github.com/nilum-br/teia/internal/engine"
 	"github.com/nilum-br/teia/internal/graph"
