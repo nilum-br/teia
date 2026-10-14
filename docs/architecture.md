@@ -112,6 +112,32 @@ option is namespace-qualified IDs (`shop/redis`).
 - **Ignore**: `ignore:` in the config or `teia.ignore=true` on a container drops a node, its edges and
   the findings about it.
 
+## Health and its reasons
+
+A colour alone says something is wrong, not what. So every node and edge carries **reasons**: the golden signals
+past their limits, each with its value, the limit it crossed and a summary (`p95 900 ms, over 500 ms`). Its health
+is the worst of them: `degraded` (amber) or `failing` (red); `healthy` when it has traffic and no reason;
+`unknown` when nothing was measured.
+
+| Cause | Measured as | Limits (`health` in teia.yaml) |
+|---|---|---|
+| `errors` | failed share of calls | 1% amber, 5% red |
+| `latency` | p95 of calls | 500 ms amber, 2 s red |
+| `saturation`, `backlog`, `locks` | reserved for datastore, broker and resource signals | |
+
+An edge is judged on its own calls. A node is judged on the calls it serves: their error rate and their p95,
+weighted by each caller's traffic (a node nobody calls is judged on the calls it makes, without latency).
+
+**Where it comes from.** A caller that waits on a slow callee is slow too, and so is its own caller. To point at
+the origin rather than light up the whole chain, a latency or error reason names its likely source (`via`): the
+node's outgoing call with the worst value, when that call accounts for most of it (70% of the p95, half of the
+error rate). An edge into such a node inherits the same `via`. The map shows it as `p95 900 ms from inventory`.
+The rule is deliberately plain and one hop deep: it is a lead, not a verdict.
+
+Reasons reach the map (a tag on each amber or red card and line), the details panel, the Grafana frames
+(`reasons`, `detail__why`), change events and webhooks (`orders → payments is degraded (3.7% errors, over 1.0%)`)
+and `teia discover`.
+
 ## Coverage
 
 - **visibility**: share of non-external nodes with full visibility.

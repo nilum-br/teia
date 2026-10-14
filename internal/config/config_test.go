@@ -85,6 +85,9 @@ func TestParseRejects(t *testing.T) {
 		{"health out of range", "health: {degraded: 2}", "between 0 and 1"},
 		{"degraded above failing", "health: {degraded: 0.2, failing: 0.1}", "health.degraded (0.2) must not be above health.failing (0.1)"},
 		{"degraded above the default failing", "health: {degraded: 0.1}", "health.degraded (0.1) must not be above health.failing (0.05)"},
+		{"latency degraded above failing", "health: {latency: {degraded: 3s, failing: 1s}}", "health.latency.degraded (3.0 s) must not be above health.latency.failing (1.0 s)"},
+		{"latency degraded above the default failing", "health: {latency: {degraded: 5s}}", "health.latency.degraded (5.0 s) must not be above health.latency.failing (2.0 s)"},
+		{"negative latency", "health: {latency: {failing: -1s}}", "health.latency limits must not be negative"},
 		{"duplicate prometheus names", "sources:\n  prometheus:\n    - {name: main, url: http://a}\n    - {name: main, url: http://b}", `two sources are named "prometheus/main"`},
 		{"a query named like a prometheus source", "sources:\n  prometheus:\n    - {name: x, url: http://a}\n  queries:\n    - {name: x, url: http://p, query: q, from: a, to: b}", `two sources are named "prometheus/x"`},
 		{"duplicate postgres nodes", "sources:\n  postgres:\n    - {node: db, dsn: x}\n    - {node: db, dsn: y}", `two sources are named "postgres/db"`},
@@ -119,6 +122,10 @@ func TestParseAccepts(t *testing.T) {
 				return c.Auth.Token == "abc" && len(c.CORS.AllowedOrigins) == 2 && c.MaxStreams == 10
 			}},
 		{"only failing, above the default degraded", "health: {failing: 0.2}", func(c *Config) bool { return c.HealthThresholds().Failing == 0.2 }},
+		{"latency limits in milliseconds", "health: {latency: {degraded: 250ms, failing: 1s}}", func(c *Config) bool {
+			t := c.HealthThresholds()
+			return t.LatencyDegradedMs == 250 && t.LatencyFailingMs == 1000
+		}},
 		{"unnamed sources get numbers", "sources:\n  prometheus:\n    - url: http://a\n    - url: http://b",
 			func(c *Config) bool {
 				src := c.BuildSources()

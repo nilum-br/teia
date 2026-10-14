@@ -52,10 +52,18 @@ type Config struct {
 	Sources    Sources `yaml:"sources"`
 }
 
-// Health sets the error-rate thresholds for yellow and red (0..1).
+// Health sets the limits of each golden signal for amber and red.
 type Health struct {
-	Degraded float64 `yaml:"degraded"`
-	Failing  float64 `yaml:"failing"`
+	// Degraded and Failing are error rates (0..1).
+	Degraded float64       `yaml:"degraded"`
+	Failing  float64       `yaml:"failing"`
+	Latency  LatencyLimits `yaml:"latency"`
+}
+
+// LatencyLimits apply to the p95 of calls.
+type LatencyLimits struct {
+	Degraded time.Duration `yaml:"degraded"`
+	Failing  time.Duration `yaml:"failing"`
 }
 
 // Notify sends changes between rounds to webhooks.
@@ -92,6 +100,12 @@ func (c *Config) HealthThresholds() graph.HealthThresholds {
 	}
 	if c.Health.Failing > 0 {
 		t.Failing = c.Health.Failing
+	}
+	if d := c.Health.Latency.Degraded; d > 0 {
+		t.LatencyDegradedMs = float64(d) / float64(time.Millisecond)
+	}
+	if f := c.Health.Latency.Failing; f > 0 {
+		t.LatencyFailingMs = float64(f) / float64(time.Millisecond)
 	}
 	return t
 }
@@ -340,6 +354,13 @@ func (c *Config) validate() error {
 	} else if t := c.HealthThresholds(); t.Degraded > t.Failing {
 		bad("health.degraded (%g) must not be above health.failing (%g); unset values default to %g and %g",
 			t.Degraded, t.Failing, graph.DefaultHealth.Degraded, graph.DefaultHealth.Failing)
+	}
+	if c.Health.Latency.Degraded < 0 || c.Health.Latency.Failing < 0 {
+		bad("health.latency limits must not be negative")
+	} else if t := c.HealthThresholds(); t.LatencyDegradedMs > t.LatencyFailingMs {
+		bad("health.latency.degraded (%s) must not be above health.latency.failing (%s); unset values default to %s and %s",
+			model.FormatMs(t.LatencyDegradedMs), model.FormatMs(t.LatencyFailingMs),
+			model.FormatMs(graph.DefaultHealth.LatencyDegradedMs), model.FormatMs(graph.DefaultHealth.LatencyFailingMs))
 	}
 
 	for i, w := range c.Notify.Webhooks {

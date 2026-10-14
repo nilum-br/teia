@@ -65,7 +65,7 @@ The map, in Grafana (`nilum-teia-panel`) or in teia's own UI, is the same compon
 
 ![The teia panel inside a Grafana dashboard](docs/assets/screenshots/grafana-panel.png)
 
-- **Golden signals:** each card and line shows its traffic, p95 latency and error rate, and turns green, amber or red with its error rate (thresholds configurable). Latency comes from the histograms you already have (service graph, Istio, Linkerd, Hubble) or from sampled traces.
+- **Golden signals, and why:** each card and line shows its traffic, p95 latency and error rate. Amber or red is the worst signal past its limit, and a tag on the card or line says which one and where it most likely comes from (`p95 900 ms from inventory`), so you see the cause at a glance, not only the colour. Latency comes from the histograms you already have (service graph, Istio, Linkerd, Hubble) or from sampled traces.
 - **Live traffic:** dots travel along each communication at its speed, and red dots are errors. Updates arrive live (Server-Sent Events, or the dashboard refresh in Grafana).
 - **Drift and visibility:** dashed means undeclared, dotted means declared but not seen; card borders say how first-hand teia's view is.
 - **One [icon library](docs/icons.md):** microservices, relational and document databases, caches, Kafka streams, queues, gateways, jobs, external SaaS. The technology is detected from spans, images or labels.
@@ -73,9 +73,9 @@ The map, in Grafana (`nilum-teia-panel`) or in teia's own UI, is the same compon
 - **Next steps, live feed, export** (PNG, SVG, flow matrix CSV for firewall requests).
 - **Keyboard and screen readers:** every card and control is reachable with Tab; `F` fits, `/` searches, `Space` toggles the animation, which also follows the reduced-motion setting.
 
-| Click anything for its story and the exact next step | Group by any label, in dark or light |
+| Amber or red says why, and where it comes from | Group by any label, in dark or light |
 |---|---|
-| ![Details of orders-db: who calls it, which signals see it, and the GRANT that would reveal hidden clients](docs/assets/screenshots/teia-details.png) | ![The lab grouped by team, light theme](docs/assets/screenshots/teia-groups-light.png) |
+| ![recommendations is amber: its p95 of 739 ms comes from inventory, with a button to go there](docs/assets/screenshots/teia-details.png) | ![The lab grouped by team, light theme](docs/assets/screenshots/teia-groups-light.png) |
 
 Views are shareable links: `?group=team`, `?q=kind:database`, `?select=orders-db`, `?theme=light`, `?flow=1`, `?legend=icons`.
 

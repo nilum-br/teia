@@ -21,10 +21,11 @@ import (
 
 type snapshot struct {
 	Nodes []struct {
-		ID         string `json:"id"`
-		Tech       string `json:"tech"`
-		Health     string `json:"health"`
-		Visibility string `json:"visibility"`
+		ID         string   `json:"id"`
+		Tech       string   `json:"tech"`
+		Health     string   `json:"health"`
+		Visibility string   `json:"visibility"`
+		Reasons    []reason `json:"reasons"`
 	} `json:"nodes"`
 	Edges []struct {
 		From     string   `json:"from"`
@@ -44,6 +45,27 @@ type snapshot struct {
 	Sources []struct {
 		Name, State, Message string
 	} `json:"sources"`
+}
+
+type reason struct {
+	Cause string `json:"cause"`
+	Via   string `json:"via"`
+}
+
+// why reports whether the node is amber or red because of cause, coming
+// from via ("" for the node itself).
+func (s *snapshot) why(id, cause, via string) bool {
+	for _, n := range s.Nodes {
+		if n.ID != id {
+			continue
+		}
+		for _, r := range n.Reasons {
+			if r.Cause == cause && r.Via == via {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type check struct {
@@ -177,6 +199,9 @@ func e2e(ctx context.Context) error {
 		{"mesh: recommendations -> inventory, no OpenTelemetry involved", func(s *snapshot) bool { return s.edge("recommendations", "inventory", "prometheus") }},
 		{"latency: p95 from the service graph (web -> orders) and from the mesh (recommendations -> inventory)", func(s *snapshot) bool {
 			return s.latency("web", "orders") && s.latency("recommendations", "inventory")
+		}},
+		{"why: inventory is amber for its latency, and recommendations says it waits on inventory", func(s *snapshot) bool {
+			return s.why("inventory", "latency", "") && s.why("recommendations", "latency", "inventory")
 		}},
 		{"traces + mesh: web -> recommendations", func(s *snapshot) bool { return s.edge("web", "recommendations") }},
 		{"logs: partner-sync -> catalog, named from catalog's access log", func(s *snapshot) bool { return s.edge("partner-sync", "catalog", "loki/access-logs") }},

@@ -25,6 +25,7 @@ const edges = toDataFrame({
     { name: 'signals', values: ['traces,mesh', 'database'] },
     { name: 'latencyP50Ms', values: [12, null] },
     { name: 'latencyP95Ms', values: [48, 'n/a'] },
+    { name: 'reasons', values: ['[{"cause":"latency","health":"degraded","value":900,"limit":500,"summary":"p95 900 ms","via":"payments"}]', 'not json'] },
   ],
 });
 
@@ -39,7 +40,8 @@ describe('framesToSnapshot', () => {
     expect(snapshot!.edges[0]).toMatchObject({ from: 'web', to: 'orders', state: 'ok', signals: ['traces', 'mesh'], health: 'degraded' });
     expect(snapshot!.coverage.declared).toBe(0.5);
     expect(snapshot!.edges[0]).toMatchObject({ latencyP50Ms: 12, latencyP95Ms: 48 });
-    expect(snapshot!.edges[1]).toMatchObject({ latencyP50Ms: 0, latencyP95Ms: 0 });
+    expect(snapshot!.edges[1]).toMatchObject({ latencyP50Ms: 0, latencyP95Ms: 0, reasons: [] });
+    expect(snapshot!.edges[0].reasons).toEqual([{ cause: 'latency', health: 'degraded', value: 900, limit: 500, summary: 'p95 900 ms', via: 'payments' }]);
   });
 
   it('reads plain Node Graph frames, such as Tempo service graphs', () => {

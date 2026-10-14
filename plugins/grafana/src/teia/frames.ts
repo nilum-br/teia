@@ -1,5 +1,5 @@
 import { DataFrame } from '@grafana/data';
-import type { TeiaChange, TeiaEdge, TeiaFinding, TeiaNode, TeiaSnapshot, TeiaSource } from './teia-ui';
+import type { TeiaChange, TeiaEdge, TeiaFinding, TeiaNode, TeiaReason, TeiaSnapshot, TeiaSource } from './teia-ui';
 
 type Row = Record<string, unknown>;
 type Role = 'nodes' | 'edges' | 'findings' | 'sources' | 'changes' | 'coverage';
@@ -94,6 +94,16 @@ function labelsOf(v: unknown): Record<string, string> {
   }
 }
 
+/** Reasons from teia's JSON column; the map drops any it cannot draw. */
+function reasonsOf(v: unknown): TeiaReason[] {
+  try {
+    const parsed: unknown = typeof v === 'string' && v ? JSON.parse(v) : v;
+    return Array.isArray(parsed) ? (parsed as TeiaReason[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 function toNode(r: Row): TeiaNode {
   // Plain Node Graph frames (e.g. Tempo) carry a rate in secondarystat and
   // the failed share in arc__failed.
@@ -109,6 +119,7 @@ function toNode(r: Row): TeiaNode {
     errorRate,
     latencyP50Ms: num(r.latencyP50Ms),
     latencyP95Ms: num(r.latencyP95Ms),
+    reasons: reasonsOf(r.reasons),
     sources: list(r.sources),
     addresses: list(r.addresses),
     labels: labelsOf(r.labels),
@@ -139,6 +150,7 @@ function toEdge(r: Row, drift: boolean): TeiaEdge {
     errorRate,
     latencyP50Ms: num(r.latencyP50Ms),
     latencyP95Ms: num(r.latencyP95Ms),
+    reasons: reasonsOf(r.reasons),
     signals: list(r.signals),
     sources: list(r.sources),
   };

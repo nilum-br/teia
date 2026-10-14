@@ -143,6 +143,10 @@ services:
       TELEMETRY: "off"
       MESH: istio
       MESH_NAMESPACE: shop-mesh
+      # One answer in ten takes 900 ms (a lock, a cold cache): its p95 turns
+      # amber, and so do its callers, which the map traces back to it.
+      SLOW_RATE: "0.1"
+      SLOW_FOR: 900ms
 
   # --- what nobody instrumented ---------------------------------------------
   # A third party we do not control: answers HTTP, emits no telemetry.

@@ -1,5 +1,16 @@
 // Types for teia-ui.js, which is synced from internal/api/ui before builds.
 
+/** Why a node or edge is amber or red: a golden signal past its limit. */
+export interface TeiaReason {
+  cause: 'errors' | 'latency' | 'saturation' | 'backlog' | 'locks';
+  health: 'degraded' | 'failing';
+  value: number;
+  limit: number;
+  summary: string;
+  /** The dependency it most likely comes from. */
+  via?: string;
+}
+
 export interface TeiaNode {
   id: string;
   kind: string;
@@ -11,6 +22,7 @@ export interface TeiaNode {
   /** Call durations in milliseconds, when a signal measures them. */
   latencyP50Ms?: number;
   latencyP95Ms?: number;
+  reasons?: TeiaReason[];
   sources: string[];
   addresses?: string[];
   labels?: Record<string, string>;
@@ -30,6 +42,7 @@ export interface TeiaEdge {
   errorRate?: number;
   latencyP50Ms?: number;
   latencyP95Ms?: number;
+  reasons?: TeiaReason[];
   signals: string[];
   sources: string[];
 }

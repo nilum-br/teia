@@ -2,7 +2,10 @@
 // and the API: the communication graph, findings and coverage.
 package model
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // NodeKind classifies a node in the communication graph.
 type NodeKind string
@@ -28,15 +31,81 @@ const (
 	VisibilityNone Visibility = "none"
 )
 
-// Health is how a node or edge is behaving, from its error rate.
+// Health is how a node or edge is behaving: the worst of its reasons.
 type Health string
 
 const (
-	HealthHealthy  Health = "healthy"  // errors below the degraded threshold
-	HealthDegraded Health = "degraded" // errors between the thresholds
-	HealthFailing  Health = "failing"  // errors at or above the failing threshold
-	HealthUnknown  Health = "unknown"  // no rate known (declared only, or a signal without rates)
+	HealthHealthy  Health = "healthy"  // traffic, and every golden signal within its limits
+	HealthDegraded Health = "degraded" // some signal past its degraded limit
+	HealthFailing  Health = "failing"  // some signal past its failing limit
+	HealthUnknown  Health = "unknown"  // nothing measured (declared only, or a signal without rates)
 )
+
+// Rank orders health from best to worst, for "the worst of".
+func (h Health) Rank() int {
+	switch h {
+	case HealthFailing:
+		return 3
+	case HealthDegraded:
+		return 2
+	case HealthHealthy:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// Cause is the golden signal behind a reason.
+type Cause string
+
+const (
+	CauseErrors     Cause = "errors"     // Value: failed share, 0..1
+	CauseLatency    Cause = "latency"    // Value: p95 in milliseconds
+	CauseSaturation Cause = "saturation" // Value: used share of a limit, 0..1 (connections, memory, CPU)
+	CauseBacklog    Cause = "backlog"    // Value: work waiting (consumer lag, ready messages)
+	CauseLocks      Cause = "locks"      // Value: sessions waiting on locks
+)
+
+// Reason says why a node or edge is not healthy: which signal crossed which
+// limit, so the map can say "p95 2.3 s" instead of only turning red.
+type Reason struct {
+	Cause   Cause   `json:"cause"`
+	Health  Health  `json:"health"` // degraded or failing
+	Value   float64 `json:"value"`
+	Limit   float64 `json:"limit"` // the limit it crossed, in Value's unit
+	Summary string  `json:"summary"`
+	// Via names the dependency this most likely comes from: a slow or
+	// failing callee that explains the caller's latency or errors.
+	Via string `json:"via,omitempty"`
+}
+
+// Worst returns the worst health among reasons, or fallback when there is
+// none.
+func Worst(reasons []Reason, fallback Health) Health {
+	h := fallback
+	for _, r := range reasons {
+		if r.Health.Rank() > h.Rank() {
+			h = r.Health
+		}
+	}
+	return h
+}
+
+// FormatMs writes a duration in milliseconds the way people read it
+// ("0.4 ms", "12 ms", "1.2 s").
+func FormatMs(ms float64) string {
+	switch {
+	case ms >= 999.5: // rounds to 1000 or more
+		return fmt.Sprintf("%.1f s", ms/1000)
+	case ms >= 9.95: // rounds to 10 or more
+		return fmt.Sprintf("%.0f ms", ms)
+	default:
+		return fmt.Sprintf("%.1f ms", ms)
+	}
+}
+
+// FormatPercent writes a share (0..1) as a percentage with one decimal.
+func FormatPercent(share float64) string { return fmt.Sprintf("%.1f%%", share*100) }
 
 // Node is a workload, datastore or external endpoint.
 type Node struct {
@@ -52,11 +121,13 @@ type Node struct {
 	// LatencyP50Ms and LatencyP95Ms summarise how long the calls it serves
 	// take, in milliseconds: its callers' percentiles weighted by their
 	// traffic, an approximation (percentiles do not add up exactly).
-	LatencyP50Ms float64           `json:"latencyP50Ms,omitempty"`
-	LatencyP95Ms float64           `json:"latencyP95Ms,omitempty"`
-	Sources      []string          `json:"sources"`
-	Addresses    []string          `json:"addresses,omitempty"`
-	Labels       map[string]string `json:"labels,omitempty"`
+	LatencyP50Ms float64 `json:"latencyP50Ms,omitempty"`
+	LatencyP95Ms float64 `json:"latencyP95Ms,omitempty"`
+	// Reasons explain a health other than healthy, worst first.
+	Reasons   []Reason          `json:"reasons,omitempty"`
+	Sources   []string          `json:"sources"`
+	Addresses []string          `json:"addresses,omitempty"`
+	Labels    map[string]string `json:"labels,omitempty"`
 }
 
 // EdgeState is the result of comparing declared and observed communication.
@@ -93,6 +164,8 @@ type Edge struct {
 	// histograms of the service graph, a mesh or Hubble; sampled spans).
 	LatencyP50Ms float64 `json:"latencyP50Ms,omitempty"`
 	LatencyP95Ms float64 `json:"latencyP95Ms,omitempty"`
+	// Reasons explain a health other than healthy, worst first.
+	Reasons []Reason `json:"reasons,omitempty"`
 }
 
 // Key identifies an edge inside a graph.

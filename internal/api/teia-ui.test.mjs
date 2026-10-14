@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 import { describe, it } from 'node:test';
 
 const { core } = createRequire(import.meta.url)('./ui/teia-ui.js');
-const { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs } = core;
+const { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, reasonTag, compact } = core;
 
 const node = (id, extra = {}) => ({ id, kind: 'service', health: 'healthy', visibility: 'full', sources: [], ...extra });
 const edge = (from, to, extra = {}) => ({ from, to, state: 'ok', health: 'healthy', declared: true, observed: true, requestRate: 1, errorRate: 0, signals: ['traces'], sources: [], ...extra });
@@ -260,6 +260,45 @@ describe('cardSubtitle', () => {
   });
   it('says what it is when there is no traffic', () => {
     assert.equal(cardSubtitle({ kind: 'service', tech: 'job', requestRate: 0, latencyP95Ms: 0, errorRate: 0 }), 'Job');
+  });
+});
+
+describe('reasons', () => {
+  const slow = { cause: 'latency', health: 'degraded', value: 950, limit: 500, summary: 'p95 950 ms, over 500 ms, from inventory', via: 'inventory' };
+  const failing = { cause: 'errors', health: 'failing', value: 0.07, limit: 0.05, summary: '7.0% errors, over 5.0%' };
+
+  it('keeps what the map can draw, worst first', () => {
+    const s = sanitize({ nodes: [{ id: 'a', reasons: [slow, failing, { cause: 'gremlins', health: 'failing' }, { cause: 'errors', health: 'healthy' }, null] }] });
+    assert.deepEqual(s.nodes[0].reasons.map(r => r.cause), ['errors', 'latency']);
+    assert.equal(sanitize({ nodes: [{ id: 'b', reasons: 'nope' }] }).nodes[0].reasons.length, 0);
+  });
+
+  it('says what crossed its limit, and where it comes from', () => {
+    assert.equal(reasonTag(slow), 'p95 950 ms from inventory');
+    assert.equal(reasonTag(failing, 1), '7.0% errors +1');
+    assert.equal(reasonTag({ cause: 'backlog', value: 45210 }), '45k waiting');
+    assert.equal(reasonTag({ cause: 'saturation', value: 0.93 }), '93% used');
+    assert.equal(reasonTag({ cause: 'locks', value: 3, subject: 'orders' }), '3 on locks · orders');
+  });
+
+  it('writes big numbers short', () => {
+    assert.deepEqual([7, 1234, 45210, 1_250_000, 12_000_000].map(compact), ['7', '1.2k', '45k', '1.3M', '12M']);
+  });
+
+  it('gives a group the reasons of its members, named after them', () => {
+    const s = snap(
+      [node('api', { labels: { team: 'core' }, health: 'degraded', reasons: [slow] }), node('db', { labels: { team: 'core' } }), node('web', { labels: { team: 'front' } })],
+      [edge('web', 'api', { health: 'failing', reasons: [failing] }), edge('api', 'db')],
+    );
+    const v = view(s, { groupBy: 'team' });
+    const g = v.nodes.get('group:core');
+    assert.deepEqual(g.reasons.map(r => [r.cause, r.subject]), [['latency', 'api']]);
+    assert.deepEqual(v.edges.get('group:front->group:core').reasons.map(r => [r.cause, r.subject]), [['errors', 'web→api']]);
+  });
+
+  it('can be searched with why:', () => {
+    const v = view(snap([node('api', { reasons: [slow] }), node('db')], []));
+    assert.deepEqual([...v.nodes.values()].filter(matcher('why:latency')).map(n => n.id), ['api']);
   });
 });
 

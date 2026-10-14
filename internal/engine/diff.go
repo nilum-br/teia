@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nilum-br/teia/internal/model"
@@ -66,7 +67,7 @@ func (d *Differ) Diff(prev, next model.Snapshot, at time.Time) []model.Change {
 		}
 		if changed {
 			add(model.Change{Type: model.ChangeNodeHealth, Subject: n.ID, From: string(from), To: string(n.Health),
-				Message: fmt.Sprintf("%s is %s (%.1f%% errors)", n.ID, n.Health, n.ErrorRate*100)})
+				Message: fmt.Sprintf("%s is %s (%s)", n.ID, n.Health, why(n.Reasons, n.ErrorRate))})
 		}
 		if p.Visibility != n.Visibility {
 			add(model.Change{Type: model.ChangeNodeVisibility, Subject: n.ID, From: string(p.Visibility), To: string(n.Visibility),
@@ -104,7 +105,7 @@ func (d *Differ) Diff(prev, next model.Snapshot, at time.Time) []model.Change {
 			}
 			if changed {
 				add(model.Change{Type: model.ChangeEdgeHealth, Subject: key, From: string(from), To: string(e.Health),
-					Message: fmt.Sprintf("%s → %s is %s (%.1f%% errors)", e.From, e.To, e.Health, e.ErrorRate*100)})
+					Message: fmt.Sprintf("%s → %s is %s (%s)", e.From, e.To, e.Health, why(e.Reasons, e.ErrorRate))})
 			}
 		}
 	}
@@ -162,4 +163,17 @@ func (d *Differ) health(key string, existed bool, h model.Health) (model.Health,
 		last = model.HealthUnknown
 	}
 	return last, existed && last != h
+}
+
+// why says what a health change is about: its reasons, or the error rate
+// when it is back to healthy.
+func why(reasons []model.Reason, errorRate float64) string {
+	if len(reasons) == 0 {
+		return model.FormatPercent(errorRate) + " errors"
+	}
+	parts := make([]string, len(reasons))
+	for i, r := range reasons {
+		parts[i] = r.Summary
+	}
+	return strings.Join(parts, "; ")
 }

@@ -333,3 +333,83 @@ func TestNodeLatencyIsWhatItsCallersWaitFor(t *testing.T) {
 		t.Errorf("nobody measured audit's calls, got %v", n.LatencyP95Ms)
 	}
 }
+
+func TestJudgeSaysWhy(t *testing.T) {
+	cases := []struct {
+		name               string
+		rate, errs, p95    float64
+		health             model.Health
+		causes             []model.Cause
+		firstSummaryPrefix string
+	}{
+		{"nothing measured", 0, 0, 0, model.HealthUnknown, nil, ""},
+		{"fine", 10, 0.001, 120, model.HealthHealthy, nil, ""},
+		{"slow", 10, 0, 800, model.HealthDegraded, []model.Cause{model.CauseLatency}, "p95 800 ms, over 500 ms"},
+		{"failing errors beat degraded latency", 10, 0.07, 900, model.HealthFailing, []model.Cause{model.CauseErrors, model.CauseLatency}, "7.0% errors, over 5.0%"},
+		{"latency alone, from sampled spans without a rate", 0, 0, 2500, model.HealthFailing, []model.Cause{model.CauseLatency}, "p95 2.5 s, over 2.0 s"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h, reasons := DefaultHealth.Judge(c.rate, c.errs, c.p95)
+			if h != c.health {
+				t.Errorf("health %s, want %s", h, c.health)
+			}
+			var causes []model.Cause
+			for _, r := range reasons {
+				causes = append(causes, r.Cause)
+			}
+			if len(causes) != len(c.causes) {
+				t.Fatalf("causes %v, want %v", causes, c.causes)
+			}
+			for i := range causes {
+				if causes[i] != c.causes[i] {
+					t.Errorf("causes %v, want %v (worst first)", causes, c.causes)
+				}
+			}
+			if c.firstSummaryPrefix != "" && reasons[0].Summary != c.firstSummaryPrefix {
+				t.Errorf("summary %q, want %q", reasons[0].Summary, c.firstSummaryPrefix)
+			}
+		})
+	}
+}
+
+func TestSlowCalleeIsDegradedWithItsReason(t *testing.T) {
+	g := Build([]Result{result("prometheus", "prometheus", source.Observation{Edges: []source.EdgeObservation{
+		{From: "recommendations", To: "inventory", RequestRate: 2, LatencyP50Ms: 40, LatencyP95Ms: 850},
+	}})}, nil, nil)
+	ApplyHealth(g, DefaultHealth)
+	e, n := g.Edges["recommendations->inventory"], g.Nodes["inventory"]
+	if e.Health != model.HealthDegraded || len(e.Reasons) != 1 || e.Reasons[0].Cause != model.CauseLatency {
+		t.Errorf("edge %s %+v, want degraded by latency", e.Health, e.Reasons)
+	}
+	if n.Health != model.HealthDegraded || len(n.Reasons) != 1 || n.Reasons[0].Cause != model.CauseLatency {
+		t.Errorf("node %s %+v, want degraded by latency", n.Health, n.Reasons)
+	}
+	if r := g.Nodes["recommendations"]; r.Health != model.HealthHealthy || len(r.Reasons) != 0 {
+		t.Errorf("a caller is not slow because its callee is: %s %+v", r.Health, r.Reasons)
+	}
+}
+
+func TestReasonsPointAtTheOrigin(t *testing.T) {
+	g := Build([]Result{result("prometheus", "prometheus", source.Observation{Edges: []source.EdgeObservation{
+		{From: "web", To: "recommendations", RequestRate: 4, LatencyP95Ms: 950},
+		{From: "recommendations", To: "inventory", RequestRate: 4, LatencyP95Ms: 900},
+		{From: "recommendations", To: "cache", RequestRate: 4, LatencyP95Ms: 3},
+		{From: "web", To: "orders", RequestRate: 2, LatencyP95Ms: 40},
+	}})}, nil, nil)
+	ApplyHealth(g, DefaultHealth)
+
+	rec := g.Nodes["recommendations"]
+	if len(rec.Reasons) != 1 || rec.Reasons[0].Via != "inventory" || rec.Reasons[0].Summary != "p95 950 ms, over 500 ms, from inventory" {
+		t.Errorf("recommendations should be slow because of inventory: %+v", rec.Reasons)
+	}
+	if inv := g.Nodes["inventory"]; len(inv.Reasons) != 1 || inv.Reasons[0].Via != "" {
+		t.Errorf("inventory is the origin, it has no via: %+v", inv.Reasons)
+	}
+	if e := g.Edges["web->recommendations"]; len(e.Reasons) != 1 || e.Reasons[0].Via != "inventory" {
+		t.Errorf("web waits on inventory through recommendations: %+v", e.Reasons)
+	}
+	if e := g.Edges["recommendations->inventory"]; len(e.Reasons) != 1 || e.Reasons[0].Via != "" {
+		t.Errorf("the slow call itself names no further origin: %+v", e.Reasons)
+	}
+}

@@ -15,6 +15,7 @@
 //	REDIS_ADDR     ping Redis on every request
 //	REDIS_PEER     node name of that cache
 //	ERROR_RATE     share of requests answered with HTTP 500
+//	SLOW_RATE      share of requests held for SLOW_FOR (e.g. 0.1 and 900ms)
 //	TARGET         URL the loadgen calls
 //	INTERVAL       loadgen and legacy tick, e.g. 500ms
 //	ACCESS_LOG     on (default) | off: one JSON line per request on stdout
@@ -151,6 +152,8 @@ func parseCalls(spec string) []downstream {
 func serve(ctx context.Context) error {
 	calls := parseCalls(os.Getenv("CALLS"))
 	errorRate, _ := strconv.ParseFloat(env("ERROR_RATE", "0"), 64)
+	slowRate, _ := strconv.ParseFloat(env("SLOW_RATE", "0"), 64)
+	slowFor, _ := time.ParseDuration(env("SLOW_FOR", "0s"))
 
 	var db *pgxpool.Pool
 	if dsn := os.Getenv("POSTGRES_DSN"); dsn != "" {
@@ -188,6 +191,12 @@ func serve(ctx context.Context) error {
 		}
 		if spec := os.Getenv("PUBLISH"); spec != "" {
 			publish(ctx, spec)
+		}
+		if rand.Float64() < slowRate {
+			select { // an injected slow answer, like a lock or a cold cache
+			case <-time.After(slowFor):
+			case <-ctx.Done():
+			}
 		}
 		if rand.Float64() < errorRate {
 			http.Error(w, "injected failure", http.StatusInternalServerError)

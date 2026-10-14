@@ -43,9 +43,12 @@ binary, for working on it. It is a flag, not a config key.
 | `retention` | 3 × `interval` | How long an observed edge stays after it was last seen, so sampled signals do not make it blink. A failing source's last good observation is reused for as long, and the status says so. |
 | `aliases` | none | Map of name → node ID: both sides are one node. Matched case-insensitively. A key may be an address no inventory knows, such as `"ip:192.0.2.10"` (quote it). One hop: aliases do not chain. |
 | `ignore` | none | Node IDs to leave out of the graph, with their edges and findings. Containers can say the same with the label `teia.ignore=true`, pods with the annotation `teia.nilum.io/ignore: "true"`. |
-| `health` | | Error-rate thresholds for the colours of nodes and edges. |
+| `health` | | Limits of each golden signal. A node or edge takes the worst of its signals, and the map says which one (its `reasons`). |
 | `health.degraded` | `0.01` | From this error rate a node or edge is `degraded` (amber). |
 | `health.failing` | `0.05` | From this error rate it is `failing` (red). Must not be below `health.degraded`, defaults included. |
+| `health.latency` | | Limits on the p95 of calls, where a signal measures durations. |
+| `health.latency.degraded` | `500ms` | From this p95 a node or edge is `degraded`. |
+| `health.latency.failing` | `2s` | From this p95 it is `failing`. Must not be below `health.latency.degraded`, defaults included. |
 
 ## Notifications
 

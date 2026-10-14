@@ -49,7 +49,7 @@ O mapa, no Grafana (`nilum-teia-panel`) ou na interface da própria teia, é o m
 
 ![O painel da teia dentro de um dashboard do Grafana](docs/assets/screenshots/grafana-panel.png)
 
-- **Sinais de ouro:** cada card e cada linha mostram tráfego, latência p95 e taxa de erro, e ficam verdes, amarelos ou vermelhos pela taxa de erro. A latência vem dos histogramas que você já tem (service graph, Istio, Linkerd, Hubble) ou dos traces amostrados.
+- **Sinais de ouro, e o porquê:** cada card e cada linha mostram tráfego, latência p95 e taxa de erro. Amarelo ou vermelho é o pior sinal acima do limite, e uma etiqueta no card ou na linha diz qual é e de onde provavelmente vem (`p95 900 ms from inventory`): você vê a causa de relance, não só a cor. A latência vem dos histogramas que você já tem (service graph, Istio, Linkerd, Hubble) ou dos traces amostrados.
 - **Tráfego andando:** pontos percorrem cada comunicação na velocidade do tráfego; pontos vermelhos são erros. Ao vivo.
 - **Drift e visibilidade:** tracejado é não declarado, pontilhado é declarado e não visto; a borda do card diz o quanto a teia vê em primeira mão.
 - **[Biblioteca de ícones](docs/icons.md) padronizada:** microsserviço, banco relacional, banco de documentos (NoSQL), cache, stream (Kafka), fila, gateway, job, SaaS externo. A tecnologia é detectada pelos spans, pela imagem ou por label.
@@ -57,9 +57,9 @@ O mapa, no Grafana (`nilum-teia-panel`) ou na interface da própria teia, é o m
 - **Próximos passos, feed ao vivo e exportação** (PNG, SVG, matriz de fluxos em CSV para pedido de firewall).
 - **Teclado e leitor de tela:** todo card e controle é alcançável com Tab; `F` enquadra, `/` busca e `Espaço` liga e desliga a animação, que também segue a preferência de movimento reduzido.
 
-| Clique em qualquer coisa para ver a história e o próximo passo exato | Agrupe por qualquer label, no tema escuro ou claro |
+| Amarelo ou vermelho diz o porquê, e de onde vem | Agrupe por qualquer label, no tema escuro ou claro |
 |---|---|
-| ![Detalhes do orders-db: quem chama, quais sinais o veem e o GRANT que revelaria clientes escondidos](docs/assets/screenshots/teia-details.png) | ![O lab agrupado por time, tema claro](docs/assets/screenshots/teia-groups-light.png) |
+| ![recommendations está amarelo: o p95 de 739 ms vem do inventory, com um botão para ir até lá](docs/assets/screenshots/teia-details.png) | ![O lab agrupado por time, tema claro](docs/assets/screenshots/teia-groups-light.png) |
 
 As visões viram links compartilháveis: `?group=team`, `?q=kind:database`, `?select=orders-db`, `?theme=light`, `?flow=1`, `?legend=icons`.
 

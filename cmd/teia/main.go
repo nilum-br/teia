@@ -260,7 +260,10 @@ func printReport(w io.Writer, s model.Snapshot) {
 			traffic = append(traffic, fmt.Sprintf("%.2f req/s", e.RequestRate), fmt.Sprintf("%.1f%% errors", e.ErrorRate*100))
 		}
 		if e.LatencyP95Ms > 0 {
-			traffic = append(traffic, "p95 "+api.FormatMs(e.LatencyP95Ms))
+			traffic = append(traffic, "p95 "+model.FormatMs(e.LatencyP95Ms))
+		}
+		for _, r := range e.Reasons {
+			traffic = append(traffic, "<- "+r.Summary)
 		}
 		fmt.Fprintf(w, "  %-6s %-40s %-11s %s\n", e.State, e.From+" -> "+e.To, e.Protocol, strings.Join(traffic, "  "))
 	}

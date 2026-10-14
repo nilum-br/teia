@@ -203,6 +203,14 @@ details summary { cursor: pointer; color: var(--accent); font-size: 12px; margin
 .hero .tile { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; flex: none; }
 .hero .tile svg { width: 26px; height: 26px; color: #020f59; }
 .hero h2 { margin: 0; font-size: 18px; word-break: break-all; }
+.why { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center; padding: 8px 10px; margin-bottom: 6px;
+  border-radius: 10px; border: 1px solid var(--line); border-left: 3px solid var(--degraded); background: var(--panel-2); }
+.why.failing { border-left-color: var(--failing); }
+.why svg { width: 18px; height: 18px; }
+.why.degraded svg { color: var(--warn-text); } .why.failing svg { color: var(--err-text); }
+.why .btn { height: 26px; font-size: 11.5px; }
+.legend .reasons { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.legend .reasons svg { width: 14px; height: 14px; color: var(--ink); flex: none; }
 .pill { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 1px 8px; font-size: 11px; border: 1px solid var(--line-2); color: var(--ink-2); }
 .pill .dot { width: 7px; height: 7px; border-radius: 50%; }
 .kv { display: grid; grid-template-columns: 130px 1fr; gap: 6px 10px; }
@@ -436,6 +444,14 @@ button.label { cursor: pointer; }
     inventory: { label: 'Inventory', icon: ICON.group },
     declared: { label: 'Declared', icon: '<path d="M6 3.5h9l3.5 3.5v13.5H6z"/><path d="M9 13.5l2 2 4-4"/>' },
   };
+  // Why a card or line is amber or red: one pictogram per golden signal.
+  const REASON = {
+    errors: { label: 'Errors', icon: '<circle cx="12" cy="12" r="8.6"/><path d="M9 9l6 6M15 9l-6 6"/>' },
+    latency: { label: 'Latency', icon: '<circle cx="12" cy="12" r="8.6"/><path d="M12 7v5.2l3.4 2"/>' },
+    saturation: { label: 'Saturation', icon: '<path d="M3.8 17a8.2 8.2 0 0116.4 0"/><path d="M12 17l4.6-5.6"/><path d="M3.5 20.5h17"/>' },
+    backlog: { label: 'Queue backlog', icon: '<rect x="3" y="3.5" width="18" height="4.6" rx="1.3"/><rect x="3" y="9.7" width="18" height="4.6" rx="1.3"/><rect x="3" y="15.9" width="12" height="4.6" rx="1.3"/>' },
+    locks: { label: 'Locks', icon: '<rect x="5" y="10.5" width="14" height="10" rx="2.2"/><path d="M8.2 10.5V7.8a3.8 3.8 0 017.6 0v2.7"/><path d="M12 14.6v2"/>' },
+  };
   const HEALTH_LABEL = { healthy: 'healthy', degraded: 'degraded', failing: 'failing', unknown: 'no traffic data' };
   const HEALTH_RANK = { failing: 3, degraded: 2, healthy: 1, unknown: 0 };
   const STATE_LABEL = { ok: 'declared and observed', ghost: 'observed, not declared', stale: 'declared, not observed' };
@@ -453,6 +469,11 @@ button.label { cursor: pointer; }
   const oneOf = (v, allowed, fallback) => allowed.includes(v) ? v : fallback;
   const finite = v => (typeof v === 'number' && Number.isFinite(v)) ? v : 0;
   const strings = v => Array.isArray(v) ? v.filter(s => typeof s === 'string') : [];
+  // reasons keeps the ones the map knows how to draw, worst first.
+  const reasons = v => (Array.isArray(v) ? v : [])
+    .filter(r => r && has(REASON, r.cause) && (r.health === 'degraded' || r.health === 'failing'))
+    .map(r => ({ cause: r.cause, health: r.health, value: finite(r.value), limit: finite(r.limit), summary: typeof r.summary === 'string' ? r.summary : '', via: typeof r.via === 'string' ? r.via : '' }))
+    .sort((a, b) => HEALTH_RANK[b.health] - HEALTH_RANK[a.health]);
 
   // sanitize turns whatever arrived (teia's API, a Grafana data frame, a
   // proxy's error page) into a snapshot the map can always draw.
@@ -469,6 +490,7 @@ button.label { cursor: pointer; }
         visibility: oneOf(n.visibility, ['full', 'partial', 'none'], 'partial'),
         requestRate: finite(n.requestRate), errorRate: finite(n.errorRate),
         latencyP50Ms: finite(n.latencyP50Ms), latencyP95Ms: finite(n.latencyP95Ms),
+        reasons: reasons(n.reasons),
         sources: strings(n.sources), addresses: strings(n.addresses),
         labels: n.labels && typeof n.labels === 'object' ? n.labels : {},
       });
@@ -477,7 +499,7 @@ button.label { cursor: pointer; }
     for (const e of Array.isArray(s.edges) ? s.edges : []) {
       if (!e || typeof e.from !== 'string' || typeof e.to !== 'string' || !e.from || !e.to || e.from === e.to) continue;
       for (const id of [e.from, e.to]) {
-        if (!seen.has(id)) { seen.add(id); nodes.push({ id, kind: 'unknown', health: 'unknown', visibility: 'partial', requestRate: 0, errorRate: 0, sources: [], addresses: [], labels: {} }); }
+        if (!seen.has(id)) { seen.add(id); nodes.push({ id, kind: 'unknown', health: 'unknown', visibility: 'partial', requestRate: 0, errorRate: 0, latencyP50Ms: 0, latencyP95Ms: 0, reasons: [], sources: [], addresses: [], labels: {} }); }
       }
       edges.push({
         ...e,
@@ -485,6 +507,7 @@ button.label { cursor: pointer; }
         health: oneOf(e.health, ['healthy', 'degraded', 'failing', 'unknown'], 'unknown'),
         requestRate: finite(e.requestRate), errorRate: finite(e.errorRate),
         latencyP50Ms: finite(e.latencyP50Ms), latencyP95Ms: finite(e.latencyP95Ms),
+        reasons: reasons(e.reasons),
         declared: !!e.declared, observed: e.observed !== false,
         signals: strings(e.signals), sources: strings(e.sources),
       });
@@ -569,6 +592,26 @@ button.label { cursor: pointer; }
   const fmtRate = r => r >= 100 ? r.toFixed(0) : r >= 10 ? r.toFixed(1) : r.toFixed(2);
   const pct = v => (v * 100).toFixed(v > 0 && v < 0.1 ? 1 : 0) + '%';
 
+  // compact writes 1200 as 1.2k and 45000 as 45k.
+  function compact(n) {
+    if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + 'k';
+    return String(Math.round(n));
+  }
+
+  // reasonTag is the few words a card or line shows for its worst reason:
+  // what crossed its limit, and where it most likely comes from.
+  function reasonTag(r, more = 0) {
+    const what = {
+      errors: () => `${pct(r.value)} errors`,
+      latency: () => `p95 ${fmtMs(r.value)}`,
+      saturation: () => `${pct(r.value)} used`,
+      backlog: () => `${compact(r.value)} waiting`,
+      locks: () => `${compact(r.value)} on locks`,
+    }[r.cause]();
+    return what + (r.via ? ` from ${r.via}` : r.subject ? ` · ${r.subject}` : '') + (more > 0 ? ` +${more}` : '');
+  }
+
   // cardSubtitle is the second line of a card: what it is, then the golden
   // signals it has (traffic, latency, errors). When that does not fit, what
   // it is goes first: the icon and the details already say it.
@@ -598,7 +641,7 @@ button.label { cursor: pointer; }
       if (!g) { nodes.set(n.id, { ...n, title: n.id, signals: nodeSignals(n, index) }); continue; }
       let gn = nodes.get(g);
       if (!gn) {
-        gn = { id: g, group: true, kind: 'group', title: g.slice(6), labelKey: groupBy, members: [], health: 'unknown', visibility: 'none', requestRate: 0, latency: latencySum(), signals: [], labels: { [groupBy]: g.slice(6) } };
+        gn = { id: g, group: true, kind: 'group', title: g.slice(6), labelKey: groupBy, members: [], health: 'unknown', visibility: 'none', requestRate: 0, latency: latencySum(), reasons: [], signals: [], labels: { [groupBy]: g.slice(6) } };
         nodes.set(g, gn);
       }
       gn.members.push(n);
@@ -606,6 +649,7 @@ button.label { cursor: pointer; }
       if (n.visibility === 'full' || (n.visibility === 'partial' && gn.visibility === 'none')) gn.visibility = n.visibility;
       gn.requestRate += n.requestRate || 0;
       gn.latency.add(n);
+      gn.reasons.push(...n.reasons.map(r => ({ ...r, subject: n.id })));
       gn.signals = [...new Set([...gn.signals, ...nodeSignals(n, index)])];
     }
     const edges = new Map(), internal = new Map();
@@ -615,13 +659,14 @@ button.label { cursor: pointer; }
       const id = from + '->' + to;
       let ve = edges.get(id);
       if (!ve) {
-        ve = { id, from, to, members: [], requestRate: 0, failed: 0, latency: latencySum(), signals: new Set(), states: new Set(), declared: false, observed: false, health: 'unknown', protocol: e.protocol, reason: e.reason, port: e.port, sources: new Set() };
+        ve = { id, from, to, members: [], requestRate: 0, failed: 0, latency: latencySum(), reasons: [], signals: new Set(), states: new Set(), declared: false, observed: false, health: 'unknown', protocol: e.protocol, reason: e.reason, port: e.port, sources: new Set() };
         edges.set(id, ve);
       }
       ve.members.push(e);
       ve.requestRate += e.requestRate;
       ve.failed += e.requestRate * e.errorRate;
       ve.latency.add(e);
+      if (e.reasons.length) ve.reasons.push(...e.reasons.map(r => (from === e.from && to === e.to ? r : { ...r, subject: `${e.from}→${e.to}` })));
       e.signals.forEach(s => ve.signals.add(s));
       e.sources.forEach(s => ve.sources.add(s));
       ve.states.add(e.state);
@@ -632,11 +677,17 @@ button.label { cursor: pointer; }
       ve.errorRate = ve.requestRate > 0 ? ve.failed / ve.requestRate : 0;
       Object.assign(ve, ve.latency.result());
       delete ve.latency;
+      ve.reasons.sort((a, b) => HEALTH_RANK[b.health] - HEALTH_RANK[a.health]);
       ve.state = ve.states.has('ghost') ? 'ghost' : ve.states.has('ok') ? 'ok' : 'stale';
       ve.signals = [...ve.signals]; ve.sources = [...ve.sources];
       delete ve.states; delete ve.failed;
     }
-    for (const n of nodes.values()) if (n.group) { Object.assign(n, n.latency.result()); delete n.latency; }
+    for (const n of nodes.values()) {
+      if (!n.group) continue;
+      Object.assign(n, n.latency.result());
+      delete n.latency;
+      n.reasons.sort((a, b) => HEALTH_RANK[b.health] - HEALTH_RANK[a.health]);
+    }
     for (const [g, c] of internal) if (nodes.has(g)) nodes.get(g).internal = c;
     return { nodes, edges, groupOf };
   }
@@ -649,7 +700,7 @@ button.label { cursor: pointer; }
       const i = t.indexOf(':');
       if (i > 0) {
         const k = t.slice(0, i), v = t.slice(i + 1);
-        const fields = { kind: n.kind, tech: n.tech || '', category: categoryOf(n), health: n.health, visibility: n.visibility, id: n.id };
+        const fields = { kind: n.kind, tech: n.tech || '', category: categoryOf(n), health: n.health, visibility: n.visibility, id: n.id, why: (n.reasons || []).map(r => r.cause).join(' ') };
         if (has(fields, k)) return String(fields[k]).toLowerCase().includes(v);
         const labels = n.group ? n.members.map(m => m.labels || {}) : [n.labels || {}];
         return labels.some(l => Object.entries(l).some(([lk, lv]) => lk.toLowerCase() === k && String(lv).toLowerCase().includes(v)));
@@ -745,7 +796,7 @@ button.label { cursor: pointer; }
     } catch { return null; }
   }
 
-  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, TECH, CATEGORY, SIGNAL };
+  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, reasonTag, compact, TECH, CATEGORY, SIGNAL, REASON };
 
   // ============================================================== mount
   function mount(host, opts = {}) {
@@ -828,7 +879,7 @@ button.label { cursor: pointer; }
     // ------------------------------------------------------------------- the map
     const svg = $('#map');
     const stage = $('#stage');
-    let viewport, layerEdges, layerMarks, layerParticles, layerLabels, layerNodes;
+    let viewport, layerEdges, layerMarks, layerReasons, layerParticles, layerLabels, layerNodes;
     const nodeEls = new Map(), edgeEls = new Map();
     let currentView = null, layoutPos = {}, topologyKey = '';
 
@@ -855,6 +906,11 @@ button.label { cursor: pointer; }
       .node .alert.critical circle { fill: var(--failing); }
       .node .alert text { fill: #020f59; font-size: 10.5px; font-weight: 700; text-anchor: middle; }
       .node .halo { fill: none; stroke: var(--failing); stroke-width: 2; opacity: 0; }
+      .why-tag rect { stroke: var(--bg); stroke-width: 1.5; }
+      .why-tag.degraded rect { fill: var(--degraded); } .why-tag.failing rect { fill: var(--failing); }
+      .why-tag text { fill: #020f59; font-size: 10.5px; font-weight: 700; }
+      .why-tag svg { color: #020f59; }
+      .why-tag { cursor: pointer; }
       .flowing .h-failing .halo { animation: halo 1.6s ease-out infinite; }
       @keyframes halo { 0% { opacity: .7; transform: scale(1); } 100% { opacity: 0; transform: scale(1.12); } }
       .node.match .card { stroke: var(--accent); stroke-width: 2.2; }
@@ -896,8 +952,8 @@ button.label { cursor: pointer; }
       defs.append(st);
       svg.append(defs);
       viewport = sv('g', { id: 'viewport' });
-      layerEdges = sv('g'); layerMarks = sv('g'); layerParticles = sv('g', { class: 'particles' }); layerLabels = sv('g'); layerNodes = sv('g', { role: 'list' });
-      viewport.append(layerEdges, layerParticles, layerMarks, layerLabels, layerNodes);
+      layerEdges = sv('g'); layerMarks = sv('g'); layerReasons = sv('g'); layerParticles = sv('g', { class: 'particles' }); layerLabels = sv('g'); layerNodes = sv('g', { role: 'list' });
+      viewport.append(layerEdges, layerParticles, layerMarks, layerReasons, layerLabels, layerNodes);
       svg.append(viewport);
     }
 
@@ -946,6 +1002,7 @@ button.label { cursor: pointer; }
       if (!empty.hidden) empty.firstChild.textContent = 'No communication discovered yet. The Sources tab shows what teia reads and what failed.';
 
       renderMarks();
+      renderReasons();
       rebuildParticles();
       applyHighlight();
       renderEdgeLabel();
@@ -968,9 +1025,11 @@ button.label { cursor: pointer; }
       const sub = sv('text', { class: 'sub num', x: -NODE_W / 2 + 60, y: 14 });
       const badges = sv('g', { class: 'badges' });
       const alert = sv('g', { class: 'alert', transform: `translate(${NODE_W / 2 - 4},${-NODE_H / 2 + 4})` });
+      // The worst reason sits on the card's top edge, like a tab.
+      const why = sv('g', { transform: `translate(${-NODE_W / 2 + 12},${-NODE_H / 2 - 2})` });
       const tip = sv('title');
-      g.append(halo, card, tile, icon, warn, fail, title, sub, badges, alert, tip);
-      g._parts = { icon, title, sub, badges, alert, tip };
+      g.append(halo, card, tile, icon, warn, fail, title, sub, badges, alert, why, tip);
+      g._parts = { icon, title, sub, badges, alert, why, tip };
       g.addEventListener('pointerdown', ev => startNodeDrag(ev, g));
       g.addEventListener('mouseenter', () => { state.hover = g.dataset.id; applyHighlight(); });
       g.addEventListener('mouseleave', () => { state.hover = null; applyHighlight(); });
@@ -1010,9 +1069,30 @@ button.label { cursor: pointer; }
         const t = sv('text', { y: 3.6 }); t.textContent = fs.length; p.alert.append(t);
       }
       const traffic = n.requestRate > 0 ? `, ${fmtRate(n.requestRate)} requests per second${n.latencyP95Ms > 0 ? `, p95 ${fmtMs(n.latencyP95Ms)}` : ''}, ${pct(n.errorRate)} errors` : '';
-      const label = `${n.title}, ${n.group ? 'group' : CATEGORY[cat]?.label || n.kind}${n.tech ? ' (' + techLabel(n) + ')' : ''}, ${HEALTH_LABEL[n.health]}${traffic}, ${n.visibility} visibility${fs.length ? `, ${fs.length} next step${fs.length > 1 ? 's' : ''}` : ''}`;
+      drawWhy(p.why, n.reasons);
+      const because = n.reasons.length ? `, because of ${n.reasons.map(r => r.summary || reasonTag(r)).join('; ')}` : '';
+      const label = `${n.title}, ${n.group ? 'group' : CATEGORY[cat]?.label || n.kind}${n.tech ? ' (' + techLabel(n) + ')' : ''}, ${HEALTH_LABEL[n.health]}${because}${traffic}, ${n.visibility} visibility${fs.length ? `, ${fs.length} next step${fs.length > 1 ? 's' : ''}` : ''}`;
       p.tip.textContent = label;
       g.setAttribute('aria-label', label);
+    }
+
+    // drawWhy fills g with a pill for the worst reason, or empties it.
+    function drawWhy(g, list) {
+      g.replaceChildren();
+      if (!list.length) return;
+      const r = list[0];
+      g.setAttribute('class', 'why-tag ' + r.health);
+      const text = sv('text', { x: 21, y: 4 });
+      const tag = reasonTag(r, list.length - 1);
+      text.textContent = tag.length > 30 ? tag.slice(0, 29) + '…' : tag;
+      const tip = sv('title');
+      tip.textContent = list.map(x => x.summary || reasonTag(x)).join('\n');
+      g.append(tip);
+      const ic = iconSVG(REASON[r.cause].icon);
+      ic.setAttribute('x', 6); ic.setAttribute('y', -6); ic.setAttribute('width', 12); ic.setAttribute('height', 12);
+      g.append(text, ic);
+      const w = text.getComputedTextLength ? text.getComputedTextLength() : text.textContent.length * 6;
+      g.insertBefore(sv('rect', { x: 0, y: -9, width: Math.ceil(w) + 28, height: 18, rx: 9 }), text);
     }
 
     function createEdge() {
@@ -1077,6 +1157,24 @@ button.label { cursor: pointer; }
         m.append(sv('circle', { r: 8 }), t, tt);
         m.addEventListener('click', ev => { ev.stopPropagation(); select({ type: 'edge', id: g._edge.id }); });
         layerMarks.append(m);
+      }
+    }
+
+    // renderReasons pins each amber or red line's worst reason above its
+    // middle, so the map says why without hovering.
+    function renderReasons() {
+      layerReasons.replaceChildren();
+      for (const g of edgeEls.values()) {
+        const e = g._edge;
+        if (g.style.display === 'none' || !e.reasons.length) continue;
+        const p = mid(g);
+        const tag = sv('g', { transform: `translate(${p.x - 40},${p.y - 16})` });
+        tag._edge = e;
+        layerReasons.append(tag);
+        drawWhy(tag, e.reasons);
+        const w = tag.firstChild ? Number(tag.firstChild.getAttribute('width')) : 0;
+        tag.setAttribute('transform', `translate(${p.x - w / 2},${p.y - 16})`);
+        tag.addEventListener('click', ev => { ev.stopPropagation(); select({ type: 'edge', id: e.id }); });
       }
     }
 
@@ -1237,7 +1335,7 @@ button.label { cursor: pointer; }
       const d = drag;
       drag = null;
       if (d.type === 'node') {
-        if (d.moved) { store.set('positions', state.positions); renderMarks(); rebuildParticles(); return; }
+        if (d.moved) { store.set('positions', state.positions); renderMarks(); renderReasons(); rebuildParticles(); return; }
         if (!commit) return;
         // a second click on the same card within 350 ms expands or collapses its group
         const now = performance.now();
@@ -1253,6 +1351,7 @@ button.label { cursor: pointer; }
         if (e.from === id || e.to === id) routeEdge(g, posOf(e.from), posOf(e.to), currentView.edges.has(e.to + '->' + e.from) ? 7 : 0);
       }
       layerMarks.replaceChildren();
+      layerReasons.replaceChildren();
       layerParticles.replaceChildren();
       particles = [];
       renderEdgeLabel();
@@ -1278,6 +1377,7 @@ button.label { cursor: pointer; }
         g.classList.toggle('match', hit);
       }
       for (const [id, g] of edgeEls) g.classList.toggle('dim', !!(nb && !nb.edges.has(id)));
+      for (const tag of layerReasons.children) tag.classList.toggle('dim', !!(nb && !nb.edges.has(tag._edge.id)));
       layerParticles.classList.toggle('dim', !!nb);
     }
 
@@ -1395,8 +1495,10 @@ button.label { cursor: pointer; }
       const parts = [
         el('h4', {}, 'health'), el('h4', {}, 'communication'), el('h4', {}, 'visibility'),
         sw(css('--healthy'), 'healthy'), ln('', 'declared + seen'), bx('', 'first-hand'),
-        sw(css('--degraded'), '▲ ≥ 1% errors'), ln('border-top-style:dashed', 'not declared'), bx('border-style:dashed', 'via peers'),
-        sw(css('--failing'), '✕ ≥ 5% errors'), ln('border-top-style:dotted', 'not seen'), bx('border-style:dotted', 'no traffic'),
+        sw(css('--degraded'), '▲ degraded'), ln('border-top-style:dashed', 'not declared'), bx('border-style:dashed', 'via peers'),
+        sw(css('--failing'), '✕ failing'), ln('border-top-style:dotted', 'not seen'), bx('border-style:dotted', 'no traffic'),
+        el('h4', { class: 'span3' }, 'why: the tag on the card or line'),
+        el('div', { class: 'reasons' }, ...Object.values(REASON).map(r => el('span', { class: 'lg' }, iconSVG(r.icon), r.label))),
       ];
       if (state.legendIcons) {
         parts.push(el('h4', { class: 'span3' }, 'components'));
@@ -1495,6 +1597,18 @@ button.label { cursor: pointer; }
       pane.replaceChildren(el('h3', {}, 'What teia needs to see more'), ...fs.map(f => findingCard(f)));
     }
 
+    // whyBlock explains an amber or red node or line, worst reason first,
+    // with a way to the dependency it most likely comes from.
+    function whyBlock(list) {
+      if (!list.length) return [];
+      const red = list.some(r => r.health === 'failing');
+      return [el('h3', {}, red ? 'Why it is red' : 'Why it is amber'), ...list.map(r => el('div', { class: 'why ' + r.health },
+        iconSVG(REASON[r.cause].icon),
+        el('span', {}, (r.summary || reasonTag(r)) + (r.subject ? ` (${r.subject})` : '')),
+        r.via ? el('button', { type: 'button', class: 'btn', title: `Show ${r.via} on the map`, onclick: () => locate(r.via) }, 'go to ' + r.via) : el('span'),
+      ))];
+    }
+
     function rel(label, sub, health, onclick) {
       return el('button', { type: 'button', class: 'rel', onclick }, el('i', { class: 'dot', style: `background:${css('--' + health)}` }), label, el('span', {}, sub));
     }
@@ -1509,7 +1623,7 @@ button.label { cursor: pointer; }
         const tile = el('div', { class: 'tile', style: `background:${css('--' + n.health)}` }, iconSVG(iconOf(n)));
         const parts = [el('div', { class: 'hero' }, tile, el('div', {}, el('h2', {}, n.title),
           el('span', { class: 'pill' }, el('i', { class: 'dot', style: `background:${css('--' + n.health)}` }), HEALTH_LABEL[n.health]), ' ',
-          el('span', { class: 'pill' }, n.kind), ' ', el('span', { class: 'pill' }, n.visibility + ' visibility')))];
+          el('span', { class: 'pill' }, n.kind), ' ', el('span', { class: 'pill' }, n.visibility + ' visibility'))), ...whyBlock(n.reasons)];
         if (n.group) {
           const inside = n.internal ? `, talking to each other through ${n.internal} communication${n.internal === 1 ? '' : 's'}` : '';
           parts.push(el('p', { class: 'explain' }, `${n.members.length} workload${n.members.length === 1 ? '' : 's'} with ${n.labelKey}=${n.title}${inside}. Double-click the card to expand it.`));
@@ -1555,7 +1669,7 @@ button.label { cursor: pointer; }
       if (state.snap.drift) pills.push(' ', el('span', { class: 'pill' }, STATE_LABEL[e.state]));
       const parts = [el('div', { class: 'hero' },
         el('div', { class: 'tile', style: `background:${css('--' + color)}` }, iconSVG('<path d="M4 12h14M13 6l6 6-6 6"/>')),
-        el('div', {}, el('h2', {}, `${e.from} → ${e.to}`), ...pills))];
+        el('div', {}, el('h2', {}, `${e.from} → ${e.to}`), ...pills)), ...whyBlock(e.reasons)];
       if (state.snap.drift) {
         parts.push(el('p', { class: 'explain' }, {
           ok: 'Declared in a flows file and observed in traffic: intent and reality agree.',
