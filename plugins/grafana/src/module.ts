@@ -22,7 +22,7 @@ export const plugin = new PanelPlugin<TeiaOptions>(TeiaPanel)
         path: 'teiaUrl',
         name: 'teia API URL (optional)',
         description:
-          'Stream straight from teia (for example http://teia:8080/api/v1/) instead of the panel queries. teia must allow this Grafana origin (cors in teia.yaml).',
+          'Stream straight from teia instead of the panel queries, for example http://localhost:8480/api/v1/. The browser connects to it, so use an address viewers can reach, and allow the Grafana origin in teia.yaml (cors.allowedOrigins).',
         defaultValue: '',
       })
   );

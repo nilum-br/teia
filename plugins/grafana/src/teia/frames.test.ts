@@ -51,7 +51,70 @@ describe('framesToSnapshot', () => {
     expect(roleOf(plainEdges)).toBe('edges');
     const { snapshot } = framesToSnapshot([plainNodes, plainEdges], 1);
     expect(snapshot!.nodes[0].health).toBe('failing');
-    expect(snapshot!.edges[0].state).toBe('ghost');
+    // Without declared flows there is nothing to drift from.
+    expect(snapshot!.drift).toBe(false);
+    expect(snapshot!.edges[0].state).toBe('ok');
+  });
+
+  it('uses secondarystat as the edge rate in plain Node Graph frames', () => {
+    const plainEdges = toDataFrame({
+      fields: [
+        { name: 'source', values: ['a'] },
+        { name: 'target', values: ['b'] },
+        { name: 'secondarystat', values: [4] },
+      ],
+    });
+    const { snapshot } = framesToSnapshot([plainEdges], 1);
+    expect(snapshot!.edges[0].requestRate).toBe(4);
+    expect(snapshot!.edges[0].health).toBe('healthy');
+  });
+
+  it('replaces values it does not know with safe ones', () => {
+    const odd = toDataFrame({
+      refId: 'nodes',
+      fields: [
+        { name: 'id', values: ['a', 'a', ''] },
+        { name: 'health', values: ['on-fire', 'healthy', 'healthy'] },
+        { name: 'visibility', values: ['x-ray', 'full', 'full'] },
+        { name: 'labels', values: ['{"team":"x","nested":{"a":1},"n":2}', '[1,2]', 'null'] },
+      ],
+    });
+    const oddEdges = toDataFrame({
+      refId: 'edges',
+      fields: [
+        { name: 'source', values: ['a', 'a'] },
+        { name: 'target', values: ['b', 'a'] },
+        { name: 'state', values: ['OK', 'ok'] },
+        { name: 'health', values: ['purple', 'healthy'] },
+      ],
+    });
+    const findings = toDataFrame({
+      refId: 'findings',
+      fields: [
+        { name: 'title', values: ['do this', ''] },
+        { name: 'severity', values: ['urgent', 'info'] },
+      ],
+    });
+    const { snapshot } = framesToSnapshot([odd, oddEdges, findings], 1);
+    expect(snapshot!.nodes.map((n) => n.id)).toEqual(['a', 'b']);
+    expect(snapshot!.nodes[0]).toMatchObject({ health: 'unknown', visibility: 'full', labels: { team: 'x', n: '2' } });
+    expect(snapshot!.edges).toHaveLength(1);
+    expect(snapshot!.edges[0]).toMatchObject({ state: 'ok', health: 'unknown' });
+    expect(snapshot!.findings).toEqual([expect.objectContaining({ title: 'do this', severity: 'info' })]);
+  });
+
+  it('treats a field named __proto__ as data', () => {
+    const tricky = toDataFrame({
+      refId: 'nodes',
+      fields: [
+        { name: 'id', values: ['a'] },
+        { name: '__proto__', values: ['{"polluted":true}'] },
+        { name: 'constructor', values: ['x'] },
+      ],
+    });
+    const { snapshot } = framesToSnapshot([tricky], 1);
+    expect(snapshot!.nodes[0].id).toBe('a');
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 
   it('returns nothing without nodes or edges', () => {

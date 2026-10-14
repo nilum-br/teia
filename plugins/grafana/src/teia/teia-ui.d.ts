@@ -50,6 +50,7 @@ export interface TeiaSource {
 }
 
 export interface TeiaChange {
+  id?: string;
   at: string;
   type: string;
   subject: string;
@@ -66,6 +67,8 @@ export interface TeiaSnapshot {
   findings: TeiaFinding[];
   sources: TeiaSource[];
   coverage: { nodes: number; edges: number; visibility: number; declared: number; observed: number };
+  /** False for data without intent (plain Node Graph frames): no drift to show. */
+  drift?: boolean;
   changes?: TeiaChange[];
 }
 
@@ -77,13 +80,19 @@ export interface TeiaMountOptions {
   theme?: 'dark' | 'light';
   groupBy?: string;
   flow?: boolean;
+  /** Node to select once the first snapshot is in. */
+  select?: string;
 }
 
 export interface TeiaController {
   update(snapshot: TeiaSnapshot, changes?: TeiaChange[]): void;
+  /** Reports the host's own query state; an empty message clears it. */
+  setStatus(error?: string): void;
+  /** Applies panel options, unless the viewer already chose otherwise on the map. */
+  setOptions(options: { groupBy?: string; flow?: boolean }): void;
   setTheme(theme: 'dark' | 'light'): void;
   destroy(): void;
 }
 
-declare const TeiaUI: { mount(host: HTMLElement, options?: TeiaMountOptions): TeiaController };
+declare const TeiaUI: { mount(host: HTMLElement, options?: TeiaMountOptions): TeiaController; core: Record<string, unknown> };
 export default TeiaUI;

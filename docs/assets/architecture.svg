@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" font-family="Outfit, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title>teia architecture</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" fill="#a9f549"/>
+    </marker>
+    <linearGradient id="core" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1a70"/><stop offset="1" stop-color="#0a155f"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="560" rx="24" fill="#020a33"/>
+
+  <!-- column titles -->
+  <g fill="#9aa6d6" font-size="13" font-weight="600" letter-spacing="1.5">
+    <text x="40" y="48">WHAT YOUR PLATFORM ALREADY HAS</text>
+    <text x="470" y="48">TEIA (ONE BINARY)</text>
+    <text x="890" y="48">WHERE PEOPLE SEE IT</text>
+  </g>
+
+  <!-- sources -->
+  <g font-size="15" fill="#f7f8ff">
+    <g transform="translate(40 70)">
+      <rect width="330" height="52" rx="12" fill="#0a155f" stroke="rgba(255,255,255,.12)"/>
+      <text x="18" y="22" font-weight="600">Traces</text><text x="18" y="41" fill="#9aa6d6" font-size="12.5">OpenTelemetry, Tempo, Beyla / OBI</text>
+    </g>
+    <g transform="translate(40 132)">
+      <rect width="330" height="52" rx="12" fill="#0a155f" stroke="rgba(255,255,255,.12)"/>
+      <text x="18" y="22" font-weight="600">Mesh</text><text x="18" y="41" fill="#9aa6d6" font-size="12.5">Istio (sidecar, ambient), Linkerd</text>
+    </g>
+    <g transform="translate(40 194)">
+      <rect width="330" height="52" rx="12" fill="#0a155f" stroke="rgba(255,255,255,.12)"/>
+      <text x="18" y="22" font-weight="600">Network (eBPF)</text><text x="18" y="41" fill="#9aa6d6" font-size="12.5">Beyla / OBI flows, Cilium Hubble, Retina</text>
+    </g>
+    <g transform="translate(40 256)">
+      <rect width="330" height="52" rx="12" fill="#0a155f" stroke="rgba(255,255,255,.12)"/>
+      <text x="18" y="22" font-weight="600">Logs and custom metrics</text><text x="18" y="41" fill="#9aa6d6" font-size="12.5">any LogQL / PromQL: Loki access logs, exporters</text>
+    </g>
+    <g transform="translate(40 318)">
+      <rect width="330" height="52" rx="12" fill="#0a155f" stroke="rgba(255,255,255,.12)"/>
+      <text x="18" y="22" font-weight="600">Datastores, from inside</text><text x="18" y="41" fill="#9aa6d6" font-size="12.5">PostgreSQL pg_stat_activity (more coming)</text>
+    </g>
+    <g transform="translate(40 380)">
+      <rect width="330" height="52" rx="12" fill="#0a155f" stroke="rgba(255,255,255,.12)"/>
+      <text x="18" y="22" font-weight="600">Inventory</text><text x="18" y="41" fill="#9aa6d6" font-size="12.5">Kubernetes, Docker: names, IPs, labels, images</text>
+    </g>
+    <g transform="translate(40 452)">
+      <rect width="330" height="52" rx="12" fill="#0a155f" stroke="#a9f549" stroke-opacity=".55" stroke-dasharray="5 4"/>
+      <text x="18" y="22" font-weight="600">Intent</text><text x="18" y="41" fill="#9aa6d6" font-size="12.5">Flows files next to catalog-info.yaml (git)</text>
+    </g>
+  </g>
+
+  <!-- core -->
+  <g transform="translate(470 70)">
+    <rect width="330" height="434" rx="18" fill="url(#core)" stroke="#a9f549" stroke-opacity=".6" stroke-width="1.5"/>
+    <g font-size="15" fill="#f7f8ff">
+      <text x="24" y="40" font-size="19" font-weight="600">discovery round</text>
+      <text x="24" y="62" fill="#9aa6d6" font-size="12.5">every interval · read-only · no agent</text>
+      <g transform="translate(24 88)">
+        <rect width="282" height="44" rx="10" fill="#020f59"/><text x="16" y="27">merge + identity</text>
+        <text x="266" y="27" text-anchor="end" fill="#9aa6d6" font-size="12">time-aware IPs</text>
+      </g>
+      <g transform="translate(24 142)">
+        <rect width="282" height="44" rx="10" fill="#020f59"/><text x="16" y="27">drift</text>
+        <text x="266" y="27" text-anchor="end" fill="#9aa6d6" font-size="12">ok · ghost · stale</text>
+      </g>
+      <g transform="translate(24 196)">
+        <rect width="282" height="44" rx="10" fill="#020f59"/><text x="16" y="27">health + technology</text>
+        <text x="266" y="27" text-anchor="end" fill="#9aa6d6" font-size="12">errors · icons</text>
+      </g>
+      <g transform="translate(24 250)">
+        <rect width="282" height="44" rx="10" fill="#020f59"/><text x="16" y="27">coverage</text>
+        <text x="266" y="27" text-anchor="end" fill="#9aa6d6" font-size="12">what is unseen</text>
+      </g>
+      <g transform="translate(24 304)">
+        <rect width="282" height="44" rx="10" fill="#a9f549"/><text x="16" y="27" fill="#020f59" font-weight="600">advisor</text>
+        <text x="266" y="27" text-anchor="end" fill="#020f59" font-size="12">the next exact step</text>
+      </g>
+      <g transform="translate(24 358)">
+        <rect width="282" height="44" rx="10" fill="#020f59"/><text x="16" y="27">changes</text>
+        <text x="266" y="27" text-anchor="end" fill="#9aa6d6" font-size="12">diff between rounds</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- surfaces -->
+  <g font-size="15" fill="#f7f8ff">
+    <g transform="translate(890 70)">
+      <rect width="270" height="66" rx="12" fill="#0a155f" stroke="#a9f549" stroke-opacity=".7"/>
+      <text x="18" y="27" font-weight="600">Grafana</text><text x="18" y="48" fill="#9aa6d6" font-size="12.5">nilum-teia-panel plugin</text>
+    </g>
+    <g transform="translate(890 148)">
+      <rect width="270" height="52" rx="12" fill="#0a155f" stroke="rgba(255,255,255,.12)"/>
+      <text x="18" y="22" font-weight="600">teia UI</text><text x="18" y="41" fill="#9aa6d6" font-size="12.5">same map, live (SSE)</text>
+    </g>
+    <g transform="translate(890 212)">
+      <rect width="270" height="52" rx="12" fill="#0a155f" stroke="rgba(255,255,255,.12)"/>
+      <text x="18" y="22" font-weight="600">Backstage</text><text x="18" y="41" fill="#9aa6d6" font-size="12.5">entity card, relations (next)</text>
+    </g>
+    <g transform="translate(890 276)">
+      <rect width="270" height="52" rx="12" fill="#0a155f" stroke="rgba(255,255,255,.12)"/>
+      <text x="18" y="22" font-weight="600">Alerts</text><text x="18" y="41" fill="#9aa6d6" font-size="12.5">/metrics, webhooks, Slack</text>
+    </g>
+    <g transform="translate(890 340)">
+      <rect width="270" height="52" rx="12" fill="#0a155f" stroke="rgba(255,255,255,.12)"/>
+      <text x="18" y="22" font-weight="600">CI</text><text x="18" y="41" fill="#9aa6d6" font-size="12.5">teia discover --fail-on</text>
+    </g>
+    <g transform="translate(890 404)">
+      <rect width="270" height="52" rx="12" fill="#0a155f" stroke="rgba(255,255,255,.12)"/>
+      <text x="18" y="22" font-weight="600">Security / network</text><text x="18" y="41" fill="#9aa6d6" font-size="12.5">flow matrix for firewall requests</text>
+    </g>
+    <g transform="translate(890 468)">
+      <rect width="270" height="36" rx="12" fill="#0a155f" stroke="rgba(255,255,255,.12)"/>
+      <text x="18" y="23" font-weight="600">JSON API</text><text x="252" y="23" text-anchor="end" fill="#9aa6d6" font-size="12.5">/api/v1</text>
+    </g>
+  </g>
+
+  <!-- flows -->
+  <g fill="none" stroke="#a9f549" stroke-width="2" marker-end="url(#arrow)">
+    <path d="M372 287 C420 287 420 287 466 287"/>
+    <path d="M802 287 C846 287 846 103 886 103"/>
+    <path d="M802 287 C846 287 846 174 886 174"/>
+    <path d="M802 287 C846 287 846 238 886 238"/>
+    <path d="M802 287 C846 287 846 302 886 302"/>
+    <path d="M802 287 C846 287 846 366 886 366"/>
+    <path d="M802 287 C846 287 846 430 886 430"/>
+    <path d="M802 287 C846 287 846 486 886 486"/>
+  </g>
+  <g fill="none" stroke="#5b94ff" stroke-opacity=".6" stroke-width="1.5">
+    <path d="M370 96 C400 96 400 287 372 287"/>
+    <path d="M370 158 C396 158 396 287 372 287"/>
+    <path d="M370 220 C392 220 392 287 372 287"/>
+    <path d="M370 344 C392 344 392 287 372 287"/>
+    <path d="M370 406 C396 406 396 287 372 287"/>
+    <path d="M370 478 C400 478 400 287 372 287"/>
+  </g>
+</svg>

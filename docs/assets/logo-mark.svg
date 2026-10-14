@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="teia">
+  <title>teia</title>
+  <defs>
+    <linearGradient id="m-tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a1a6e"/><stop offset="1" stop-color="#020f59"/>
+    </linearGradient>
+    <radialGradient id="m-glow" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#005aff" stop-opacity=".45"/><stop offset="1" stop-color="#005aff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="128" height="128" rx="26" fill="url(#m-tile)"/>
+  <circle cx="64" cy="64" r="44" fill="url(#m-glow)"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M64 64 L64.0 11.0 M64 64 L109.9 37.5 M64 64 L109.9 90.5 M64 64 L64.0 117.0 M64 64 L18.1 90.5 M64 64 L18.1 37.5" stroke="#5b94ff" stroke-opacity=".5" stroke-width="2.2"/>
+  <path d="M64.0 49.0 Q69.8 53.9 77.0 56.5 M77.0 56.5 Q75.7 64.0 77.0 71.5 M77.0 71.5 Q69.8 74.1 64.0 79.0 M64.0 79.0 Q58.2 74.1 51.0 71.5 M51.0 71.5 Q52.3 64.0 51.0 56.5 M51.0 56.5 Q58.1 53.9 64.0 49.0 M64.0 33.0 Q76.1 43.1 90.8 48.5 M90.8 48.5 Q88.2 64.0 90.8 79.5 M90.8 79.5 Q76.1 84.9 64.0 95.0 M64.0 95.0 Q51.9 84.9 37.2 79.5 M37.2 79.5 Q39.8 64.0 37.2 48.5 M37.2 48.5 Q51.9 43.1 64.0 33.0 M64.0 17.0 Q82.3 32.3 104.7 40.5 M104.7 40.5 Q100.7 64.0 104.7 87.5 M104.7 87.5 Q82.3 95.7 64.0 111.0 M64.0 111.0 Q45.7 95.7 23.3 87.5 M23.3 87.5 Q27.3 64.0 23.3 40.5 M23.3 40.5 Q45.7 32.3 64.0 17.0" stroke="#5b94ff" stroke-opacity=".75" stroke-width="2.2"/>
+  <path d="M23.3 87.5 L37.2 79.5 Q51.9 84.9 64.0 95.0 L64.0 79.0 L64 64 L77.0 56.5 L90.8 48.5 L104.7 40.5" stroke="#a9f549" stroke-width="4.8"/>
+  </g>
+  <circle cx="64.0" cy="17.0" r="3.3" fill="#f7f8ff" fill-opacity=".8"/>
+  <circle cx="64.0" cy="111.0" r="3.3" fill="#f7f8ff" fill-opacity=".8"/>
+  <circle cx="23.3" cy="40.5" r="3.3" fill="#f7f8ff" fill-opacity=".8"/>
+  <circle cx="37.2" cy="48.5" r="3.3" fill="#f7f8ff" fill-opacity=".8"/>
+  <circle cx="90.8" cy="79.5" r="3.3" fill="#f7f8ff" fill-opacity=".8"/>
+  <circle cx="64.0" cy="49.0" r="3.3" fill="#f7f8ff" fill-opacity=".8"/>
+  <circle cx="51.0" cy="71.5" r="3.3" fill="#f7f8ff" fill-opacity=".8"/>
+  <circle cx="23.3" cy="87.5" r="5.2" fill="#020f59" stroke="#a9f549" stroke-width="2.8"/>
+  <circle cx="37.2" cy="79.5" r="5.2" fill="#020f59" stroke="#a9f549" stroke-width="2.8"/>
+  <circle cx="64.0" cy="95.0" r="5.2" fill="#020f59" stroke="#a9f549" stroke-width="2.8"/>
+  <circle cx="64.0" cy="79.0" r="5.2" fill="#020f59" stroke="#a9f549" stroke-width="2.8"/>
+  <circle cx="77.0" cy="56.5" r="5.2" fill="#020f59" stroke="#a9f549" stroke-width="2.8"/>
+  <circle cx="90.8" cy="48.5" r="5.2" fill="#020f59" stroke="#a9f549" stroke-width="2.8"/>
+  <circle cx="104.7" cy="40.5" r="5.2" fill="#020f59" stroke="#a9f549" stroke-width="2.8"/>
+  <circle cx="64" cy="64" r="8" fill="#a9f549" stroke="#020f59" stroke-width="2.5"/>
+</svg>

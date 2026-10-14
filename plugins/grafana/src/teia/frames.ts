@@ -5,13 +5,18 @@ type Row = Record<string, unknown>;
 type Role = 'nodes' | 'edges' | 'findings' | 'sources' | 'changes' | 'coverage';
 
 const ROLES: Role[] = ['nodes', 'edges', 'findings', 'sources', 'changes', 'coverage'];
+const HEALTH: Array<TeiaNode['health']> = ['healthy', 'degraded', 'failing', 'unknown'];
+const VISIBILITY: Array<TeiaNode['visibility']> = ['full', 'partial', 'none'];
+const STATES: Array<TeiaEdge['state']> = ['ok', 'ghost', 'stale'];
+const SEVERITY: Array<TeiaFinding['severity']> = ['critical', 'warning', 'info'];
 
-/** Rows of a frame as plain objects. */
+/** Rows of a frame as plain objects. Rows have no prototype, so a field
+ * named __proto__ or constructor is just a field. */
 export function rows(frame: DataFrame): Row[] {
   const length = frame.length ?? frame.fields[0]?.values.length ?? 0;
   const out: Row[] = [];
   for (let i = 0; i < length; i++) {
-    const row: Row = {};
+    const row: Row = Object.create(null);
     for (const f of frame.fields) {
       row[f.name] = f.values[i];
     }
@@ -46,6 +51,7 @@ export function roleOf(frame: DataFrame): Role | undefined {
   return undefined;
 }
 
+const has = (r: Row, key: string): boolean => Object.hasOwn(r, key) && r[key] != null && r[key] !== '';
 const str = (v: unknown): string => (v == null ? '' : String(v));
 const num = (v: unknown): number => {
   const n = typeof v === 'number' ? v : parseFloat(str(v));
@@ -57,6 +63,11 @@ const list = (v: unknown): string[] =>
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+/** v when it is one of the allowed values, fallback otherwise. */
+function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T): T {
+  const s = str(v).toLowerCase() as T;
+  return allowed.includes(s) ? s : fallback;
+}
 
 function health(errorRate: number, rate: number): TeiaNode['health'] {
   if (rate <= 0) {
@@ -65,40 +76,58 @@ function health(errorRate: number, rate: number): TeiaNode['health'] {
   return errorRate >= 0.05 ? 'failing' : errorRate >= 0.01 ? 'degraded' : 'healthy';
 }
 
-function toNode(r: Row): TeiaNode {
-  let labels: Record<string, string> = {};
+function labelsOf(v: unknown): Record<string, string> {
   try {
-    labels = r.labels ? JSON.parse(str(r.labels)) : {};
+    const parsed: unknown = typeof v === 'string' && v ? JSON.parse(v) : v;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {};
+    }
+    const out: Record<string, string> = {};
+    for (const [k, val] of Object.entries(parsed)) {
+      if (val != null && typeof val !== 'object') {
+        out[k] = String(val);
+      }
+    }
+    return out;
   } catch {
-    labels = {};
+    return {};
   }
-  // Plain Node Graph frames (e.g. Tempo) carry arc__failed and a rate.
-  const rate = r.requestRate != null ? num(r.requestRate) : num(r.secondarystat);
-  const errorRate = r.errorRate != null ? num(r.errorRate) : num(r.arc__failed);
+}
+
+function toNode(r: Row): TeiaNode {
+  // Plain Node Graph frames (e.g. Tempo) carry a rate in secondarystat and
+  // the failed share in arc__failed.
+  const rate = has(r, 'requestRate') ? num(r.requestRate) : num(r.secondarystat);
+  const errorRate = has(r, 'errorRate') ? num(r.errorRate) : num(r.arc__failed);
   return {
     id: str(r.id),
     kind: str(r.kind) || 'service',
     tech: str(r.tech) || undefined,
-    visibility: (str(r.visibility) || 'full') as TeiaNode['visibility'],
-    health: (str(r.health) || health(errorRate, rate)) as TeiaNode['health'],
+    visibility: oneOf(r.visibility, VISIBILITY, 'full'),
+    health: oneOf(r.health, HEALTH, health(errorRate, rate)),
     requestRate: rate,
     errorRate,
     sources: list(r.sources),
     addresses: list(r.addresses),
-    labels,
+    labels: labelsOf(r.labels),
   };
 }
 
-function toEdge(r: Row): TeiaEdge {
-  const rate = num(r.requestRate);
+/** Whether edge rows carry intent (declared flows). Plain Node Graph data
+ * does not, and then there is no drift to show. */
+const hasIntent = (r: Row): boolean => has(r, 'state') || has(r, 'declared');
+
+function toEdge(r: Row, drift: boolean): TeiaEdge {
+  const rate = has(r, 'requestRate') ? num(r.requestRate) : num(r.secondarystat);
   const errorRate = num(r.errorRate);
-  const declared = r.declared != null ? bool(r.declared) : false;
-  const observed = r.observed != null ? bool(r.observed) : true;
+  const declared = has(r, 'declared') ? bool(r.declared) : false;
+  const observed = has(r, 'observed') ? bool(r.observed) : true;
+  const derived: TeiaEdge['state'] = !drift ? 'ok' : declared ? (observed ? 'ok' : 'stale') : 'ghost';
   return {
     from: str(r.source),
     to: str(r.target),
-    state: (str(r.state) || (declared ? (observed ? 'ok' : 'stale') : 'ghost')) as TeiaEdge['state'],
-    health: (str(r.health) || health(errorRate, rate)) as TeiaEdge['health'],
+    state: oneOf(r.state, STATES, derived),
+    health: oneOf(r.health, HEALTH, health(errorRate, rate)),
     protocol: str(r.protocol) || undefined,
     port: num(r.port) || undefined,
     reason: str(r.reason) || undefined,
@@ -117,7 +146,7 @@ function toFinding(r: Row): TeiaFinding {
     id: str(r.id) || `${str(r.rule)}:${str(r.subject)}`,
     rule: str(r.rule),
     kind: str(r.kind),
-    severity: (str(r.severity) || 'info') as TeiaFinding['severity'],
+    severity: oneOf(r.severity, SEVERITY, 'info'),
     subject: str(r.subject),
     title: str(r.title),
     detail: str(r.detail) || undefined,
@@ -131,7 +160,15 @@ function toSource(r: Row): TeiaSource {
 
 function toChange(r: Row): TeiaChange {
   const at = typeof r.at === 'number' ? new Date(r.at).toISOString() : str(r.at);
-  return { at, type: str(r.type), subject: str(r.subject), from: str(r.from), to: str(r.to), message: str(r.message) };
+  return {
+    id: str(r.id) || undefined,
+    at,
+    type: str(r.type),
+    subject: str(r.subject),
+    from: str(r.from),
+    to: str(r.to),
+    message: str(r.message),
+  };
 }
 
 /** Coverage the way teia computes it, for data that did not bring its own. */
@@ -161,10 +198,18 @@ export function framesToSnapshot(series: DataFrame[], round: number): { snapshot
   if (!byRole.nodes && !byRole.edges) {
     return { changes: [] };
   }
-  const edges = (byRole.edges ?? []).map(toEdge).filter((e) => e.from && e.to);
-  const nodes = (byRole.nodes ?? []).map(toNode).filter((n) => n.id);
+  const edgeRows = byRole.edges ?? [];
+  const drift = edgeRows.some(hasIntent);
+  const edges = edgeRows.map((r) => toEdge(r, drift)).filter((e) => e.from && e.to && e.from !== e.to);
+  const nodes: TeiaNode[] = [];
+  const known = new Set<string>();
+  for (const n of (byRole.nodes ?? []).map(toNode)) {
+    if (n.id && !known.has(n.id)) {
+      known.add(n.id);
+      nodes.push(n);
+    }
+  }
   // Edges may name nodes the nodes query did not return.
-  const known = new Set(nodes.map((n) => n.id));
   for (const e of edges) {
     for (const id of [e.from, e.to]) {
       if (!known.has(id)) {
@@ -183,10 +228,11 @@ export function framesToSnapshot(series: DataFrame[], round: number): { snapshot
       generatedAt: new Date().toISOString(),
       nodes,
       edges,
-      findings: (byRole.findings ?? []).map(toFinding),
-      sources: (byRole.sources ?? []).map(toSource),
+      findings: (byRole.findings ?? []).map(toFinding).filter((f) => f.title),
+      sources: (byRole.sources ?? []).map(toSource).filter((s) => s.name),
       coverage,
+      drift,
     },
-    changes: (byRole.changes ?? []).map(toChange),
+    changes: (byRole.changes ?? []).map(toChange).filter((c) => c.message),
   };
 }

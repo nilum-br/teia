@@ -10,6 +10,9 @@
 *.local.yaml
 .env
 
+# Agent worktrees and local assistant state
+/.claude/
+
 # Editors / OS
 .idea/
 .vscode/
