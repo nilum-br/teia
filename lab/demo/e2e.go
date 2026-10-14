@@ -34,6 +34,7 @@ type snapshot struct {
 		Observed bool     `json:"observed"`
 		Sources  []string `json:"sources"`
 		P95      float64  `json:"latencyP95Ms"`
+		Reasons  []reason `json:"reasons"`
 	} `json:"edges"`
 	Findings []struct {
 		Rule    string `json:"rule"`
@@ -61,6 +62,22 @@ func (s *snapshot) why(id, cause, via string) bool {
 		}
 		for _, r := range n.Reasons {
 			if r.Cause == cause && r.Via == via {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// edgeWhy reports whether the edge is amber or red because of cause, and
+// teia knows where it comes from.
+func (s *snapshot) edgeWhy(from, to, cause string) bool {
+	for _, e := range s.Edges {
+		if e.From != from || e.To != to {
+			continue
+		}
+		for _, r := range e.Reasons {
+			if r.Cause == cause && r.Via != "" {
 				return true
 			}
 		}
@@ -245,8 +262,43 @@ func e2e(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("phase 2 failed")
 	}
+
+	// Now that teia sees inside the database, a lock: the orders service's
+	// queries wait on it, and teia should say so on that line, with who holds it.
+	fmt.Println("\nA lock shows up: an exclusive lock on the orders table, held for a while")
+	release, err := holdLock(ctx, dsn, "LOCK TABLE orders IN ACCESS EXCLUSIVE MODE")
+	if err != nil {
+		return err
+	}
+	_, ok = waitFor(ctx, url, "Why orders is stuck", []check{
+		{"locks: orders -> orders-db waits on a lock, and teia names who holds it", func(s *snapshot) bool { return s.edgeWhy("orders", "orders-db", "locks") }},
+	}, 2*time.Minute)
+	release()
+	if !ok {
+		return fmt.Errorf("phase 3 failed")
+	}
 	fmt.Printf("\nvisibility %.0f%% -> %.0f%%. All checks passed.\n", before.Coverage.Visibility*100, after.Coverage.Visibility*100)
 	return nil
+}
+
+// holdLock runs sql in a transaction and keeps it open until release.
+func holdLock(ctx context.Context, dsn, sql string) (release func(), err error) {
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to postgres: %w", err)
+	}
+	tx, err := conn.Begin(ctx)
+	if err == nil {
+		_, err = tx.Exec(ctx, sql)
+	}
+	if err != nil {
+		_ = conn.Close(context.WithoutCancel(ctx))
+		return nil, fmt.Errorf("taking the lock: %w", err)
+	}
+	return func() {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		_ = conn.Close(context.WithoutCancel(ctx))
+	}, nil
 }
 
 func pgExec(ctx context.Context, dsn, sql string) error {

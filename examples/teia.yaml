@@ -33,14 +33,24 @@ interval: 30s  # one discovery round every 30 seconds
 timeout: 20s   # each source gets this long per round
 retention: 90s # keep an edge (and a failing source's last good answer) this long; default 3 x interval
 
-# Amber or red is the worst golden signal, and the map says which: from 1% or
-# 5% errors (rates between 0 and 1), or from a p95 latency of 500ms or 2s.
+# Amber or red is the worst golden signal, and the map says which one. These
+# are the defaults: errors as rates between 0 and 1, then p95 latency,
+# saturation, locks and queue backlog.
 health:
   degraded: 0.01
   failing: 0.05
   latency:
     degraded: 500ms
     failing: 2s
+  saturation: # used share of a capacity, such as connections out of max_connections
+    degraded: 0.8
+    failing: 0.95
+  locks: # sessions waiting on a lock for over a second
+    degraded: 1
+    failing: 5
+  backlog: # items waiting in a queue, such as consumer lag
+    degraded: 1000
+    failing: 10000
 
 # One node for things known under several names (matched case-insensitively).
 # A key can also be an address no inventory knows.

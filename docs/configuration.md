@@ -49,6 +49,15 @@ binary, for working on it. It is a flag, not a config key.
 | `health.latency` | | Limits on the p95 of calls, where a signal measures durations. |
 | `health.latency.degraded` | `500ms` | From this p95 a node or edge is `degraded`. |
 | `health.latency.failing` | `2s` | From this p95 it is `failing`. Must not be below `health.latency.degraded`, defaults included. |
+| `health.saturation` | | Limits on the used share of a capacity (0 to 1), such as connections out of `max_connections`. |
+| `health.saturation.degraded` | `0.8` | From this share a node is `degraded`. |
+| `health.saturation.failing` | `0.95` | From this share it is `failing`. |
+| `health.locks` | | Limits on sessions waiting on a lock for over a second (from the `postgres` explorer, with `pg_monitor`). |
+| `health.locks.degraded` | `1` | From this many waiting sessions a line is `degraded`. |
+| `health.locks.failing` | `5` | From this many it is `failing`. |
+| `health.backlog` | | Limits on items waiting in a queue, such as consumer lag. |
+| `health.backlog.degraded` | `1000` | From this many waiting items a node or line is `degraded`. |
+| `health.backlog.failing` | `10000` | From this many it is `failing`. |
 
 ## Notifications
 

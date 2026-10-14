@@ -58,6 +58,19 @@ type Health struct {
 	Degraded float64       `yaml:"degraded"`
 	Failing  float64       `yaml:"failing"`
 	Latency  LatencyLimits `yaml:"latency"`
+	// Saturation is the used share of a capacity (0..1), such as
+	// connections out of max_connections.
+	Saturation Limits `yaml:"saturation"`
+	// Locks counts sessions waiting on a lock for over a second.
+	Locks Limits `yaml:"locks"`
+	// Backlog counts items waiting in a queue, such as consumer lag.
+	Backlog Limits `yaml:"backlog"`
+}
+
+// Limits is a degraded and failing pair; zero keeps the default.
+type Limits struct {
+	Degraded float64 `yaml:"degraded"`
+	Failing  float64 `yaml:"failing"`
 }
 
 // LatencyLimits apply to the p95 of calls.
@@ -107,6 +120,18 @@ func (c *Config) HealthThresholds() graph.HealthThresholds {
 	if f := c.Health.Latency.Failing; f > 0 {
 		t.LatencyFailingMs = float64(f) / float64(time.Millisecond)
 	}
+	pick := func(set, def float64) float64 {
+		if set > 0 {
+			return set
+		}
+		return def
+	}
+	t.SaturationDegraded = pick(c.Health.Saturation.Degraded, t.SaturationDegraded)
+	t.SaturationFailing = pick(c.Health.Saturation.Failing, t.SaturationFailing)
+	t.LocksDegraded = pick(c.Health.Locks.Degraded, t.LocksDegraded)
+	t.LocksFailing = pick(c.Health.Locks.Failing, t.LocksFailing)
+	t.BacklogDegraded = pick(c.Health.Backlog.Degraded, t.BacklogDegraded)
+	t.BacklogFailing = pick(c.Health.Backlog.Failing, t.BacklogFailing)
 	return t
 }
 
@@ -354,6 +379,25 @@ func (c *Config) validate() error {
 	} else if t := c.HealthThresholds(); t.Degraded > t.Failing {
 		bad("health.degraded (%g) must not be above health.failing (%g); unset values default to %g and %g",
 			t.Degraded, t.Failing, graph.DefaultHealth.Degraded, graph.DefaultHealth.Failing)
+	}
+	t := c.HealthThresholds()
+	for _, l := range []struct {
+		key                     string
+		set                     Limits
+		degraded, failing, most float64
+	}{
+		{"health.saturation", c.Health.Saturation, t.SaturationDegraded, t.SaturationFailing, 1},
+		{"health.locks", c.Health.Locks, t.LocksDegraded, t.LocksFailing, 0},
+		{"health.backlog", c.Health.Backlog, t.BacklogDegraded, t.BacklogFailing, 0},
+	} {
+		switch {
+		case l.set.Degraded < 0 || l.set.Failing < 0:
+			bad("%s limits must not be negative", l.key)
+		case l.most > 0 && (l.set.Degraded > l.most || l.set.Failing > l.most):
+			bad("%s limits are shares of a capacity, between 0 and 1", l.key)
+		case l.degraded > l.failing:
+			bad("%s.degraded (%g) must not be above %s.failing (%g), defaults included", l.key, l.degraded, l.key, l.failing)
+		}
 	}
 	if c.Health.Latency.Degraded < 0 || c.Health.Latency.Failing < 0 {
 		bad("health.latency limits must not be negative")

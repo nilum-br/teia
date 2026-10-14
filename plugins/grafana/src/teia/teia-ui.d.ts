@@ -7,7 +7,18 @@ export interface TeiaReason {
   value: number;
   limit: number;
   summary: string;
-  /** The dependency it most likely comes from. */
+  /** The measure behind a saturation, backlog or locks reason. */
+  what?: string;
+  /** The dependency it most likely comes from, or who holds the lock. */
+  via?: string;
+}
+
+/** A reading beyond traffic: connections in use, sessions waiting on locks. */
+export interface TeiaMeasure {
+  cause: TeiaReason['cause'];
+  what: string;
+  value: number;
+  max?: number;
   via?: string;
 }
 
@@ -23,6 +34,7 @@ export interface TeiaNode {
   latencyP50Ms?: number;
   latencyP95Ms?: number;
   reasons?: TeiaReason[];
+  measures?: TeiaMeasure[];
   sources: string[];
   addresses?: string[];
   labels?: Record<string, string>;
@@ -43,6 +55,7 @@ export interface TeiaEdge {
   latencyP50Ms?: number;
   latencyP95Ms?: number;
   reasons?: TeiaReason[];
+  measures?: TeiaMeasure[];
   signals: string[];
   sources: string[];
 }

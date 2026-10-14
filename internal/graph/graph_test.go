@@ -350,7 +350,7 @@ func TestJudgeSaysWhy(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			h, reasons := DefaultHealth.Judge(c.rate, c.errs, c.p95)
+			h, reasons := DefaultHealth.Judge(c.rate, c.errs, c.p95, nil)
 			if h != c.health {
 				t.Errorf("health %s, want %s", h, c.health)
 			}
@@ -411,5 +411,49 @@ func TestReasonsPointAtTheOrigin(t *testing.T) {
 	}
 	if e := g.Edges["recommendations->inventory"]; len(e.Reasons) != 1 || e.Reasons[0].Via != "" {
 		t.Errorf("the slow call itself names no further origin: %+v", e.Reasons)
+	}
+}
+
+func TestMeasuresBecomeReasons(t *testing.T) {
+	g := Build([]Result{
+		result("docker", "docker", source.Observation{Nodes: []source.NodeObservation{
+			{ID: "legacy-reports", Kind: model.KindService, Addresses: []string{"10.0.0.9"}},
+		}}),
+		result("postgres/orders-db", "postgres", source.Observation{
+			Nodes: []source.NodeObservation{{ID: "orders-db", Kind: model.KindDatabase,
+				Measures: []model.Measure{{Cause: model.CauseSaturation, What: "connections", Value: 92, Max: 97}}}},
+			Edges: []source.EdgeObservation{{From: "orders", To: "orders-db", Signal: source.SignalDatabase,
+				Measures: []model.Measure{{Cause: model.CauseLocks, What: "sessions waiting on locks", Value: 3, Via: source.AddressID("10.0.0.9")}}}},
+		}),
+	}, nil, nil)
+	ApplyHealth(g, DefaultHealth)
+
+	db := g.Nodes["orders-db"]
+	if db.Health != model.HealthDegraded || len(db.Reasons) != 1 || db.Reasons[0].Cause != model.CauseSaturation {
+		t.Fatalf("orders-db: %s %+v", db.Health, db.Reasons)
+	}
+	if got := db.Reasons[0].Summary; got != "94.8% of connections used (92 of 97), over 80.0%" {
+		t.Errorf("summary %q", got)
+	}
+	e := g.Edges["orders->orders-db"]
+	if e.Health != model.HealthDegraded || len(e.Reasons) != 1 || e.Reasons[0].Via != "legacy-reports" {
+		t.Fatalf("orders->orders-db: %s %+v", e.Health, e.Reasons)
+	}
+	if got := e.Reasons[0].Summary; got != "3 sessions waiting on locks, over 1, held by legacy-reports" {
+		t.Errorf("summary %q", got)
+	}
+}
+
+func TestRememberedEdgesForgetMomentaryMeasures(t *testing.T) {
+	m := &Memory{Retention: time.Minute}
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	first := Build([]Result{result("pg", "postgres", source.Observation{Edges: []source.EdgeObservation{
+		{From: "orders", To: "orders-db", Measures: []model.Measure{{Cause: model.CauseLocks, What: "sessions waiting on locks", Value: 3}}},
+	}})}, nil, nil)
+	m.Retain(first, now)
+	later := Build(nil, nil, nil)
+	m.Retain(later, now.Add(10*time.Second))
+	if e := later.Edges["orders->orders-db"]; e == nil || len(e.Measures) != 0 {
+		t.Errorf("a remembered edge keeps its traffic, not the locks of ten seconds ago: %+v", e)
 	}
 }

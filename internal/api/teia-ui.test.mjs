@@ -278,6 +278,8 @@ describe('reasons', () => {
     assert.equal(reasonTag(failing, 1), '7.0% errors +1');
     assert.equal(reasonTag({ cause: 'backlog', value: 45210 }), '45k waiting');
     assert.equal(reasonTag({ cause: 'saturation', value: 0.93 }), '93% used');
+    assert.equal(reasonTag({ cause: 'saturation', value: 0.95, what: 'connections' }), '95% connections');
+    assert.equal(reasonTag({ cause: 'locks', value: 3, via: 'legacy-reports' }), '3 on locks held by legacy-reports');
     assert.equal(reasonTag({ cause: 'locks', value: 3, subject: 'orders' }), '3 on locks · orders');
   });
 
@@ -294,6 +296,11 @@ describe('reasons', () => {
     const g = v.nodes.get('group:core');
     assert.deepEqual(g.reasons.map(r => [r.cause, r.subject]), [['latency', 'api']]);
     assert.deepEqual(v.edges.get('group:front->group:core').reasons.map(r => [r.cause, r.subject]), [['errors', 'web→api']]);
+  });
+
+  it('keeps readings beyond traffic, dropping what it cannot name', () => {
+    const s = sanitize({ nodes: [{ id: 'db', measures: [{ cause: 'saturation', what: 'connections', value: 12, max: 97 }, { cause: 'saturation', value: 3 }, { cause: 'gremlins', what: 'x' }] }] });
+    assert.deepEqual(s.nodes[0].measures, [{ cause: 'saturation', what: 'connections', value: 12, max: 97, via: '' }]);
   });
 
   it('can be searched with why:', () => {

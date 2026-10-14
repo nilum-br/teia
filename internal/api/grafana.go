@@ -48,7 +48,8 @@ type grafanaNode struct {
 	ErrorRate     float64 `json:"errorRate"`
 	LatencyP50Ms  float64 `json:"latencyP50Ms"`
 	LatencyP95Ms  float64 `json:"latencyP95Ms"`
-	Reasons       string  `json:"reasons"` // JSON array of model.Reason
+	Reasons       string  `json:"reasons"`  // JSON array of model.Reason
+	Measures      string  `json:"measures"` // JSON array of model.Measure
 	DetailWhy     string  `json:"detail__why"`
 	Sources       string  `json:"sources"`
 	Addresses     string  `json:"addresses"`
@@ -77,7 +78,8 @@ type grafanaEdge struct {
 	ErrorRate       float64 `json:"errorRate"`
 	LatencyP50Ms    float64 `json:"latencyP50Ms"`
 	LatencyP95Ms    float64 `json:"latencyP95Ms"`
-	Reasons         string  `json:"reasons"` // JSON array of model.Reason
+	Reasons         string  `json:"reasons"`  // JSON array of model.Reason
+	Measures        string  `json:"measures"` // JSON array of model.Measure
 	DetailWhy       string  `json:"detail__why"`
 	Signals         string  `json:"signals"`
 	Sources         string  `json:"sources"`
@@ -108,7 +110,7 @@ func grafanaNodes(s model.Snapshot) []grafanaNode {
 			ID: n.ID, Title: n.ID, Subtitle: subtitle(n), MainStat: main, SecondaryStat: secondary,
 			Color: healthColor[n.Health], Kind: string(n.Kind), Tech: n.Tech, Health: string(n.Health), Visibility: string(n.Visibility),
 			RequestRate: n.RequestRate, ErrorRate: n.ErrorRate, LatencyP50Ms: n.LatencyP50Ms, LatencyP95Ms: n.LatencyP95Ms,
-			Reasons: reasonsJSON(n.Reasons), DetailWhy: whyText(n.Reasons),
+			Reasons: jsonList(n.Reasons), Measures: jsonList(n.Measures), DetailWhy: whyText(n.Reasons),
 			Sources: strings.Join(n.Sources, ","), Addresses: strings.Join(n.Addresses, ","), Labels: string(labels),
 			Findings: findings[n.ID], DetailSources: strings.Join(n.Sources, ", "),
 		})
@@ -125,7 +127,7 @@ func grafanaEdges(s model.Snapshot) []grafanaEdge {
 			State: string(e.State), Health: string(e.Health), Protocol: e.Protocol, Port: e.Port, Reason: e.Reason,
 			Declared: e.Declared, Observed: e.Observed, RequestRate: e.RequestRate, ErrorRate: e.ErrorRate,
 			LatencyP50Ms: e.LatencyP50Ms, LatencyP95Ms: e.LatencyP95Ms,
-			Reasons: reasonsJSON(e.Reasons), DetailWhy: whyText(e.Reasons),
+			Reasons: jsonList(e.Reasons), Measures: jsonList(e.Measures), DetailWhy: whyText(e.Reasons),
 			Signals: strings.Join(e.Signals, ","), Sources: strings.Join(e.Sources, ","),
 			DetailState: string(e.State), DetailSources: strings.Join(e.Sources, ", "),
 		}
@@ -190,12 +192,12 @@ func grafanaSources(s model.Snapshot) []grafanaSource {
 	return out
 }
 
-// reasonsJSON encodes reasons for a frame cell; "[]" when healthy.
-func reasonsJSON(reasons []model.Reason) string {
-	if len(reasons) == 0 {
+// jsonList encodes a list for a frame cell; "[]" when empty.
+func jsonList[T any](list []T) string {
+	if len(list) == 0 {
 		return "[]"
 	}
-	b, _ := json.Marshal(reasons) // a slice of plain structs always encodes
+	b, _ := json.Marshal(list) // slices of plain structs always encode
 	return string(b)
 }
 

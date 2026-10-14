@@ -469,10 +469,16 @@ button.label { cursor: pointer; }
   const oneOf = (v, allowed, fallback) => allowed.includes(v) ? v : fallback;
   const finite = v => (typeof v === 'number' && Number.isFinite(v)) ? v : 0;
   const strings = v => Array.isArray(v) ? v.filter(s => typeof s === 'string') : [];
+  const text = v => typeof v === 'string' ? v : '';
+  // measures are readings beyond traffic: connections in use, sessions
+  // waiting on locks, consumer lag.
+  const measures = v => (Array.isArray(v) ? v : [])
+    .filter(m => m && has(REASON, m.cause) && typeof m.what === 'string' && m.what)
+    .map(m => ({ cause: m.cause, what: m.what, value: finite(m.value), max: finite(m.max), via: text(m.via) }));
   // reasons keeps the ones the map knows how to draw, worst first.
   const reasons = v => (Array.isArray(v) ? v : [])
     .filter(r => r && has(REASON, r.cause) && (r.health === 'degraded' || r.health === 'failing'))
-    .map(r => ({ cause: r.cause, health: r.health, value: finite(r.value), limit: finite(r.limit), summary: typeof r.summary === 'string' ? r.summary : '', via: typeof r.via === 'string' ? r.via : '' }))
+    .map(r => ({ cause: r.cause, health: r.health, value: finite(r.value), limit: finite(r.limit), summary: text(r.summary), what: text(r.what), via: text(r.via) }))
     .sort((a, b) => HEALTH_RANK[b.health] - HEALTH_RANK[a.health]);
 
   // sanitize turns whatever arrived (teia's API, a Grafana data frame, a
@@ -490,7 +496,7 @@ button.label { cursor: pointer; }
         visibility: oneOf(n.visibility, ['full', 'partial', 'none'], 'partial'),
         requestRate: finite(n.requestRate), errorRate: finite(n.errorRate),
         latencyP50Ms: finite(n.latencyP50Ms), latencyP95Ms: finite(n.latencyP95Ms),
-        reasons: reasons(n.reasons),
+        reasons: reasons(n.reasons), measures: measures(n.measures),
         sources: strings(n.sources), addresses: strings(n.addresses),
         labels: n.labels && typeof n.labels === 'object' ? n.labels : {},
       });
@@ -499,7 +505,7 @@ button.label { cursor: pointer; }
     for (const e of Array.isArray(s.edges) ? s.edges : []) {
       if (!e || typeof e.from !== 'string' || typeof e.to !== 'string' || !e.from || !e.to || e.from === e.to) continue;
       for (const id of [e.from, e.to]) {
-        if (!seen.has(id)) { seen.add(id); nodes.push({ id, kind: 'unknown', health: 'unknown', visibility: 'partial', requestRate: 0, errorRate: 0, latencyP50Ms: 0, latencyP95Ms: 0, reasons: [], sources: [], addresses: [], labels: {} }); }
+        if (!seen.has(id)) { seen.add(id); nodes.push({ id, kind: 'unknown', health: 'unknown', visibility: 'partial', requestRate: 0, errorRate: 0, latencyP50Ms: 0, latencyP95Ms: 0, reasons: [], measures: [], sources: [], addresses: [], labels: {} }); }
       }
       edges.push({
         ...e,
@@ -507,7 +513,7 @@ button.label { cursor: pointer; }
         health: oneOf(e.health, ['healthy', 'degraded', 'failing', 'unknown'], 'unknown'),
         requestRate: finite(e.requestRate), errorRate: finite(e.errorRate),
         latencyP50Ms: finite(e.latencyP50Ms), latencyP95Ms: finite(e.latencyP95Ms),
-        reasons: reasons(e.reasons),
+        reasons: reasons(e.reasons), measures: measures(e.measures),
         declared: !!e.declared, observed: e.observed !== false,
         signals: strings(e.signals), sources: strings(e.sources),
       });
@@ -605,11 +611,12 @@ button.label { cursor: pointer; }
     const what = {
       errors: () => `${pct(r.value)} errors`,
       latency: () => `p95 ${fmtMs(r.value)}`,
-      saturation: () => `${pct(r.value)} used`,
-      backlog: () => `${compact(r.value)} waiting`,
+      saturation: () => `${pct(r.value)} ${r.what || 'used'}`,
+      backlog: () => `${compact(r.value)} ${r.what || 'waiting'}`,
       locks: () => `${compact(r.value)} on locks`,
     }[r.cause]();
-    return what + (r.via ? ` from ${r.via}` : r.subject ? ` · ${r.subject}` : '') + (more > 0 ? ` +${more}` : '');
+    const via = r.via ? (r.cause === 'locks' ? ` held by ${r.via}` : ` from ${r.via}`) : r.subject ? ` · ${r.subject}` : '';
+    return what + via + (more > 0 ? ` +${more}` : '');
   }
 
   // cardSubtitle is the second line of a card: what it is, then the golden
@@ -1597,6 +1604,9 @@ button.label { cursor: pointer; }
       pane.replaceChildren(el('h3', {}, 'What teia needs to see more'), ...fs.map(f => findingCard(f)));
     }
 
+    // measureText reads a measure out: "12 of 97 (12%)", "3, held by legacy-reports".
+    const measureText = m => (m.max > 0 ? `${compact(m.value)} of ${compact(m.max)} (${pct(m.value / m.max)})` : compact(m.value)) + (m.via ? `, held by ${m.via}` : '');
+
     // whyBlock explains an amber or red node or line, worst reason first,
     // with a way to the dependency it most likely comes from.
     function whyBlock(list) {
@@ -1637,6 +1647,7 @@ button.label { cursor: pointer; }
           if (n.requestRate > 0) row('traffic in', `${fmtRate(n.requestRate)} req/s · ${pct(n.errorRate)} errors`);
           if (n.latencyP95Ms > 0) row('latency', `p50 ${fmtMs(n.latencyP50Ms)} · p95 ${fmtMs(n.latencyP95Ms)} (what its callers wait for)`);
           row('component', `${CATEGORY[categoryOf(n)]?.label || n.kind}${n.tech ? ' · ' + techLabel(n) : ''}`);
+          for (const m of n.measures) row(m.what, measureText(m));
           row('known from', n.sources.join(', ') || '—');
           if (n.addresses.length) row('addresses', n.addresses.join(', '));
           parts.push(kv);
@@ -1682,6 +1693,7 @@ button.label { cursor: pointer; }
       row('protocol', [e.protocol || '—', e.port ? ':' + e.port : ''].join(''));
       if (e.requestRate > 0) { row('traffic', `${fmtRate(e.requestRate)} req/s`); row('errors', pct(e.errorRate)); }
       if (e.latencyP95Ms > 0) row('latency', `p50 ${fmtMs(e.latencyP50Ms)} · p95 ${fmtMs(e.latencyP95Ms)}`);
+      for (const m of e.measures) row(m.what, measureText(m));
       if (state.snap.drift) row('reason', e.reason || (e.declared ? '—' : 'not declared'));
       row('seen by', e.signals.map(s => has(SIGNAL, s) ? SIGNAL[s].label : s).join(', ') || (e.observed ? '—' : 'nobody yet'));
       if (e.sources.length) row('sources', e.sources.join(', '));

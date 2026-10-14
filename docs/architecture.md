@@ -123,7 +123,14 @@ is the worst of them: `degraded` (amber) or `failing` (red); `healthy` when it h
 |---|---|---|
 | `errors` | failed share of calls | 1% amber, 5% red |
 | `latency` | p95 of calls | 500 ms amber, 2 s red |
-| `saturation`, `backlog`, `locks` | reserved for datastore, broker and resource signals | |
+| `saturation` | used share of a capacity (connections out of `max_connections`) | 80% amber, 95% red |
+| `locks` | sessions waiting on a lock for over a second, with who holds it | 1 amber, 5 red |
+| `backlog` | items waiting in a queue | 1000 amber, 10000 red |
+
+Saturation, locks and backlog come from **measures**: readings a source takes beyond traffic, on a node (the
+database's connections) or on an edge (a client's sessions waiting on locks). When two sources read the same
+thing the higher value wins, and an edge brought back from memory forgets them, since a lock from ten seconds ago
+says nothing now.
 
 An edge is judged on its own calls. A node is judged on the calls it serves: their error rate and their p95,
 weighted by each caller's traffic (a node nobody calls is judged on the calls it makes, without latency).

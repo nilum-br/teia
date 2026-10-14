@@ -1,5 +1,5 @@
 import { DataFrame } from '@grafana/data';
-import type { TeiaChange, TeiaEdge, TeiaFinding, TeiaNode, TeiaReason, TeiaSnapshot, TeiaSource } from './teia-ui';
+import type { TeiaChange, TeiaEdge, TeiaFinding, TeiaMeasure, TeiaNode, TeiaReason, TeiaSnapshot, TeiaSource } from './teia-ui';
 
 type Row = Record<string, unknown>;
 type Role = 'nodes' | 'edges' | 'findings' | 'sources' | 'changes' | 'coverage';
@@ -94,11 +94,12 @@ function labelsOf(v: unknown): Record<string, string> {
   }
 }
 
-/** Reasons from teia's JSON column; the map drops any it cannot draw. */
-function reasonsOf(v: unknown): TeiaReason[] {
+/** A list from one of teia's JSON columns (reasons, measures); the map
+ * drops any item it cannot draw. */
+function jsonList<T>(v: unknown): T[] {
   try {
     const parsed: unknown = typeof v === 'string' && v ? JSON.parse(v) : v;
-    return Array.isArray(parsed) ? (parsed as TeiaReason[]) : [];
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
   } catch {
     return [];
   }
@@ -119,7 +120,8 @@ function toNode(r: Row): TeiaNode {
     errorRate,
     latencyP50Ms: num(r.latencyP50Ms),
     latencyP95Ms: num(r.latencyP95Ms),
-    reasons: reasonsOf(r.reasons),
+    reasons: jsonList<TeiaReason>(r.reasons),
+    measures: jsonList<TeiaMeasure>(r.measures),
     sources: list(r.sources),
     addresses: list(r.addresses),
     labels: labelsOf(r.labels),
@@ -150,7 +152,8 @@ function toEdge(r: Row, drift: boolean): TeiaEdge {
     errorRate,
     latencyP50Ms: num(r.latencyP50Ms),
     latencyP95Ms: num(r.latencyP95Ms),
-    reasons: reasonsOf(r.reasons),
+    reasons: jsonList<TeiaReason>(r.reasons),
+    measures: jsonList<TeiaMeasure>(r.measures),
     signals: list(r.signals),
     sources: list(r.sources),
   };

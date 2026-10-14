@@ -39,6 +39,8 @@ type NodeObservation struct {
 	Labels map[string]string
 	// Ignore drops the node (and its edges) from the graph.
 	Ignore bool
+	// Measures are readings beyond traffic, such as connections in use.
+	Measures []model.Measure
 }
 
 // EdgeObservation is a communication as seen by one source.
@@ -59,6 +61,9 @@ type EdgeObservation struct {
 	// zero when the signal does not measure them.
 	LatencyP50Ms float64
 	LatencyP95Ms float64
+	// Measures are readings beyond traffic, such as sessions of this caller
+	// waiting on locks.
+	Measures []model.Measure
 }
 
 // Signals name the kind of telemetry that saw a node first-hand. A node

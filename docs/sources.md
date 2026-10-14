@@ -94,6 +94,21 @@ keeps the edges and says so in the source's message.
 Anything else becomes edges through a `queries` entry: any PromQL or LogQL that returns one series per caller and
 callee pair, plus a mapping of which label is which.
 
+## Inside the database: the `postgres` explorer
+
+The explorer connects to PostgreSQL with a login of its own and reads `pg_stat_activity`, so it sees every client,
+including the ones that emit no telemetry. It also takes two health readings:
+
+- **Connections** in use against the connections ordinary roles may open (`max_connections` minus
+  `superuser_reserved_connections`): the database's saturation, amber from 80% and red from 95% by default.
+- **Sessions waiting on a lock** for over a second, per client, with the session holding the lock
+  (`pg_blocking_pids`): the line from that client to the database turns amber from one waiting session and red from
+  five, and says who holds the lock, for example `3 sessions waiting on locks, over 1, held by legacy-reports`.
+
+Without `pg_monitor` PostgreSQL hides other sessions' addresses and waits, so locks only show once the advisor's
+`GRANT pg_monitor` is in place. The role stays read-only: it sees session metadata and statistics, never table
+data.
+
 ## Docker access
 
 The Docker inventory makes one call per round: `GET /containers/json` (filtered to one compose project with

@@ -3,6 +3,7 @@
 package graph
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -213,6 +214,7 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 			for _, addr := range n.Addresses {
 				node.Addresses = appendUnique(node.Addresses, addr)
 			}
+			node.Measures = mergeMeasures(node.Measures, n.Measures, resolve)
 			if n.SelfReported {
 				selfReported[id] = true
 			}
@@ -258,6 +260,7 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 				}
 			} else {
 				e.Observed = true
+				e.Measures = mergeMeasures(e.Measures, o.Measures, resolve)
 				if o.Signal != "" {
 					e.Signals = appendUnique(e.Signals, o.Signal)
 				}
@@ -396,4 +399,23 @@ func markOutside(g *Graph, results []Result, canonical func(string) string, self
 			n.Kind = model.KindExternal
 		}
 	}
+}
+
+// mergeMeasures adds measures to have, one per cause and what: when two
+// sources read the same thing, the higher value wins. Via is resolved like
+// any node ID (an address becomes the node that held it).
+func mergeMeasures(have, add []model.Measure, resolve func(string) string) []model.Measure {
+	for _, m := range add {
+		if m.Via != "" {
+			m.Via = resolve(m.Via)
+		}
+		i := slices.IndexFunc(have, func(h model.Measure) bool { return h.Cause == m.Cause && h.What == m.What })
+		switch {
+		case i < 0:
+			have = append(have, m)
+		case m.Value > have[i].Value:
+			have[i] = m
+		}
+	}
+	return have
 }

@@ -1,31 +1,43 @@
 package graph
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
 	"github.com/nilum-br/teia/internal/model"
 )
 
-// HealthThresholds are the limits of each golden signal: Degraded and
-// Failing are error rates (0..1), the latency limits apply to p95.
+// HealthThresholds are the limits of each golden signal, as degraded and
+// failing pairs: error rates (0..1), p95 latency, the used share of a
+// capacity (0..1), sessions waiting on locks, and items waiting in a queue.
 type HealthThresholds struct {
-	Degraded, Failing                   float64
-	LatencyDegradedMs, LatencyFailingMs float64
+	Degraded, Failing                     float64
+	LatencyDegradedMs, LatencyFailingMs   float64
+	SaturationDegraded, SaturationFailing float64
+	LocksDegraded, LocksFailing           float64
+	BacklogDegraded, BacklogFailing       float64
 }
 
-// DefaultHealth: 1% errors or a p95 of 500 ms is degraded; 5% errors or a
-// p95 of 2 s is failing.
-var DefaultHealth = HealthThresholds{Degraded: 0.01, Failing: 0.05, LatencyDegradedMs: 500, LatencyFailingMs: 2000}
+// DefaultHealth is amber from 1% errors, a p95 of 500 ms, 80% of a capacity,
+// one session waiting on a lock or a thousand items waiting; red from 5%,
+// 2 s, 95%, five sessions or ten thousand items.
+var DefaultHealth = HealthThresholds{
+	Degraded: 0.01, Failing: 0.05,
+	LatencyDegradedMs: 500, LatencyFailingMs: 2000,
+	SaturationDegraded: 0.8, SaturationFailing: 0.95,
+	LocksDegraded: 1, LocksFailing: 5,
+	BacklogDegraded: 1000, BacklogFailing: 10000,
+}
 
-// Judge returns the health of traffic with these signals, and a reason for
-// every signal past its limit, worst first. Without a rate or a latency
-// there is nothing to judge.
-func (t HealthThresholds) Judge(requestRate, errorRate, latencyP95Ms float64) (model.Health, []model.Reason) {
-	if requestRate <= 0 && latencyP95Ms <= 0 {
+// Judge returns the health of traffic with these signals and measures, and
+// a reason for every one past its limit, worst first. With no rate, latency
+// or measure there is nothing to judge.
+func (t HealthThresholds) Judge(requestRate, errorRate, latencyP95Ms float64, measures []model.Measure) (model.Health, []model.Reason) {
+	if requestRate <= 0 && latencyP95Ms <= 0 && len(measures) == 0 {
 		return model.HealthUnknown, nil
 	}
-	var reasons []model.Reason
+	reasons := t.judgeMeasures(measures)
 	if requestRate > 0 {
 		if r, ok := limit(model.CauseErrors, errorRate, t.Degraded, t.Failing); ok {
 			r.Summary = model.FormatPercent(errorRate) + " errors, over " + model.FormatPercent(r.Limit)
@@ -38,6 +50,42 @@ func (t HealthThresholds) Judge(requestRate, errorRate, latencyP95Ms float64) (m
 	}
 	sortReasons(reasons)
 	return model.Worst(reasons, model.HealthHealthy), reasons
+}
+
+// judgeMeasures turns measures past their limits into reasons.
+func (t HealthThresholds) judgeMeasures(measures []model.Measure) []model.Reason {
+	var reasons []model.Reason
+	for _, m := range measures {
+		var r model.Reason
+		var ok bool
+		switch m.Cause {
+		case model.CauseSaturation:
+			if m.Max <= 0 {
+				continue
+			}
+			share := m.Value / m.Max
+			if r, ok = limit(m.Cause, share, t.SaturationDegraded, t.SaturationFailing); ok {
+				r.Summary = fmt.Sprintf("%s of %s used (%s of %s), over %s", model.FormatPercent(share), m.What,
+					model.FormatCount(m.Value), model.FormatCount(m.Max), model.FormatPercent(r.Limit))
+			}
+		case model.CauseLocks:
+			if r, ok = limit(m.Cause, m.Value, t.LocksDegraded, t.LocksFailing); ok {
+				r.Summary = fmt.Sprintf("%s %s, over %s", model.FormatCount(m.Value), m.What, model.FormatCount(r.Limit))
+				if m.Via != "" {
+					r.Summary += ", held by " + m.Via
+				}
+			}
+		case model.CauseBacklog:
+			if r, ok = limit(m.Cause, m.Value, t.BacklogDegraded, t.BacklogFailing); ok {
+				r.Summary = fmt.Sprintf("%s %s, over %s", model.FormatCount(m.Value), m.What, model.FormatCount(r.Limit))
+			}
+		}
+		if ok {
+			r.What, r.Via = m.What, m.Via
+			reasons = append(reasons, r)
+		}
+	}
+	return reasons
 }
 
 // limit compares value with two limits; ok is false within both. A limit
@@ -85,7 +133,7 @@ func ApplyHealth(g *Graph, t HealthThresholds) {
 		}
 	}
 	for _, e := range g.Edges {
-		e.Health, e.Reasons = t.Judge(e.RequestRate, e.ErrorRate, e.LatencyP95Ms)
+		e.Health, e.Reasons = t.Judge(e.RequestRate, e.ErrorRate, e.LatencyP95Ms, e.Measures)
 		if e.RequestRate > 0 {
 			add(in, e.To, e)
 			add(out, e.From, e)
@@ -97,7 +145,8 @@ func ApplyHealth(g *Graph, t HealthThresholds) {
 			s = out[id]
 		}
 		if s == nil || s.rate == 0 {
-			n.Health, n.Reasons = model.HealthUnknown, nil
+			// No traffic to judge, but a measure may still say something.
+			n.Health, n.Reasons = t.Judge(0, 0, 0, n.Measures)
 			continue
 		}
 		n.RequestRate = s.rate
@@ -107,7 +156,7 @@ func ApplyHealth(g *Graph, t HealthThresholds) {
 		if s := in[id]; s != nil && s.timed > 0 {
 			n.LatencyP50Ms, n.LatencyP95Ms = s.p50/s.timed, s.p95/s.timed
 		}
-		n.Health, n.Reasons = t.Judge(n.RequestRate, n.ErrorRate, n.LatencyP95Ms)
+		n.Health, n.Reasons = t.Judge(n.RequestRate, n.ErrorRate, n.LatencyP95Ms, n.Measures)
 	}
 	explain(g)
 }
@@ -126,6 +175,9 @@ func explain(g *Graph) {
 	for _, n := range g.Nodes {
 		for i := range n.Reasons {
 			r := &n.Reasons[i]
+			if r.Via != "" {
+				continue // the source named it (the session holding a lock)
+			}
 			var worst *model.Edge
 			for _, e := range out[n.ID] {
 				if v, w := causeValue(e, r.Cause), causeValue(worst, r.Cause); v > w || (v == w && worst != nil && e.To < worst.To) {
@@ -153,6 +205,9 @@ func explain(g *Graph) {
 		}
 		for i := range e.Reasons {
 			r := &e.Reasons[i]
+			if r.Via != "" {
+				continue
+			}
 			for _, cr := range callee.Reasons {
 				if cr.Cause == r.Cause && cr.Via != "" && cr.Via != e.From {
 					r.Via = cr.Via
@@ -223,6 +278,7 @@ func (m *Memory) Retain(g *Graph, now time.Time) {
 		if !ok {
 			kept := r.edge
 			kept.Declared = false
+			kept.Measures = nil // momentary: locks now, not when last seen
 			e = &kept
 			g.Edges[key] = e
 		} else {

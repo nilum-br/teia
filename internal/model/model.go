@@ -66,6 +66,21 @@ const (
 	CauseLocks      Cause = "locks"      // Value: sessions waiting on locks
 )
 
+// Measure is a reading beyond traffic that tells how a node or edge is
+// doing: how full (saturation), how far behind (backlog), how stuck (locks).
+// Sources take them; the health judge compares them with their limits.
+type Measure struct {
+	Cause Cause   `json:"cause"`
+	What  string  `json:"what"` // "connections", "sessions waiting on locks", "consumer lag"
+	Value float64 `json:"value"`
+	// Max is the capacity Value counts against (max_connections, a memory
+	// limit); zero when there is none.
+	Max float64 `json:"max,omitempty"`
+	// Via names who causes it, when the source knows (the session holding
+	// a lock): a node ID, or an address the graph resolves to one.
+	Via string `json:"via,omitempty"`
+}
+
 // Reason says why a node or edge is not healthy: which signal crossed which
 // limit, so the map can say "p95 2.3 s" instead of only turning red.
 type Reason struct {
@@ -74,6 +89,8 @@ type Reason struct {
 	Value   float64 `json:"value"`
 	Limit   float64 `json:"limit"` // the limit it crossed, in Value's unit
 	Summary string  `json:"summary"`
+	// What is the measure behind a saturation, backlog or locks reason.
+	What string `json:"what,omitempty"`
 	// Via names the dependency this most likely comes from: a slow or
 	// failing callee that explains the caller's latency or errors.
 	Via string `json:"via,omitempty"`
@@ -104,6 +121,21 @@ func FormatMs(ms float64) string {
 	}
 }
 
+// FormatCount writes a count the way people read it: 7, 1.2k, 45k, 1.3M.
+func FormatCount(n float64) string {
+	switch {
+	case n >= 1e7:
+		return fmt.Sprintf("%.0fM", n/1e6)
+	case n >= 1e6:
+		return fmt.Sprintf("%.1fM", n/1e6)
+	case n >= 1e4:
+		return fmt.Sprintf("%.0fk", n/1e3)
+	case n >= 1e3:
+		return fmt.Sprintf("%.1fk", n/1e3)
+	}
+	return fmt.Sprintf("%.0f", n)
+}
+
 // FormatPercent writes a share (0..1) as a percentage with one decimal.
 func FormatPercent(share float64) string { return fmt.Sprintf("%.1f%%", share*100) }
 
@@ -123,6 +155,8 @@ type Node struct {
 	// traffic, an approximation (percentiles do not add up exactly).
 	LatencyP50Ms float64 `json:"latencyP50Ms,omitempty"`
 	LatencyP95Ms float64 `json:"latencyP95Ms,omitempty"`
+	// Measures are readings beyond traffic (connections in use...).
+	Measures []Measure `json:"measures,omitempty"`
 	// Reasons explain a health other than healthy, worst first.
 	Reasons   []Reason          `json:"reasons,omitempty"`
 	Sources   []string          `json:"sources"`
@@ -164,6 +198,8 @@ type Edge struct {
 	// histograms of the service graph, a mesh or Hubble; sampled spans).
 	LatencyP50Ms float64 `json:"latencyP50Ms,omitempty"`
 	LatencyP95Ms float64 `json:"latencyP95Ms,omitempty"`
+	// Measures are readings beyond traffic (sessions waiting on locks...).
+	Measures []Measure `json:"measures,omitempty"`
 	// Reasons explain a health other than healthy, worst first.
 	Reasons []Reason `json:"reasons,omitempty"`
 }
