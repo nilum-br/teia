@@ -65,7 +65,8 @@ The map, in Grafana (`nilum-teia-panel`) or in teia's own UI, is the same compon
 
 ![The teia panel inside a Grafana dashboard](docs/assets/screenshots/grafana-panel.png)
 
-- **Golden signals, and why:** each card and line shows its traffic, p95 latency and error rate. Amber or red is the worst signal past its limit, and a tag on the card or line says which one and where it most likely comes from (`p95 900 ms from inventory`), so you see the cause at a glance, not only the colour. Latency comes from the histograms you already have (service graph, Istio, Linkerd, Hubble) or from sampled traces.
+- **Golden signals, and why:** each card and line shows its traffic, p95 latency and error rate. Amber or red is the worst signal past its limit, and a tag on the card or line says which one and where it most likely comes from, so you see the cause at a glance, not only the colour: `p95 900 ms from inventory`, `4.4% errors`, `3 on locks held by legacy-reports`, `1.5k messages waiting`, `7 min behind`, `93% memory`.
+- **Every kind of component:** services (errors, latency, CPU throttling, memory, restarts), relational databases (connections, sessions waiting on locks and who holds them), MongoDB, Redis (memory, clients) and queues (Kafka lag in messages and in time, consumers without progress, RabbitMQ backlog), read from the exporters you already run.
 - **Live traffic:** dots travel along each communication at its speed, and red dots are errors. Updates arrive live (Server-Sent Events, or the dashboard refresh in Grafana).
 - **Drift and visibility:** dashed means undeclared, dotted means declared but not seen; card borders say how first-hand teia's view is.
 - **One [icon library](docs/icons.md):** microservices, relational and document databases, caches, Kafka streams, queues, gateways, jobs, external SaaS. The technology is detected from spans, images or labels.

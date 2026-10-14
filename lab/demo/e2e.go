@@ -21,20 +21,22 @@ import (
 
 type snapshot struct {
 	Nodes []struct {
-		ID         string   `json:"id"`
-		Tech       string   `json:"tech"`
-		Health     string   `json:"health"`
-		Visibility string   `json:"visibility"`
-		Reasons    []reason `json:"reasons"`
+		ID         string    `json:"id"`
+		Tech       string    `json:"tech"`
+		Health     string    `json:"health"`
+		Visibility string    `json:"visibility"`
+		Reasons    []reason  `json:"reasons"`
+		Measures   []measure `json:"measures"`
 	} `json:"nodes"`
 	Edges []struct {
-		From     string   `json:"from"`
-		To       string   `json:"to"`
-		State    string   `json:"state"`
-		Observed bool     `json:"observed"`
-		Sources  []string `json:"sources"`
-		P95      float64  `json:"latencyP95Ms"`
-		Reasons  []reason `json:"reasons"`
+		From     string    `json:"from"`
+		To       string    `json:"to"`
+		State    string    `json:"state"`
+		Observed bool      `json:"observed"`
+		Sources  []string  `json:"sources"`
+		P95      float64   `json:"latencyP95Ms"`
+		Reasons  []reason  `json:"reasons"`
+		Measures []measure `json:"measures"`
 	} `json:"edges"`
 	Findings []struct {
 		Rule    string `json:"rule"`
@@ -51,6 +53,35 @@ type snapshot struct {
 type reason struct {
 	Cause string `json:"cause"`
 	Via   string `json:"via"`
+}
+
+type measure struct {
+	Cause string  `json:"cause"`
+	What  string  `json:"what"`
+	Value float64 `json:"value"`
+	Max   float64 `json:"max"`
+}
+
+// measured reports whether a node ("orders-db") or an edge ("a->b") carries
+// a measure of cause, against a capacity when withMax.
+func (s *snapshot) measured(subject, cause string, withMax bool) bool {
+	var ms []measure
+	for _, n := range s.Nodes {
+		if n.ID == subject {
+			ms = n.Measures
+		}
+	}
+	for _, e := range s.Edges {
+		if e.From+"->"+e.To == subject {
+			ms = e.Measures
+		}
+	}
+	for _, m := range ms {
+		if m.Cause == cause && m.Value > 0 && (!withMax || m.Max > 0) {
+			return true
+		}
+	}
+	return false
 }
 
 // why reports whether the node is amber or red because of cause, coming
@@ -219,6 +250,12 @@ func e2e(ctx context.Context) error {
 		}},
 		{"why: inventory is amber for its latency, and recommendations says it waits on inventory", func(s *snapshot) bool {
 			return s.why("inventory", "latency", "") && s.why("recommendations", "latency", "inventory")
+		}},
+		{"cache: catalog-cache memory against maxmemory, from redis_exporter", func(s *snapshot) bool {
+			return s.measured("catalog-cache", "saturation", true)
+		}},
+		{"queue: email-worker -> order-events has messages waiting and is behind, from kafka_exporter", func(s *snapshot) bool {
+			return s.measured("email-worker->order-events", "backlog", false) && s.measured("email-worker->order-events", "lag", false)
 		}},
 		{"traces + mesh: web -> recommendations", func(s *snapshot) bool { return s.edge("web", "recommendations") }},
 		{"logs: partner-sync -> catalog, named from catalog's access log", func(s *snapshot) bool { return s.edge("partner-sync", "catalog", "loki/access-logs") }},

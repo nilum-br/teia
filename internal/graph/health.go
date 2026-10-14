@@ -17,17 +17,22 @@ type HealthThresholds struct {
 	SaturationDegraded, SaturationFailing float64
 	LocksDegraded, LocksFailing           float64
 	BacklogDegraded, BacklogFailing       float64
+	LagDegradedSeconds, LagFailingSeconds float64
+	RestartsDegraded, RestartsFailing     float64
 }
 
 // DefaultHealth is amber from 1% errors, a p95 of 500 ms, 80% of a capacity,
-// one session waiting on a lock or a thousand items waiting; red from 5%,
-// 2 s, 95%, five sessions or ten thousand items.
+// one session waiting on a lock, a thousand items waiting, a queue a minute
+// behind or one restart; red from 5%, 2 s, 95%, five sessions, ten thousand
+// items, five minutes or three restarts.
 var DefaultHealth = HealthThresholds{
 	Degraded: 0.01, Failing: 0.05,
 	LatencyDegradedMs: 500, LatencyFailingMs: 2000,
 	SaturationDegraded: 0.8, SaturationFailing: 0.95,
 	LocksDegraded: 1, LocksFailing: 5,
 	BacklogDegraded: 1000, BacklogFailing: 10000,
+	LagDegradedSeconds: 60, LagFailingSeconds: 300,
+	RestartsDegraded: 1, RestartsFailing: 3,
 }
 
 // Judge returns the health of traffic with these signals and measures, and
@@ -65,8 +70,12 @@ func (t HealthThresholds) judgeMeasures(measures []model.Measure) []model.Reason
 			}
 			share := m.Value / m.Max
 			if r, ok = limit(m.Cause, share, t.SaturationDegraded, t.SaturationFailing); ok {
-				r.Summary = fmt.Sprintf("%s of %s used (%s of %s), over %s", model.FormatPercent(share), m.What,
-					model.FormatCount(m.Value), model.FormatCount(m.Max), model.FormatPercent(r.Limit))
+				if m.Unit == model.UnitShare {
+					r.Summary = fmt.Sprintf("%s %s, over %s", model.FormatPercent(share), m.What, model.FormatPercent(r.Limit))
+				} else {
+					r.Summary = fmt.Sprintf("%s of %s used (%s of %s), over %s", model.FormatPercent(share), m.What,
+						model.FormatValue(m.Value, m.Unit), model.FormatValue(m.Max, m.Unit), model.FormatPercent(r.Limit))
+				}
 			}
 		case model.CauseLocks:
 			if r, ok = limit(m.Cause, m.Value, t.LocksDegraded, t.LocksFailing); ok {
@@ -77,6 +86,14 @@ func (t HealthThresholds) judgeMeasures(measures []model.Measure) []model.Reason
 			}
 		case model.CauseBacklog:
 			if r, ok = limit(m.Cause, m.Value, t.BacklogDegraded, t.BacklogFailing); ok {
+				r.Summary = fmt.Sprintf("%s %s, over %s", model.FormatCount(m.Value), m.What, model.FormatCount(r.Limit))
+			}
+		case model.CauseLag:
+			if r, ok = limit(m.Cause, m.Value, t.LagDegradedSeconds, t.LagFailingSeconds); ok {
+				r.Summary = fmt.Sprintf("%s %s, over %s", model.FormatSeconds(m.Value), m.What, model.FormatSeconds(r.Limit))
+			}
+		case model.CauseRestarts:
+			if r, ok = limit(m.Cause, m.Value, t.RestartsDegraded, t.RestartsFailing); ok {
 				r.Summary = fmt.Sprintf("%s %s, over %s", model.FormatCount(m.Value), m.What, model.FormatCount(r.Limit))
 			}
 		}

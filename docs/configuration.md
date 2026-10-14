@@ -58,6 +58,12 @@ binary, for working on it. It is a flag, not a config key.
 | `health.backlog` | | Limits on items waiting in a queue, such as consumer lag. |
 | `health.backlog.degraded` | `1000` | From this many waiting items a node or line is `degraded`. |
 | `health.backlog.failing` | `10000` | From this many it is `failing`. |
+| `health.lag` | | Limits on how far behind a queue's consumers are, or how long it went without progress. |
+| `health.lag.degraded` | `1m` | From this lag a consumer's line is `degraded`. |
+| `health.lag.failing` | `5m` | From this lag it is `failing`. |
+| `health.restarts` | | Limits on container restarts within the source's window. |
+| `health.restarts.degraded` | `1` | From this many restarts a workload is `degraded`. |
+| `health.restarts.failing` | `3` | From this many it is `failing`. |
 
 ## Notifications
 
@@ -96,6 +102,7 @@ name); the same for `tempo`, and `<dialect>/<name>` for queries. Two sources wit
 | `sources.prometheus[].url` | required | Base URL, without `/api/v1/query`. Credentials in the URL work and are masked in messages, but prefer a header. |
 | `sources.prometheus[].window` | `5m` | Range of the `rate()` in every query. |
 | `sources.prometheus[].presets` | `[auto]` | Metric families to read. Empty or `[auto]` detects which exist (re-checked every 5 minutes). Names: `servicegraph`, `istio`, `istio-tcp`, `linkerd`, `linkerd-tcp`, `beyla-network`, `obi-network`, `hubble-tcp`, `hubble-http`, `retina`. Unknown names are rejected. See [Presets](sources.md#presets). |
+| `sources.prometheus[].probes` | `[auto]` | Component health to read from standard exporters (memory, connections, consumer lag, locks, restarts). Empty or `[auto]` detects which exist; `[none]` turns them off. Names: `redis`, `kafka`, `rabbitmq`, `mongodb`, `mysql`, `postgres-exporter`, `containers`, `restarts`. See [Component health](sources.md#component-health). |
 | `sources.prometheus[].headers` | none | Map of request headers, such as `Authorization: Bearer ${PROM_TOKEN}` or `X-Scope-OrgID` for multi-tenant Mimir. |
 
 ### `sources.tempo`: traces

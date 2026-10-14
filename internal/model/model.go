@@ -63,7 +63,9 @@ const (
 	CauseLatency    Cause = "latency"    // Value: p95 in milliseconds
 	CauseSaturation Cause = "saturation" // Value: used share of a limit, 0..1 (connections, memory, CPU)
 	CauseBacklog    Cause = "backlog"    // Value: work waiting (consumer lag, ready messages)
+	CauseLag        Cause = "lag"        // Value: seconds behind, or without progress
 	CauseLocks      Cause = "locks"      // Value: sessions waiting on locks
+	CauseRestarts   Cause = "restarts"   // Value: restarts in the window
 )
 
 // Measure is a reading beyond traffic that tells how a node or edge is
@@ -76,9 +78,46 @@ type Measure struct {
 	// Max is the capacity Value counts against (max_connections, a memory
 	// limit); zero when there is none.
 	Max float64 `json:"max,omitempty"`
+	// Unit of Value and Max: UnitBytes, UnitSeconds, UnitShare (0..1), or
+	// empty for a count.
+	Unit string `json:"unit,omitempty"`
 	// Via names who causes it, when the source knows (the session holding
 	// a lock): a node ID, or an address the graph resolves to one.
 	Via string `json:"via,omitempty"`
+}
+
+// Units of a measure.
+const (
+	UnitBytes   = "bytes"
+	UnitSeconds = "seconds"
+	UnitShare   = "share"
+)
+
+// FormatValue writes a measure's value in its unit.
+func FormatValue(v float64, unit string) string {
+	switch unit {
+	case UnitBytes:
+		return FormatBytes(v)
+	case UnitSeconds:
+		return FormatSeconds(v)
+	case UnitShare:
+		return FormatPercent(v)
+	}
+	return FormatCount(v)
+}
+
+// FormatBytes writes a size in binary units: 512 B, 48.0 MiB, 1.5 GiB.
+func FormatBytes(b float64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%.0f B", b)
+	}
+	div, exp := float64(unit), 0
+	for n := b / unit; n >= unit && exp < 4; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", b/div, "KMGTP"[exp])
 }
 
 // Reason says why a node or edge is not healthy: which signal crossed which
@@ -134,6 +173,18 @@ func FormatCount(n float64) string {
 		return fmt.Sprintf("%.1fk", n/1e3)
 	}
 	return fmt.Sprintf("%.0f", n)
+}
+
+// FormatSeconds writes a duration in seconds the way people read it:
+// "45 s", "12 min", "2.5 h".
+func FormatSeconds(s float64) string {
+	switch {
+	case s >= 5400:
+		return fmt.Sprintf("%.1f h", s/3600)
+	case s >= 90:
+		return fmt.Sprintf("%.0f min", s/60)
+	}
+	return fmt.Sprintf("%.0f s", s)
 }
 
 // FormatPercent writes a share (0..1) as a percentage with one decimal.

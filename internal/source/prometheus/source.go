@@ -26,6 +26,8 @@ type Config struct {
 	Window  time.Duration
 	// Presets to use; empty or ["auto"] detects them.
 	Presets []string
+	// Probes to use; empty or ["auto"] detects them, ["none"] turns them off.
+	Probes []string
 }
 
 type Source struct {
@@ -36,6 +38,8 @@ type Source struct {
 	mu         sync.Mutex
 	detected   []*Preset
 	detectedAt time.Time
+	probesSeen []*Probe
+	probesAt   time.Time
 }
 
 // detectEvery bounds how often auto mode re-checks which metrics exist. An
@@ -69,6 +73,54 @@ func (s *Source) Detect(ctx context.Context) ([]*Preset, error) {
 		}
 	}
 	return out, nil
+}
+
+// DetectProbes returns the probes whose metrics exist in this Prometheus.
+func (s *Source) DetectProbes(ctx context.Context) ([]*Probe, error) {
+	var out []*Probe
+	for _, p := range Probes {
+		samples, err := s.client.Query(ctx, fmt.Sprintf("count(%s)", p.Detect))
+		if err != nil {
+			return nil, err
+		}
+		if len(samples) > 0 && samples[0].Value > 0 {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// probes returns the probes to run: the configured ones, none, or the ones
+// detected (rechecked every detectEvery, like presets).
+func (s *Source) probes(ctx context.Context) ([]*Probe, error) {
+	only := func(name string) bool { return len(s.cfg.Probes) == 1 && s.cfg.Probes[0] == name }
+	switch {
+	case only("none"):
+		return nil, nil
+	case len(s.cfg.Probes) > 0 && !only("auto"):
+		var out []*Probe
+		for _, name := range s.cfg.Probes {
+			p := LookupProbe(name)
+			if p == nil {
+				return nil, fmt.Errorf("unknown probe %q (known: %s)", name, strings.Join(ProbeNames(), ", "))
+			}
+			out = append(out, p)
+		}
+		return out, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.probesSeen != nil && time.Since(s.probesAt) < detectEvery {
+		return s.probesSeen, nil
+	}
+	found, err := s.DetectProbes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(found) > 0 {
+		s.probesSeen, s.probesAt = found, time.Now()
+	}
+	return found, nil
 }
 
 func (s *Source) presets(ctx context.Context) ([]*Preset, error) {
@@ -112,20 +164,20 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		return source.Observation{}, fmt.Errorf("prometheus at %s: %w", s.redactedURL(), err)
 	}
 	var obs source.Observation
+	var parts []string
 	if len(presets) == 0 {
 		obs.Degraded = true
-		obs.Message = "no known communication metrics"
+		parts = append(parts, "no known communication metrics")
 		obs.Findings = append(obs.Findings, s.nothingFoundFinding())
-		return obs, nil
 	}
 
 	// Presets run independently: one family timing out or rejected must not
 	// hide the edges the others found.
-	window := promapi.Duration(s.cfg.Window)
+	w := window{promql: promapi.Duration(s.cfg.Window), seconds: s.cfg.Window.Seconds()}
 	var used, empty, failedNames, failures, noLatency []string
 	var firstErr error
 	for _, p := range presets {
-		n, latencyErr, err := s.runPreset(ctx, p, window, &obs)
+		n, latencyErr, err := s.runPreset(ctx, p, w.promql, &obs)
 		if err == nil && latencyErr != nil {
 			noLatency = append(noLatency, p.Name)
 		}
@@ -142,7 +194,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 			used = append(used, fmt.Sprintf("%s (%d)", p.Name, n))
 		}
 	}
-	if len(failedNames) == len(presets) {
+	if len(presets) > 0 && len(failedNames) == len(presets) {
 		var denied *promapi.DeniedError
 		if errors.As(firstErr, &denied) {
 			return s.denied(denied), nil
@@ -151,7 +203,6 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 			s.redactedURL(), strings.Join(failedNames, ", "), failedNames[0], firstErr)
 	}
 
-	var parts []string
 	if len(used) > 0 {
 		parts = append(parts, "presets: "+strings.Join(used, ", "))
 	}
@@ -165,9 +216,96 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	if len(noLatency) > 0 {
 		parts = append(parts, "latency query failed: "+strings.Join(noLatency, ", "))
 	}
+	obs.Degraded = obs.Degraded || len(used) == 0 || len(failedNames) > 0
+	parts = append(parts, s.runProbes(ctx, w, &obs)...)
 	obs.Message = strings.Join(parts, "; ")
-	obs.Degraded = len(used) == 0 || len(failedNames) > 0
 	return obs, nil
+}
+
+// runProbes adds the readings of every probe in use to obs, and returns
+// what to say about them in the source's message. A failing probe hides only
+// its own readings.
+func (s *Source) runProbes(ctx context.Context, w window, obs *source.Observation) []string {
+	probes, err := s.probes(ctx)
+	if err != nil {
+		obs.Degraded = true
+		return []string{"probe detection failed: " + promapi.RedactError(err).Error()}
+	}
+	var used, failed []string
+	for _, p := range probes {
+		n, err := s.runProbe(ctx, p, w, obs)
+		switch {
+		case err != nil:
+			failed = append(failed, p.Name)
+		case n > 0:
+			used = append(used, fmt.Sprintf("%s (%d)", p.Name, n))
+		}
+	}
+	var parts []string
+	if len(used) > 0 {
+		parts = append(parts, "probes: "+strings.Join(used, ", "))
+	}
+	if len(failed) > 0 {
+		obs.Degraded = true
+		parts = append(parts, "probe failed: "+strings.Join(failed, ", "))
+	}
+	return parts
+}
+
+// runProbe adds one probe's readings to obs and returns how many it took.
+// Readings are only added once all of the probe's queries succeeded.
+func (s *Source) runProbe(ctx context.Context, p *Probe, w window, obs *source.Observation) (int, error) {
+	var readings []source.Reading
+	for _, r := range p.Readings {
+		values, err := s.client.Query(ctx, r.Query(w))
+		if err != nil {
+			return 0, err
+		}
+		var capacity map[string]float64
+		if r.Max != nil {
+			maxes, err := s.client.Query(ctx, r.Max(w))
+			if err != nil {
+				return 0, err
+			}
+			capacity = make(map[string]float64, len(maxes))
+			for _, m := range maxes {
+				capacity[seriesKey(m.Metric)] = m.Value
+			}
+		}
+		what := r.What
+		if strings.Contains(what, "%s") {
+			what = fmt.Sprintf(what, w.promql)
+		}
+		for _, v := range values {
+			m := model.Measure{Cause: r.Cause, What: what, Value: v.Value, Unit: r.Unit}
+			switch {
+			case r.Share:
+				m.Max, m.Unit = 1, model.UnitShare
+			case r.Max != nil:
+				if m.Max = capacity[seriesKey(v.Metric)]; m.Max <= 0 {
+					continue // no known capacity to compare with
+				}
+			}
+			candidates, to := r.Subject(v.Metric)
+			if len(candidates) == 0 {
+				continue
+			}
+			readings = append(readings, source.Reading{Candidates: candidates, To: to, Measures: []model.Measure{m}, Origin: origin(p, v.Metric)})
+		}
+	}
+	obs.Readings = append(obs.Readings, readings...)
+	return len(readings), nil
+}
+
+// origin names where a reading came from, for findings about readings that
+// fit no node: "redis (instance catalog-cache-exporter:9121)".
+func origin(p *Probe, m map[string]string) string {
+	for _, key := range []string{"consumergroup", "queue", "topic", "service", "instance", "pod", "job"} {
+		if v := m[key]; v != "" {
+			return fmt.Sprintf("%s (%s %s)", p.Name, key, v)
+		}
+	}
+	return p.Name
 }
 
 func (s *Source) denied(err *promapi.DeniedError) source.Observation {

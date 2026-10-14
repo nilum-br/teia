@@ -126,9 +126,13 @@ is the worst of them: `degraded` (amber) or `failing` (red); `healthy` when it h
 | `saturation` | used share of a capacity (connections out of `max_connections`) | 80% amber, 95% red |
 | `locks` | sessions waiting on a lock for over a second, with who holds it | 1 amber, 5 red |
 | `backlog` | items waiting in a queue | 1000 amber, 10000 red |
+| `lag` | how far behind a queue's consumers are, or how long without progress | 1 min amber, 5 min red |
+| `restarts` | container restarts in the window | 1 amber, 3 red |
 
-Saturation, locks and backlog come from **measures**: readings a source takes beyond traffic, on a node (the
-database's connections) or on an edge (a client's sessions waiting on locks). When two sources read the same
+Saturation, backlog, lag, locks and restarts come from **measures**: readings a source takes beyond traffic, on a
+node (a database's connections, a cache's memory) or on an edge (a client's sessions waiting on locks, a consumer
+group's lag on its topic). Exporter probes report them as **readings** with candidate names, which the graph gives
+to the first node it knows (see [Component health](sources.md#component-health)). When two sources read the same
 thing the higher value wins, and an edge brought back from memory forgets them, since a lock from ten seconds ago
 says nothing now.
 

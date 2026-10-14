@@ -450,7 +450,9 @@ button.label { cursor: pointer; }
     latency: { label: 'Latency', icon: '<circle cx="12" cy="12" r="8.6"/><path d="M12 7v5.2l3.4 2"/>' },
     saturation: { label: 'Saturation', icon: '<path d="M3.8 17a8.2 8.2 0 0116.4 0"/><path d="M12 17l4.6-5.6"/><path d="M3.5 20.5h17"/>' },
     backlog: { label: 'Queue backlog', icon: '<rect x="3" y="3.5" width="18" height="4.6" rx="1.3"/><rect x="3" y="9.7" width="18" height="4.6" rx="1.3"/><rect x="3" y="15.9" width="12" height="4.6" rx="1.3"/>' },
+    lag: { label: 'Queue lag', icon: '<path d="M6.5 3h11M6.5 21h11"/><path d="M7.5 3c0 4.5 4.5 5.5 4.5 9s-4.5 4.5-4.5 9M16.5 3c0 4.5-4.5 5.5-4.5 9s4.5 4.5 4.5 9"/><path d="M9.5 19h5"/>' },
     locks: { label: 'Locks', icon: '<rect x="5" y="10.5" width="14" height="10" rx="2.2"/><path d="M8.2 10.5V7.8a3.8 3.8 0 017.6 0v2.7"/><path d="M12 14.6v2"/>' },
+    restarts: { label: 'Restarts', icon: '<path d="M20 11.5A8 8 0 006.3 6.3L4 8.6"/><path d="M4 4v4.6h4.6"/><path d="M4 12.5a8 8 0 0013.7 5.2l2.3-2.3"/><path d="M20 20v-4.6h-4.6"/>' },
   };
   const HEALTH_LABEL = { healthy: 'healthy', degraded: 'degraded', failing: 'failing', unknown: 'no traffic data' };
   const HEALTH_RANK = { failing: 3, degraded: 2, healthy: 1, unknown: 0 };
@@ -474,7 +476,7 @@ button.label { cursor: pointer; }
   // waiting on locks, consumer lag.
   const measures = v => (Array.isArray(v) ? v : [])
     .filter(m => m && has(REASON, m.cause) && typeof m.what === 'string' && m.what)
-    .map(m => ({ cause: m.cause, what: m.what, value: finite(m.value), max: finite(m.max), via: text(m.via) }));
+    .map(m => ({ cause: m.cause, what: m.what, value: finite(m.value), max: finite(m.max), unit: oneOf(m.unit, ['bytes', 'seconds', 'share'], ''), via: text(m.via) }));
   // reasons keeps the ones the map knows how to draw, worst first.
   const reasons = v => (Array.isArray(v) ? v : [])
     .filter(r => r && has(REASON, r.cause) && (r.health === 'degraded' || r.health === 'failing'))
@@ -589,6 +591,24 @@ button.label { cursor: pointer; }
     };
   }
 
+  // fmtSec writes seconds: "45 s", "12 min", "2.5 h".
+  function fmtSec(s) {
+    if (s >= 5400) return (s / 3600).toFixed(1) + ' h';
+    if (s >= 90) return Math.round(s / 60) + ' min';
+    return Math.round(s) + ' s';
+  }
+
+  // fmtBytes writes a size in binary units: "512 B", "48.0 MiB".
+  function fmtBytes(b) {
+    if (b < 1024) return Math.round(b) + ' B';
+    let n = b / 1024, i = 0;
+    while (n >= 1024 && i < 4) { n /= 1024; i++; }
+    return n.toFixed(1) + ' ' + 'KMGTP'[i] + 'iB';
+  }
+
+  // fmtValue writes a measure's value in its unit.
+  const fmtValue = (v, unit) => unit === 'bytes' ? fmtBytes(v) : unit === 'seconds' ? fmtSec(v) : unit === 'share' ? pct(v) : compact(v);
+
   // fmtMs writes milliseconds the way people read them, like teia's CLI.
   function fmtMs(ms) {
     if (ms >= 999.5) return (ms / 1000).toFixed(1) + ' s';
@@ -613,7 +633,9 @@ button.label { cursor: pointer; }
       latency: () => `p95 ${fmtMs(r.value)}`,
       saturation: () => `${pct(r.value)} ${r.what || 'used'}`,
       backlog: () => `${compact(r.value)} ${r.what || 'waiting'}`,
+      lag: () => `${fmtSec(r.value)} ${r.what || 'behind'}`,
       locks: () => `${compact(r.value)} on locks`,
+      restarts: () => `${compact(r.value)} restarts`,
     }[r.cause]();
     const via = r.via ? (r.cause === 'locks' ? ` held by ${r.via}` : ` from ${r.via}`) : r.subject ? ` · ${r.subject}` : '';
     return what + via + (more > 0 ? ` +${more}` : '');
@@ -803,7 +825,7 @@ button.label { cursor: pointer; }
     } catch { return null; }
   }
 
-  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, reasonTag, compact, TECH, CATEGORY, SIGNAL, REASON };
+  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, TECH, CATEGORY, SIGNAL, REASON };
 
   // ============================================================== mount
   function mount(host, opts = {}) {
@@ -1605,7 +1627,7 @@ button.label { cursor: pointer; }
     }
 
     // measureText reads a measure out: "12 of 97 (12%)", "3, held by legacy-reports".
-    const measureText = m => (m.max > 0 ? `${compact(m.value)} of ${compact(m.max)} (${pct(m.value / m.max)})` : compact(m.value)) + (m.via ? `, held by ${m.via}` : '');
+    const measureText = m => (m.unit === 'share' || !(m.max > 0) ? fmtValue(m.value, m.unit) : `${fmtValue(m.value, m.unit)} of ${fmtValue(m.max, m.unit)} (${pct(m.value / m.max)})`) + (m.via ? `, held by ${m.via}` : '');
 
     // whyBlock explains an amber or red node or line, worst reason first,
     // with a way to the dependency it most likely comes from.

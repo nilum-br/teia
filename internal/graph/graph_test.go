@@ -457,3 +457,55 @@ func TestRememberedEdgesForgetMomentaryMeasures(t *testing.T) {
 		t.Errorf("a remembered edge keeps its traffic, not the locks of ten seconds ago: %+v", e)
 	}
 }
+
+func TestReadingsGoToTheNodeTheyMeasure(t *testing.T) {
+	g := Build([]Result{
+		result("docker", "docker", source.Observation{Nodes: []source.NodeObservation{
+			{ID: "catalog-cache", Kind: model.KindCache, Addresses: []string{"10.0.0.4"}},
+			{ID: "catalog-cache-exporter", Kind: model.KindService},
+			{ID: "noise", Kind: model.KindService, Ignore: true},
+		}}),
+		result("traces", "prometheus", source.Observation{Edges: []source.EdgeObservation{
+			{From: "email-worker", To: "order-events", Signal: source.SignalTraces},
+		}}),
+		result("exporters", "prometheus", source.Observation{Readings: []source.Reading{
+			{Candidates: []string{"catalog-cache", "catalog-cache-exporter"}, Measures: []model.Measure{{Cause: model.CauseSaturation, What: "memory", Value: 48, Max: 64}}},
+			{Candidates: []string{"sessions", source.AddressID("10.0.0.4")}, Measures: []model.Measure{{Cause: model.CauseSaturation, What: "clients", Value: 10, Max: 100}}},
+			{Candidates: []string{"email-worker"}, To: []string{"order-events"}, Measures: []model.Measure{{Cause: model.CauseBacklog, What: "messages waiting", Value: 45210}}},
+			{Candidates: []string{"noise"}, Measures: []model.Measure{{Cause: model.CauseRestarts, What: "restarts", Value: 9}}, Origin: "restarts (pod noise-0)"},
+			{Candidates: []string{"billing"}, To: []string{"invoices"}, Measures: []model.Measure{{Cause: model.CauseBacklog, What: "messages waiting", Value: 3}}, Origin: "kafka (consumergroup billing)"},
+		}}),
+	}, nil, nil)
+
+	cache := g.Nodes["catalog-cache"]
+	if len(cache.Measures) != 2 {
+		t.Errorf("catalog-cache should get memory (by name) and clients (by address): %+v", cache.Measures)
+	}
+	if exp := g.Nodes["catalog-cache-exporter"]; len(exp.Measures) != 0 {
+		t.Errorf("the exporter is not what it measures: %+v", exp.Measures)
+	}
+	if e := g.Edges["email-worker->order-events"]; len(e.Measures) != 1 || e.Measures[0].Value != 45210 {
+		t.Errorf("consumer lag belongs on the line to its topic: %+v", e.Measures)
+	}
+	if _, ok := g.Nodes["billing"]; ok {
+		t.Error("a reading never creates a node")
+	}
+	if len(g.Unmatched) != 2 {
+		t.Fatalf("unmatched: %+v", g.Unmatched)
+	}
+}
+
+func TestSaturationSummariesSpeakTheirUnit(t *testing.T) {
+	_, memory := DefaultHealth.Judge(0, 0, 0, []model.Measure{{Cause: model.CauseSaturation, What: "memory", Value: 60 << 20, Max: 64 << 20, Unit: model.UnitBytes}})
+	if len(memory) != 1 || memory[0].Summary != "93.8% of memory used (60.0 MiB of 64.0 MiB), over 80.0%" {
+		t.Errorf("memory: %+v", memory)
+	}
+	_, cpu := DefaultHealth.Judge(0, 0, 0, []model.Measure{{Cause: model.CauseSaturation, What: "CPU time throttled", Value: 0.97, Max: 1, Unit: model.UnitShare}})
+	if len(cpu) != 1 || cpu[0].Summary != "97.0% CPU time throttled, over 95.0%" || cpu[0].Health != model.HealthFailing {
+		t.Errorf("cpu: %+v", cpu)
+	}
+	_, lag := DefaultHealth.Judge(0, 0, 0, []model.Measure{{Cause: model.CauseLag, What: "behind", Value: 720, Unit: model.UnitSeconds}})
+	if len(lag) != 1 || lag[0].Summary != "12 min behind, over 5 min" || lag[0].Health != model.HealthFailing {
+		t.Errorf("lag: %+v", lag)
+	}
+}

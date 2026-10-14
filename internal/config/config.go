@@ -65,6 +65,11 @@ type Health struct {
 	Locks Limits `yaml:"locks"`
 	// Backlog counts items waiting in a queue, such as consumer lag.
 	Backlog Limits `yaml:"backlog"`
+	// Lag is how far behind a queue's consumers are, or how long it went
+	// without progress.
+	Lag LatencyLimits `yaml:"lag"`
+	// Restarts counts container restarts in the source's window.
+	Restarts Limits `yaml:"restarts"`
 }
 
 // Limits is a degraded and failing pair; zero keeps the default.
@@ -132,6 +137,10 @@ func (c *Config) HealthThresholds() graph.HealthThresholds {
 	t.LocksFailing = pick(c.Health.Locks.Failing, t.LocksFailing)
 	t.BacklogDegraded = pick(c.Health.Backlog.Degraded, t.BacklogDegraded)
 	t.BacklogFailing = pick(c.Health.Backlog.Failing, t.BacklogFailing)
+	t.LagDegradedSeconds = pick(c.Health.Lag.Degraded.Seconds(), t.LagDegradedSeconds)
+	t.LagFailingSeconds = pick(c.Health.Lag.Failing.Seconds(), t.LagFailingSeconds)
+	t.RestartsDegraded = pick(c.Health.Restarts.Degraded, t.RestartsDegraded)
+	t.RestartsFailing = pick(c.Health.Restarts.Failing, t.RestartsFailing)
 	return t
 }
 
@@ -169,6 +178,7 @@ type Prometheus struct {
 	URL     string            `yaml:"url"`
 	Window  time.Duration     `yaml:"window"`
 	Presets []string          `yaml:"presets"` // empty or [auto]: detect
+	Probes  []string          `yaml:"probes"`  // empty or [auto]: detect; [none]: off
 	Headers map[string]string `yaml:"headers"`
 }
 
@@ -389,6 +399,8 @@ func (c *Config) validate() error {
 		{"health.saturation", c.Health.Saturation, t.SaturationDegraded, t.SaturationFailing, 1},
 		{"health.locks", c.Health.Locks, t.LocksDegraded, t.LocksFailing, 0},
 		{"health.backlog", c.Health.Backlog, t.BacklogDegraded, t.BacklogFailing, 0},
+		{"health.restarts", c.Health.Restarts, t.RestartsDegraded, t.RestartsFailing, 0},
+		{"health.lag", Limits{Degraded: c.Health.Lag.Degraded.Seconds(), Failing: c.Health.Lag.Failing.Seconds()}, t.LagDegradedSeconds, t.LagFailingSeconds, 0},
 	} {
 		switch {
 		case l.set.Degraded < 0 || l.set.Failing < 0:
@@ -440,6 +452,16 @@ func (c *Config) validate() error {
 		for _, name := range p.Presets {
 			if name != "auto" && prometheus.Lookup(name) == nil {
 				bad("sources.prometheus[%d]: unknown preset %q", i, name)
+			}
+		}
+		for _, name := range p.Probes {
+			switch {
+			case name == "auto" || name == "none":
+				if len(p.Probes) > 1 {
+					bad("sources.prometheus[%d].probes: %q stands alone", i, name)
+				}
+			case prometheus.LookupProbe(name) == nil:
+				bad("sources.prometheus[%d]: unknown probe %q (known: %s)", i, name, strings.Join(prometheus.ProbeNames(), ", "))
 			}
 		}
 	}
@@ -510,7 +532,7 @@ func (c *Config) plan() []planned {
 	}
 	for i, p := range s.Prometheus {
 		add(named("prometheus", p.Name, i, len(s.Prometheus)), func(n string) source.Source {
-			return prometheus.New(n, prometheus.Config{URL: p.URL, Window: p.Window, Presets: p.Presets, Headers: p.Headers})
+			return prometheus.New(n, prometheus.Config{URL: p.URL, Window: p.Window, Presets: p.Presets, Probes: p.Probes, Headers: p.Headers})
 		})
 	}
 	for i, t := range s.Tempo {

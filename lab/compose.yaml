@@ -195,6 +195,11 @@ services:
       INTERVAL: 2s
       CONSUME: order-events=kafka
       NOTIFY: email-provider
+      # Stands in for kafka_exporter: 1500 messages waiting, consumed at 20/s,
+      # so the line to order-events says how much waits and how far behind.
+      LAG_EXPORTER: ":9308"
+      LAG: "1500"
+      CONSUME_RATE: "20"
 
   # A partner integration calling catalog: only catalog's access log knows who.
   partner-sync:
@@ -246,12 +251,23 @@ services:
 
   catalog-cache:
     image: redis:8.10.2-alpine
+    # A memory limit, so redis_exporter can say how full the cache is.
+    command: ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
     labels:
       teia.kind: cache
       team: catalog
       system: shop
       tier: data
     restart: unless-stopped
+
+  # The exporter a platform runs next to Redis. teia reads its metrics from
+  # Prometheus and puts them on catalog-cache, not on the exporter.
+  catalog-cache-exporter:
+    <<: *infra
+    image: oliver006/redis_exporter:v1.93.0
+    environment:
+      REDIS_ADDR: redis://catalog-cache:6379
+    depends_on: [catalog-cache]
 
   # --- observability the platform already has -------------------------------
   otel-collector:

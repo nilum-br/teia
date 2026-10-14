@@ -51,6 +51,12 @@ health:
   backlog: # items waiting in a queue, such as consumer lag
     degraded: 1000
     failing: 10000
+  lag: # how far behind a queue's consumers are, or how long without progress
+    degraded: 1m
+    failing: 5m
+  restarts: # container restarts within the source's window
+    degraded: 1
+    failing: 3
 
 # One node for things known under several names (matched case-insensitively).
 # A key can also be an address no inventory knows.
@@ -87,6 +93,7 @@ sources:
       url: http://prometheus:9090
       window: 5m
       presets: [auto] # detect every known metric family (the default)
+      probes: [auto]  # and every exporter teia reads component health from (the default)
     - name: mesh
       url: https://mimir.example.com/prometheus
       window: 5m

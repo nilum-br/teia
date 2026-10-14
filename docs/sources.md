@@ -94,6 +94,34 @@ keeps the edges and says so in the source's message.
 Anything else becomes edges through a `queries` entry: any PromQL or LogQL that returns one series per caller and
 callee pair, plus a mapping of which label is which.
 
+## Component health
+
+Traffic, errors and latency say how calls go. To say *why* a datastore, a queue or a workload is in trouble,
+the `prometheus` source also reads the standard exporters most platforms already run, through **probes**
+(detected like presets; `probes: [none]` turns them off):
+
+| Component | Probe | Exporter | What it reads |
+|---|---|---|---|
+| Cache | `redis` | redis_exporter (Redis, Valkey, KeyDB) | memory against `maxmemory`, clients against `maxclients` |
+| Queue | `kafka` | kafka_exporter | per consumer group and topic: messages waiting, time behind (lag / consume rate), no progress over the window; and every group's lag on the topic |
+| Queue | `rabbitmq` | RabbitMQ's built-in plugin, per-object metrics | messages waiting per queue |
+| Document database | `mongodb` | mongodb_exporter | connections against those available, operations queued on locks |
+| Relational database | `mysql` | mysqld_exporter (MySQL, MariaDB) | connections against `max_connections`, row lock waits |
+| Relational database | `postgres-exporter` | postgres_exporter | connections against `max_connections` (the `postgres` explorer below also sees locks) |
+| Workload | `containers` | cAdvisor (Kubernetes or Docker) | CPU time throttled by the limit, memory against the limit |
+| Workload | `restarts` | kube-state-metrics | container restarts in the window |
+
+Each reading becomes a **measure** on a node, or on the line from a consumer to its topic, and the health limits
+(`health.saturation`, `health.backlog`, `health.lag`, `health.locks`, `health.restarts`) turn it into a reason:
+`order-events: 1.5k messages waiting`, `email-worker → order-events: 7 min behind`, `catalog-cache: 93% of
+memory used`.
+
+**Which node a reading belongs to.** Exporters label metrics with their own names, so a reading carries
+candidates, best first: the names without an exporter suffix (`catalog-cache-exporter` → `catalog-cache`), the
+Kubernetes service, the workload of the pod, the job, and last the instance's address, which resolves to the node
+holding it when the exporter is a sidecar. Consumer groups and topics are named as they are. A reading never
+creates a node: when no candidate is on the map, the advisor says so and suggests an `alias`.
+
 ## Inside the database: the `postgres` explorer
 
 The explorer connects to PostgreSQL with a login of its own and reads `pg_stat_activity`, so it sees every client,

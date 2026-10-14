@@ -43,6 +43,23 @@ type NodeObservation struct {
 	Measures []model.Measure
 }
 
+// Reading carries measures for a node, or an edge, that another source
+// names. Exporters label their metrics with guesses at a name (a service, a
+// consumer group, the exporter's own address), so a reading never creates a
+// node: the graph gives it to the first candidate it already knows.
+type Reading struct {
+	// Candidates are names for the node, best first, after aliases and
+	// addresses (an "ip:..." candidate becomes the node holding it).
+	Candidates []string
+	// To, when set, puts the measures on the edge from the matched node to
+	// the first of To with such an edge (a consumer group and its topic).
+	To       []string
+	Measures []model.Measure
+	// Origin says where the reading came from, for the finding raised when
+	// no candidate matches: "redis (instance catalog-cache-exporter:9121)".
+	Origin string
+}
+
 // EdgeObservation is a communication as seen by one source.
 type EdgeObservation struct {
 	From, To string
@@ -141,6 +158,8 @@ type Observation struct {
 	// Findings are raised by the source itself, typically about its own
 	// permissions or configuration.
 	Findings []model.Finding
+	// Readings are measures for nodes or edges other sources name.
+	Readings []Reading
 	// Explores lists node IDs this source can look inside, so the advisor
 	// does not suggest exploring them again.
 	Explores []string

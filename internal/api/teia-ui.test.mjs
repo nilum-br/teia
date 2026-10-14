@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 import { describe, it } from 'node:test';
 
 const { core } = createRequire(import.meta.url)('./ui/teia-ui.js');
-const { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, reasonTag, compact } = core;
+const { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact } = core;
 
 const node = (id, extra = {}) => ({ id, kind: 'service', health: 'healthy', visibility: 'full', sources: [], ...extra });
 const edge = (from, to, extra = {}) => ({ from, to, state: 'ok', health: 'healthy', declared: true, observed: true, requestRate: 1, errorRate: 0, signals: ['traces'], sources: [], ...extra });
@@ -283,6 +283,17 @@ describe('reasons', () => {
     assert.equal(reasonTag({ cause: 'locks', value: 3, subject: 'orders' }), '3 on locks · orders');
   });
 
+  it('says how far behind a queue is and how often a workload restarted', () => {
+    assert.equal(reasonTag({ cause: 'lag', value: 720, what: 'behind', via: '' }), '12 min behind');
+    assert.equal(reasonTag({ cause: 'lag', value: 300, what: 'without progress' }), '5 min without progress');
+    assert.equal(reasonTag({ cause: 'restarts', value: 3 }), '3 restarts');
+  });
+
+  it('writes durations and sizes the way people read them', () => {
+    assert.deepEqual([45, 720, 9000].map(fmtSec), ['45 s', '12 min', '2.5 h']);
+    assert.deepEqual([512, 48 * 1024 * 1024, 1.5 * 1024 ** 3].map(fmtBytes), ['512 B', '48.0 MiB', '1.5 GiB']);
+  });
+
   it('writes big numbers short', () => {
     assert.deepEqual([7, 1234, 45210, 1_250_000, 12_000_000].map(compact), ['7', '1.2k', '45k', '1.3M', '12M']);
   });
@@ -300,7 +311,7 @@ describe('reasons', () => {
 
   it('keeps readings beyond traffic, dropping what it cannot name', () => {
     const s = sanitize({ nodes: [{ id: 'db', measures: [{ cause: 'saturation', what: 'connections', value: 12, max: 97 }, { cause: 'saturation', value: 3 }, { cause: 'gremlins', what: 'x' }] }] });
-    assert.deepEqual(s.nodes[0].measures, [{ cause: 'saturation', what: 'connections', value: 12, max: 97, via: '' }]);
+    assert.deepEqual(s.nodes[0].measures, [{ cause: 'saturation', what: 'connections', value: 12, max: 97, unit: '', via: '' }]);
   });
 
   it('can be searched with why:', () => {

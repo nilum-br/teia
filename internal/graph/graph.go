@@ -28,6 +28,9 @@ type Graph struct {
 	// UnknownCallers maps a node, then a signal, to the traffic it receives
 	// from callers that signal could not identify.
 	UnknownCallers map[string]map[string]UnknownCallers
+	// Unmatched are readings no node took: what they measured, and the
+	// names that were tried.
+	Unmatched []Unmatched
 
 	canonical func(string) string
 }
@@ -40,6 +43,14 @@ func (g *Graph) Canonical(id string) string {
 		return NormalizeID(id)
 	}
 	return g.canonical(id)
+}
+
+// Unmatched is a reading whose candidates name no node in the graph.
+type Unmatched struct {
+	Source     string
+	Origin     string
+	Candidates []string
+	To         []string
 }
 
 // UnknownCallers is traffic into a node from callers one signal cannot name.
@@ -280,6 +291,7 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 	}
 
 	markOutside(g, results, canonical, selfReported)
+	attachReadings(g, results, resolve)
 
 	seen := map[string]bool{}
 	for _, e := range g.Edges {
@@ -418,4 +430,47 @@ func mergeMeasures(have, add []model.Measure, resolve func(string) string) []mod
 		}
 	}
 	return have
+}
+
+// attachReadings gives each reading's measures to the first candidate the
+// graph knows (or to its edge towards the first known To), and records the
+// readings nobody took, so the advisor can ask for an alias.
+func attachReadings(g *Graph, results []Result, resolve func(string) string) {
+	for _, r := range results {
+		if r.Err != nil {
+			continue
+		}
+		for _, rd := range r.Observation.Readings {
+			if !attach(g, rd, resolve) {
+				g.Unmatched = append(g.Unmatched, Unmatched{Source: r.Source.Name(), Origin: rd.Origin, Candidates: rd.Candidates, To: rd.To})
+			}
+		}
+	}
+}
+
+// attach gives one reading's measures to its node or edge, and says whether
+// one took them.
+func attach(g *Graph, rd source.Reading, resolve func(string) string) bool {
+	from := ""
+	for _, c := range rd.Candidates {
+		if id := resolve(c); g.Nodes[id] != nil && !g.Ignored[id] {
+			from = id
+			break
+		}
+	}
+	if from == "" {
+		return false
+	}
+	if len(rd.To) == 0 {
+		n := g.Nodes[from]
+		n.Measures = mergeMeasures(n.Measures, rd.Measures, resolve)
+		return true
+	}
+	for _, t := range rd.To {
+		if e := g.Edges[from+"->"+resolve(t)]; e != nil {
+			e.Measures = mergeMeasures(e.Measures, rd.Measures, resolve)
+			return true
+		}
+	}
+	return false
 }

@@ -59,6 +59,7 @@ var Rules = []Rule{
 	{"stale-flow", staleFlows},
 	{"no-inventory", noInventory},
 	{"unknown-callers", unknownCallers},
+	{"unmatched-reading", unmatchedReadings},
 }
 
 // Advise runs every rule, adds the findings sources raised themselves,
@@ -431,4 +432,42 @@ func explainedBy(g *graph.Graph, id, signal string) bool {
 		}
 	}
 	return false
+}
+
+// unmatchedReadings explains exporter readings that fit no node: their
+// labels guess at a name the graph does not use, so an alias fixes it.
+func unmatchedReadings(in Input) []model.Finding {
+	var out []model.Finding
+	seen := map[string]bool{}
+	for _, u := range in.Graph.Unmatched {
+		if len(u.Candidates) == 0 {
+			continue
+		}
+		subject := u.Candidates[0]
+		if len(u.To) > 0 {
+			subject += "->" + u.To[0]
+		}
+		if seen[subject] {
+			continue // one finding per thing measured, not per reading
+		}
+		seen[subject] = true
+		what := "no node is called " + strings.Join(u.Candidates, ", ")
+		if len(u.To) > 0 {
+			what = fmt.Sprintf("no edge goes from %s to %s", strings.Join(u.Candidates, " or "), strings.Join(u.To, " or "))
+		}
+		out = append(out, model.Finding{
+			Kind:     model.FindingSource,
+			Severity: model.SeverityInfo,
+			Subject:  subject,
+			Title:    fmt.Sprintf("Health readings from %s fit nothing on the map", u.Origin),
+			Detail: fmt.Sprintf("%s reads them, but %s, so their saturation, backlog or locks are not shown. "+
+				"Exporters label metrics with their own names (the exporter, its job, its address).", u.Source, what),
+			Fix: &model.Fix{
+				Summary:  "Tell teia which node they measure with an alias.",
+				Language: "yaml",
+				Snippet:  fmt.Sprintf("aliases:\n  %q: the-node-it-measures", u.Candidates[0]),
+			},
+		})
+	}
+	return out
 }

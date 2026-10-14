@@ -49,7 +49,8 @@ O mapa, no Grafana (`nilum-teia-panel`) ou na interface da própria teia, é o m
 
 ![O painel da teia dentro de um dashboard do Grafana](docs/assets/screenshots/grafana-panel.png)
 
-- **Sinais de ouro, e o porquê:** cada card e cada linha mostram tráfego, latência p95 e taxa de erro. Amarelo ou vermelho é o pior sinal acima do limite, e uma etiqueta no card ou na linha diz qual é e de onde provavelmente vem (`p95 900 ms from inventory`): você vê a causa de relance, não só a cor. A latência vem dos histogramas que você já tem (service graph, Istio, Linkerd, Hubble) ou dos traces amostrados.
+- **Sinais de ouro, e o porquê:** cada card e cada linha mostram tráfego, latência p95 e taxa de erro. Amarelo ou vermelho é o pior sinal acima do limite, e uma etiqueta no card ou na linha diz qual é e de onde provavelmente vem: você vê a causa de relance, não só a cor (`p95 900 ms from inventory`, `4.4% errors`, `3 on locks held by legacy-reports`, `1.5k messages waiting`, `7 min behind`, `93% memory`).
+- **Todo tipo de componente:** serviços (erros, latência, CPU estrangulada, memória, restarts), bancos relacionais (conexões, sessões esperando lock e quem segura), MongoDB, Redis (memória, clientes) e filas (lag do Kafka em mensagens e em tempo, consumidor sem progresso, backlog do RabbitMQ), lidos dos exporters que você já roda.
 - **Tráfego andando:** pontos percorrem cada comunicação na velocidade do tráfego; pontos vermelhos são erros. Ao vivo.
 - **Drift e visibilidade:** tracejado é não declarado, pontilhado é declarado e não visto; a borda do card diz o quanto a teia vê em primeira mão.
 - **[Biblioteca de ícones](docs/icons.md) padronizada:** microsserviço, banco relacional, banco de documentos (NoSQL), cache, stream (Kafka), fila, gateway, job, SaaS externo. A tecnologia é detectada pelos spans, pela imagem ou por label.

@@ -177,3 +177,18 @@ func TestUnknownCallersAreExplainedPerSignal(t *testing.T) {
 		t.Fatalf("after logs: %v", got)
 	}
 }
+
+func TestUnmatchedReadingsAskForAnAlias(t *testing.T) {
+	g := &graph.Graph{Nodes: map[string]*model.Node{}, Edges: map[string]*model.Edge{}, Unmatched: []graph.Unmatched{
+		{Source: "prometheus", Origin: "redis (instance sessions-exporter:9121)", Candidates: []string{"sessions", "sessions-exporter"}},
+		{Source: "prometheus", Origin: "redis (instance sessions-exporter:9121)", Candidates: []string{"sessions", "sessions-exporter"}},
+	}}
+	fs := unmatchedReadings(Input{Graph: g})
+	if len(fs) != 1 {
+		t.Fatalf("one finding per thing measured, got %d", len(fs))
+	}
+	f := fs[0]
+	if f.Subject != "sessions" || !strings.Contains(f.Fix.Snippet, `"sessions": the-node-it-measures`) {
+		t.Errorf("finding %+v", f)
+	}
+}

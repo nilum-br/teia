@@ -13,8 +13,9 @@ import (
 	"github.com/nilum-br/teia/internal/source"
 )
 
-// fakeProm answers by matching a fragment of the query. Queries containing
-// one of the failing fragments get an HTTP 500.
+// fakeProm answers by matching a fragment of the query, the longest one
+// when several match. Queries containing one of the failing fragments get an
+// HTTP 500.
 func fakeProm(t *testing.T, answers map[string]string, status int, failing ...string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -30,13 +31,13 @@ func fakeProm(t *testing.T, answers map[string]string, status int, failing ...st
 				return
 			}
 		}
-		for fragment, body := range answers {
-			if strings.Contains(q, fragment) {
-				fmt.Fprintf(w, `{"status":"success","data":{"resultType":"vector","result":[%s]}}`, body)
-				return
+		best := ""
+		for fragment := range answers {
+			if strings.Contains(q, fragment) && len(fragment) > len(best) {
+				best = fragment
 			}
 		}
-		fmt.Fprint(w, `{"status":"success","data":{"resultType":"vector","result":[]}}`)
+		fmt.Fprintf(w, `{"status":"success","data":{"resultType":"vector","result":[%s]}}`, answers[best])
 	}))
 }
 
