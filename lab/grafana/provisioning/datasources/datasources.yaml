@@ -16,8 +16,10 @@ datasources:
     type: loki
     access: proxy
     url: http://loki:3100
-  # Until the teia Grafana plugin exists, the Infinity data source reads the
-  # teia API directly.
+  # The teia panel (nilum-teia-panel) is fed by dashboard queries. There is no
+  # teia data source yet, so Infinity reads teia's /api/v1/grafana/* frames
+  # from the Grafana server. With auth.token on teia, add the header
+  # "Authorization: Bearer <token>" here as a secure value.
   - name: teia
     uid: teia
     type: yesoreyeram-infinity-datasource

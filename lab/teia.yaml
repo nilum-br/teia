@@ -1,4 +1,7 @@
 # The lab's teia config: every signal the shop has, nothing installed for teia.
+# Every key is described in docs/configuration.md. LAB_PROJECT is the compose
+# project name (compose.yaml sets it), so a second lab started with -p only
+# looks at its own containers.
 listen: :8080
 interval: 10s
 
@@ -35,15 +38,17 @@ sources:
       dialect: loki
       url: http://loki:3100
       window: 2m
-      query: sum by (service, remote_addr) (rate({project="teia-lab"} | json | __error__="" | msg="access" [$window]))
+      query: sum by (service, remote_addr) (rate({project="${LAB_PROJECT:-teia-lab}"} | json | __error__="" | msg="access" [$window]))
       from: remote_addr
       fromAddress: true
       to: service
       protocol: http
 
-  # inventory: names, kinds and addresses of everything running
+  # inventory: names, kinds and addresses of everything running. DOCKER_HOST
+  # (set in compose.yaml) points at docker-proxy-teia, which only lets teia
+  # list containers.
   docker:
-    project: teia-lab
+    project: ${LAB_PROJECT:-teia-lab}
 
   # inside the database: who is connected
   postgres:

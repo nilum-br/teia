@@ -1,10 +1,14 @@
 // Ships the stdout of every lab container to Loki, labelled with its compose
 // project and service. This is how most platforms already collect logs.
+//
+// Alloy reads Docker through docker-proxy-alloy (see compose.yaml), never the
+// socket itself. LAB_PROJECT is the compose project name, so a second lab
+// started with -p only collects its own containers.
 discovery.docker "lab" {
-  host = "unix:///var/run/docker.sock"
+  host = "tcp://docker-proxy-alloy:2375"
   filter {
     name   = "label"
-    values = ["com.docker.compose.project=teia-lab"]
+    values = ["com.docker.compose.project=" + sys.env("LAB_PROJECT")]
   }
 }
 
@@ -22,7 +26,7 @@ discovery.relabel "lab" {
 }
 
 loki.source.docker "lab" {
-  host       = "unix:///var/run/docker.sock"
+  host       = "tcp://docker-proxy-alloy:2375"
   targets    = discovery.relabel.lab.output
   forward_to = [loki.write.local.receiver]
 }

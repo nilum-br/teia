@@ -13,6 +13,16 @@
 # Tempo; container logs -> Alloy -> Loki; sidecar metrics -> Prometheus.
 #
 # Run from the repository root:  docker compose -f lab/compose.yaml up -d --build
+#
+# Docker access: only the two socket proxies mount the Docker socket. teia and
+# Alloy reach the Docker API through them, each limited to GET requests on the
+# parts of the API it needs, and on a network of its own. Mounting docker.sock
+# read-only (:ro) would restrict nothing: any client that can connect to the
+# socket controls the Docker host.
+#
+# Published ports move with PROMETHEUS_PORT, TEMPO_PORT, LOKI_PORT,
+# GRAFANA_PORT, TEIA_PORT and POSTGRES_PORT, and the project name with -p, so
+# a second lab can run next to this one.
 name: teia-lab
 
 x-demo: &demo
@@ -31,6 +41,19 @@ x-infra: &infra
   restart: unless-stopped
   labels:
     teia.ignore: "true"
+
+# A Docker API proxy that answers GET requests only, and only for the
+# endpoints its environment enables (everything is off by default except
+# EVENTS, PING and VERSION).
+x-docker-proxy: &docker-proxy
+  <<: *infra
+  image: lscr.io/linuxserver/socket-proxy:3.4.6-r0-ls102
+  read_only: true
+  tmpfs: [/run]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  volumes:
+    - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
 
 services:
   # --- the shop: OpenTelemetry part -----------------------------------------
@@ -207,6 +230,9 @@ services:
       POSTGRES_DB: orders
     volumes:
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    # For teia running on the host (lab/teia.host.yaml); this machine only.
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5480}:5432"
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "postgres", "-d", "orders"]
       interval: 3s
@@ -259,12 +285,33 @@ services:
     <<: *infra
     image: grafana/alloy:v1.20.1
     command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy/data"]
+    environment:
+      LAB_PROJECT: ${COMPOSE_PROJECT_NAME:-teia-lab}
     volumes:
       - ./alloy.alloy:/etc/alloy/config.alloy:ro
-      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro
+    networks: [default, docker-alloy]
+    depends_on: [docker-proxy-alloy]
+
+  # Alloy's view of Docker: list and inspect containers, list networks
+  # (discovery.docker), read container logs (loki.source.docker). The Docker
+  # client pings the engine and asks its version, so PING and VERSION stay on.
+  # The proxy closes a log stream after 10 minutes without output, and Alloy
+  # picks it up again where it stopped: the "could not transfer logs ...
+  # unexpected EOF" warnings in Alloy's log are that, nothing is lost.
+  docker-proxy-alloy:
+    <<: *docker-proxy
+    environment:
+      CONTAINERS: 1
+      NETWORKS: 1
+      ALLOW_LOGS: 1
+      EVENTS: 0
+    networks: [docker-alloy]
 
   # Builds the teia Grafana panel (plugins/grafana) so the lab needs nothing
-  # but Docker. Runs once; Grafana starts after it.
+  # but Docker. Runs once; Grafana starts after it. It runs as root (the
+  # node_modules volume starts out root-owned), then gives what it wrote into
+  # the checkout (dist/ and the synced src/teia/teia-ui.js) to the checkout's
+  # owner, so no root-owned files are left behind on Linux.
   teia-panel:
     image: node:24.21.0-trixie
     restart: "no"
@@ -275,6 +322,8 @@ services:
       - sh
       - -c
       - |
+        owner=$$(stat -c %u:%g .)
+        trap 'chown -R "$$owner" dist src/teia/teia-ui.js 2>/dev/null || true' EXIT
         cat /repo/certs/*.crt > /tmp/extra-ca.pem 2>/dev/null || true
         export NODE_EXTRA_CA_CERTS=/tmp/extra-ca.pem
         npm ci --no-audit --no-fund && npm run build
@@ -316,21 +365,49 @@ services:
       PG_ADMIN_DSN: postgres://postgres:postgres@orders-db:5432/orders?sslmode=disable
 
   # --- teia -----------------------------------------------------------------
+  # Runs as the image's non-root user, with a read-only root filesystem and no
+  # capabilities: it reads Docker through docker-proxy-teia, not the socket.
   teia:
     <<: *infra
     image: teia-lab/teia:dev
     build:
       context: ..
-    # Root only to read the Docker socket in the lab; see docs/advisor.md.
-    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     environment:
       TEIA_PG_PASSWORD: teia
+      DOCKER_HOST: tcp://docker-proxy-teia:2375 # also used by teia detect --docker
+      LAB_PROJECT: ${COMPOSE_PROJECT_NAME:-teia-lab}
+      # TEIA_LAB_UI_DIR=/ui serves the UI from internal/api/ui instead of the
+      # copy built into the image: edits show on the next browser reload.
+      TEIA_UI_DIR: ${TEIA_LAB_UI_DIR:-}
     volumes:
       - ./teia.yaml:/etc/teia/teia.yaml:ro
       - ./flows:/etc/teia/flows:ro
-      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro
+      - ../internal/api/ui:/ui:ro
+    networks: [default, docker-teia]
+    depends_on: [docker-proxy-teia]
     ports:
       - "${TEIA_PORT:-8480}:8080"
+
+  # teia's view of Docker: GET /containers/json (and, by the same rule,
+  # /containers/{id}/json, which shows environment variables). Nothing else.
+  docker-proxy-teia:
+    <<: *docker-proxy
+    environment:
+      CONTAINERS: 1
+      EVENTS: 0
+      PING: 0
+      VERSION: 0
+    networks: [docker-teia]
+
+networks:
+  # Each proxy is reachable from its one client only.
+  docker-teia:
+    internal: true
+  docker-alloy:
+    internal: true
 
 volumes:
   teia-panel-node-modules:

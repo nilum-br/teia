@@ -1,0 +1,51 @@
+# teia on your machine, against a running lab (docker compose -f lab/compose.yaml
+# up -d). From the repository root:
+#
+#   go run ./cmd/teia serve --config lab/teia.host.yaml --ui-dir internal/api/ui
+#
+# then open http://localhost:8080. Every URL follows the lab's published ports;
+# if you moved them (PROMETHEUS_PORT=19480 ... when starting the lab), export
+# the same variables here. LAB_PROJECT is the compose project name.
+listen: ${TEIA_LISTEN:-127.0.0.1:8080}
+interval: 10s
+
+health:
+  degraded: 0.01
+  failing: 0.05
+
+sources:
+  declared:
+    paths: [lab/flows] # relative to the directory teia runs in
+
+  prometheus:
+    - url: http://localhost:${PROMETHEUS_PORT:-9480}
+      window: 2m
+      presets: [auto]
+
+  tempo:
+    - url: http://localhost:${TEMPO_PORT:-3280}
+      window: 10m
+
+  queries:
+    - name: access-logs
+      dialect: loki
+      url: http://localhost:${LOKI_PORT:-3180}
+      window: 2m
+      query: sum by (service, remote_addr) (rate({project="${LAB_PROJECT:-teia-lab}"} | json | __error__="" | msg="access" [$window]))
+      from: remote_addr
+      fromAddress: true
+      to: service
+      protocol: http
+
+  # Your own Docker engine, found like the docker CLI finds it: DOCKER_HOST,
+  # else the OS default (the named pipe on Windows, Docker Desktop, OrbStack,
+  # Colima or /var/run/docker.sock elsewhere). The lab's socket proxy is not
+  # published, on purpose. Container addresses are the lab network's, the same
+  # ones the database and the access logs report, so they resolve as in the lab.
+  docker:
+    project: ${LAB_PROJECT:-teia-lab}
+
+  # The lab publishes orders-db on 127.0.0.1 only.
+  postgres:
+    - node: orders-db
+      dsn: postgres://teia:${TEIA_PG_PASSWORD:-teia}@127.0.0.1:${POSTGRES_PORT:-5480}/orders?sslmode=disable
