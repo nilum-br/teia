@@ -723,7 +723,9 @@ button.label { cursor: pointer; }
     const $ = s => app.querySelector(s);
 
     const aborter = new AbortController();
-    const timers = [];
+    // Every pending timer, so destroy() can clear them; each forgets itself when it fires.
+    const timers = new Set();
+    const later = (fn, ms) => { const t = setTimeout(() => { timers.delete(t); fn(); }, ms); timers.add(t); };
     let raf = 0, destroyed = false, es = null, reconnectDelay = 1000;
 
     const NODE_W = 196, NODE_H = 62, SVGNS = 'http://www.w3.org/2000/svg';
@@ -931,7 +933,7 @@ button.label { cursor: pointer; }
       g.addEventListener('keydown', ev => {
         if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); select({ type: 'node', id: g.dataset.id }); }
       });
-      timers.push(setTimeout(() => g.classList.remove('enter'), 600));
+      later(() => g.classList.remove('enter'), 600);
       return g;
     }
 
@@ -1405,7 +1407,7 @@ button.label { cursor: pointer; }
           ev.stopPropagation();
           navigator.clipboard?.writeText(fix.snippet);
           btn.textContent = 'copied';
-          timers.push(setTimeout(() => (btn.textContent = 'copy'), 1200));
+          later(() => (btn.textContent = 'copy'), 1200);
         },
       }, 'copy');
       return el('div', { class: 'snippet' }, btn, pre);
@@ -1585,7 +1587,7 @@ button.label { cursor: pointer; }
       for (const it of items) {
         const t = el('button', { type: 'button', class: 'toast ' + it.tone, onclick: () => it.subject && locate(it.subject) }, el('small', {}, it.small), it.text);
         $('#toasts').prepend(t);
-        timers.push(setTimeout(() => t.remove(), 6000));
+        later(() => t.remove(), 6000);
       }
     }
 
@@ -1629,7 +1631,7 @@ button.label { cursor: pointer; }
     function download(blob, name) {
       const a = el('a', { href: URL.createObjectURL(blob), download: name });
       document.body.append(a); a.click(); a.remove();
-      timers.push(setTimeout(() => URL.revokeObjectURL(a.href), 2000));
+      later(() => URL.revokeObjectURL(a.href), 2000);
     }
 
     // ----------------------------------------------------------------- data
@@ -1679,10 +1681,10 @@ button.label { cursor: pointer; }
           es = null;
           const delay = reconnectDelay;
           reconnectDelay = Math.min(30000, reconnectDelay * 2);
-          timers.push(setTimeout(() => {
+          later(() => {
             if (destroyed || !state.live) return;
             load(aborter.signal).catch(() => {}).finally(connect);
-          }, delay));
+          }, delay);
         }
       };
     }
@@ -1785,7 +1787,7 @@ button.label { cursor: pointer; }
     renderLegend();
     renderButtons();
     renderLive();
-    timers.push(setInterval(renderLive, 1000));
+    const ticker = setInterval(renderLive, 1000);
     if (opts.api) {
       load(aborter.signal)
         .then(() => { if (!destroyed && opts.select) locate(opts.select, { move: false }); })
@@ -1808,7 +1810,9 @@ button.label { cursor: pointer; }
         destroyed = true;
         aborter.abort();
         cancelAnimationFrame(raf);
-        timers.forEach(t => { clearInterval(t); clearTimeout(t); });
+        clearInterval(ticker);
+        timers.forEach(clearTimeout);
+        timers.clear();
         clearTimeout(searchTimer);
         resizeObs.disconnect();
         seenObs?.disconnect();

@@ -1,104 +1,61 @@
 {
-  "annotations": {
-    "list": [
-      {
-        "builtIn": 1,
-        "datasource": {
-          "type": "grafana",
-          "uid": "-- Grafana --"
-        },
-        "enable": true,
-        "hide": true,
-        "iconColor": "rgba(0, 211, 255, 1)",
-        "name": "Annotations & Alerts",
-        "type": "dashboard"
-      }
-    ]
-  },
+  "title": "teia panel (dev)",
+  "uid": "teia-dev",
   "editable": true,
-  "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
-  "id": 1,
-  "links": [],
-  "liveNow": false,
+  "schemaVersion": 41,
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
   "panels": [
     {
+      "id": 1,
+      "type": "nilum-teia-panel",
+      "title": "Communication map (TestData)",
       "datasource": {
         "type": "grafana-testdata-datasource",
         "uid": "trlxrdZVk"
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 22,
+        "w": 24,
         "x": 0,
         "y": 0
       },
-      "id": 1,
       "options": {
-        "seriesCountSize": "sm",
-        "showSeriesCount": false,
-        "text": "Default value of text input option"
+        "groupBy": "",
+        "flow": true,
+        "teiaUrl": ""
       },
       "targets": [
         {
           "datasource": {
             "type": "grafana-testdata-datasource",
-            "uid": "db84e60d-b92a-4089-82cb-34842fb1754b"
+            "uid": "trlxrdZVk"
           },
-          "refId": "A",
+          "refId": "nodes",
           "scenarioId": "raw_frame",
-          "rawFrameContent": "[\n  {\n    \"columns\": [\n      {\n        \"text\": \"Time\",\n        \"type\": \"time\"\n      },\n      {\n        \"text\": \"Label\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"Value\",\n        \"type\": \"number\"\n      }\n    ],\n    \"rows\": [\n      [1609459200000, \"A\", 10],\n      [1609462800000, \"B\", 20],\n      [1609466400000, \"C\", 15],\n      [1609470000000, \"D\", 25],\n      [1609473600000, \"E\", 30]\n    ]\n  },\n{\n    \"columns\": [\n      {\n        \"text\": \"Time\",\n        \"type\": \"time\"\n      },\n      {\n        \"text\": \"Label\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"Value\",\n        \"type\": \"number\"\n      }\n    ],\n    \"rows\": [\n      [1609459200000, \"A\", 40],\n      [1609462800000, \"B\", 50],\n      [1609466400000, \"C\", 45],\n      [1609470000000, \"D\", 55],\n      [1609473600000, \"E\", 60]\n    ]\n  }\n]"
-        }
-      ],
-      "title": "Sample Panel Title",
-      "type": "nilum-teia-panel"
-    },
-    {
-      "datasource": {
-        "type": "grafana-testdata-datasource",
-        "uid": "trlxrdZVk"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 0
-      },
-      "id": 2,
-      "options": {
-        "seriesCountSize": "sm",
-        "showSeriesCount": false,
-        "text": "Default value of text input option"
-      },
-      "targets": [
+          "rawFrameContent": "[\n  {\n    \"columns\": [\n      {\n        \"text\": \"id\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"kind\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"tech\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"health\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"visibility\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"requestRate\",\n        \"type\": \"number\"\n      },\n      {\n        \"text\": \"errorRate\",\n        \"type\": \"number\"\n      },\n      {\n        \"text\": \"sources\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"labels\",\n        \"type\": \"string\"\n      }\n    ],\n    \"rows\": [\n      [\n        \"web\",\n        \"service\",\n        \"frontend\",\n        \"healthy\",\n        \"full\",\n        6,\n        0,\n        \"prometheus\",\n        \"{\\\"team\\\":\\\"storefront\\\"}\"\n      ],\n      [\n        \"orders\",\n        \"service\",\n        \"\",\n        \"healthy\",\n        \"full\",\n        2,\n        0,\n        \"prometheus,tempo\",\n        \"{\\\"team\\\":\\\"checkout\\\"}\"\n      ],\n      [\n        \"payments\",\n        \"service\",\n        \"\",\n        \"degraded\",\n        \"full\",\n        2,\n        0.03,\n        \"prometheus\",\n        \"{\\\"team\\\":\\\"checkout\\\"}\"\n      ],\n      [\n        \"orders-db\",\n        \"database\",\n        \"postgresql\",\n        \"healthy\",\n        \"partial\",\n        2,\n        0,\n        \"tempo\",\n        \"{\\\"team\\\":\\\"checkout\\\"}\"\n      ],\n      [\n        \"order-events\",\n        \"queue\",\n        \"kafka\",\n        \"healthy\",\n        \"partial\",\n        0.5,\n        0,\n        \"tempo\",\n        \"{}\"\n      ],\n      [\n        \"catalog\",\n        \"service\",\n        \"\",\n        \"healthy\",\n        \"full\",\n        2.3,\n        0,\n        \"prometheus\",\n        \"{\\\"team\\\":\\\"catalog\\\"}\"\n      ],\n      [\n        \"catalog-cache\",\n        \"cache\",\n        \"redis\",\n        \"healthy\",\n        \"partial\",\n        2.3,\n        0,\n        \"tempo\",\n        \"{\\\"team\\\":\\\"catalog\\\"}\"\n      ],\n      [\n        \"payment-gateway\",\n        \"external\",\n        \"\",\n        \"healthy\",\n        \"partial\",\n        2,\n        0,\n        \"tempo\",\n        \"{}\"\n      ],\n      [\n        \"legacy-reports\",\n        \"service\",\n        \"job\",\n        \"unknown\",\n        \"none\",\n        0,\n        0,\n        \"docker\",\n        \"{\\\"team\\\":\\\"finance\\\"}\"\n      ]\n    ]\n  }\n]"
+        },
         {
-          "alias": "",
           "datasource": {
             "type": "grafana-testdata-datasource",
-            "uid": "db84e60d-b92a-4089-82cb-34842fb1754b"
+            "uid": "trlxrdZVk"
           },
-          "refId": "A",
-          "scenarioId": "no_data_points"
+          "refId": "edges",
+          "scenarioId": "raw_frame",
+          "rawFrameContent": "[\n  {\n    \"columns\": [\n      {\n        \"text\": \"source\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"target\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"state\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"health\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"protocol\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"requestRate\",\n        \"type\": \"number\"\n      },\n      {\n        \"text\": \"errorRate\",\n        \"type\": \"number\"\n      },\n      {\n        \"text\": \"declared\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"observed\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"signals\",\n        \"type\": \"string\"\n      }\n    ],\n    \"rows\": [\n      [\n        \"web\",\n        \"orders\",\n        \"ok\",\n        \"healthy\",\n        \"http\",\n        2,\n        0,\n        \"true\",\n        \"true\",\n        \"traces\"\n      ],\n      [\n        \"web\",\n        \"catalog\",\n        \"ghost\",\n        \"healthy\",\n        \"http\",\n        2.3,\n        0,\n        \"false\",\n        \"true\",\n        \"traces,mesh\"\n      ],\n      [\n        \"orders\",\n        \"payments\",\n        \"ok\",\n        \"degraded\",\n        \"http\",\n        2,\n        0.03,\n        \"true\",\n        \"true\",\n        \"traces\"\n      ],\n      [\n        \"orders\",\n        \"orders-db\",\n        \"ok\",\n        \"healthy\",\n        \"postgresql\",\n        2,\n        0,\n        \"true\",\n        \"true\",\n        \"traces\"\n      ],\n      [\n        \"orders\",\n        \"order-events\",\n        \"ghost\",\n        \"healthy\",\n        \"kafka\",\n        0.5,\n        0,\n        \"false\",\n        \"true\",\n        \"traces\"\n      ],\n      [\n        \"catalog\",\n        \"catalog-cache\",\n        \"ghost\",\n        \"healthy\",\n        \"redis\",\n        2.3,\n        0,\n        \"false\",\n        \"true\",\n        \"traces\"\n      ],\n      [\n        \"payments\",\n        \"payment-gateway\",\n        \"ok\",\n        \"healthy\",\n        \"https\",\n        2,\n        0,\n        \"true\",\n        \"true\",\n        \"traces\"\n      ],\n      [\n        \"legacy-reports\",\n        \"orders-db\",\n        \"stale\",\n        \"unknown\",\n        \"postgresql\",\n        0,\n        0,\n        \"true\",\n        \"false\",\n        \"\"\n      ]\n    ]\n  }\n]"
+        },
+        {
+          "datasource": {
+            "type": "grafana-testdata-datasource",
+            "uid": "trlxrdZVk"
+          },
+          "refId": "findings",
+          "scenarioId": "raw_frame",
+          "rawFrameContent": "[\n  {\n    \"columns\": [\n      {\n        \"text\": \"severity\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"kind\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"rule\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"subject\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"title\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"detail\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"nextStep\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"fixSnippet\",\n        \"type\": \"string\"\n      },\n      {\n        \"text\": \"fixLanguage\",\n        \"type\": \"string\"\n      }\n    ],\n    \"rows\": [\n      [\n        \"warning\",\n        \"permission\",\n        \"db-permission\",\n        \"orders-db\",\n        \"Reached database orders-db but cannot see who else connects to it\",\n        \"Sessions from other roles are hidden from teia.\",\n        \"Grant the built-in monitoring role. It is read-only.\",\n        \"GRANT pg_monitor TO \\\"teia\\\";\",\n        \"sql\"\n      ],\n      [\n        \"warning\",\n        \"blind-spot\",\n        \"silent-workload\",\n        \"legacy-reports\",\n        \"legacy-reports has no telemetry of its own\",\n        \"It exists (reported by docker) but no traffic to or from it was seen.\",\n        \"Instrument it with an OpenTelemetry SDK or agent.\",\n        \"\",\n        \"\"\n      ]\n    ]\n  }\n]"
         }
-      ],
-      "title": "Sample Panel Title",
-      "type": "nilum-teia-panel"
+      ]
     }
-  ],
-  "refresh": "",
-  "schemaVersion": 39,
-  "tags": [],
-  "templating": {
-    "list": []
-  },
-  "time": {
-    "from": "now-6h",
-    "to": "now"
-  },
-  "timepicker": {},
-  "timezone": "",
-  "title": "Provisioned teia dashboard",
-  "uid": "a538aeff-5a8a-42a5-901c-938d896fdd6f",
-  "version": 1,
-  "weekStart": ""
+  ]
 }
