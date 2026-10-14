@@ -7,42 +7,75 @@ import (
 	"github.com/nilum-br/teia/internal/model"
 )
 
-// Diff lists what changed between two rounds. The first round has no
-// previous one and reports nothing, so a restart does not flood anyone.
+// Diff lists what changed between two rounds, with no memory of earlier
+// ones. The first round has no previous one and reports nothing, so a
+// restart does not flood anyone.
 func Diff(prev, next model.Snapshot, at time.Time) []model.Change {
-	if prev.GeneratedAt.IsZero() {
-		return nil
+	var d Differ
+	return d.Diff(prev, next, at)
+}
+
+// Differ lists what changed between consecutive rounds. It remembers the
+// last known health of every node and edge: a round without rates (health
+// "unknown") reports nothing, and the next known state is compared with the
+// one before the blip, so failing, unknown, failing alerts once.
+type Differ struct {
+	known map[string]model.Health
+}
+
+// Diff lists what changed between prev and next. Removed items come in
+// the order of prev (nodes by ID, edges by key, findings by urgency), so
+// the same rounds always give the same changes.
+func (d *Differ) Diff(prev, next model.Snapshot, at time.Time) []model.Change {
+	if d.known == nil {
+		d.known = map[string]model.Health{}
 	}
+	// A fresh differ starts from what the previous round knew.
+	for _, n := range prev.Nodes {
+		d.seed("node:"+n.ID, n.Health)
+	}
+	for _, e := range prev.Edges {
+		d.seed("edge:"+e.Key(), e.Health)
+	}
+
+	first := prev.GeneratedAt.IsZero()
 	var out []model.Change
-	add := func(t model.ChangeType, subject, from, to, msg string) {
-		out = append(out, model.Change{At: at, Type: t, Subject: subject, From: from, To: to, Message: msg})
+	add := func(c model.Change) {
+		if !first {
+			c.At = at
+			out = append(out, c)
+		}
 	}
+	present := map[string]bool{}
 
 	prevNodes := map[string]model.Node{}
 	for _, n := range prev.Nodes {
 		prevNodes[n.ID] = n
 	}
-	nextNodes := map[string]model.Node{}
+	nextNodes := map[string]bool{}
 	for _, n := range next.Nodes {
-		nextNodes[n.ID] = n
-		p, ok := prevNodes[n.ID]
-		switch {
-		case !ok:
-			add(model.ChangeNodeAdded, n.ID, "", string(n.Kind), fmt.Sprintf("%s appeared (%s)", n.ID, n.Kind))
-		default:
-			if p.Health != n.Health && n.Health != model.HealthUnknown {
-				add(model.ChangeNodeHealth, n.ID, string(p.Health), string(n.Health),
-					fmt.Sprintf("%s is %s (%.1f%% errors)", n.ID, n.Health, n.ErrorRate*100))
-			}
-			if p.Visibility != n.Visibility {
-				add(model.ChangeNodeVisibility, n.ID, string(p.Visibility), string(n.Visibility),
-					fmt.Sprintf("teia now has %s visibility of %s", n.Visibility, n.ID))
-			}
+		nextNodes[n.ID] = true
+		key := "node:" + n.ID
+		present[key] = true
+		p, existed := prevNodes[n.ID]
+		from, changed := d.health(key, existed, n.Health)
+		if !existed {
+			add(model.Change{Type: model.ChangeNodeAdded, Subject: n.ID, To: string(n.Kind),
+				Message: fmt.Sprintf("%s appeared (%s)", n.ID, n.Kind)})
+			continue
+		}
+		if changed {
+			add(model.Change{Type: model.ChangeNodeHealth, Subject: n.ID, From: string(from), To: string(n.Health),
+				Message: fmt.Sprintf("%s is %s (%.1f%% errors)", n.ID, n.Health, n.ErrorRate*100)})
+		}
+		if p.Visibility != n.Visibility {
+			add(model.Change{Type: model.ChangeNodeVisibility, Subject: n.ID, From: string(p.Visibility), To: string(n.Visibility),
+				Message: fmt.Sprintf("teia now has %s visibility of %s", n.Visibility, n.ID)})
 		}
 	}
-	for id := range prevNodes {
-		if _, ok := nextNodes[id]; !ok {
-			add(model.ChangeNodeRemoved, id, "", "", fmt.Sprintf("%s is gone", id))
+	for _, n := range prev.Nodes {
+		if !nextNodes[n.ID] {
+			add(model.Change{Type: model.ChangeNodeRemoved, Subject: n.ID, Message: fmt.Sprintf("%s is gone", n.ID)})
 		}
 	}
 
@@ -54,44 +87,79 @@ func Diff(prev, next model.Snapshot, at time.Time) []model.Change {
 	for _, e := range next.Edges {
 		key := e.Key()
 		nextEdges[key] = true
-		p, ok := prevEdges[key]
+		present["edge:"+key] = true
+		p, existed := prevEdges[key]
+		from, changed := d.health("edge:"+key, existed, e.Health)
 		switch {
-		case !ok && e.State == model.EdgeGhost:
-			add(model.ChangeEdgeAdded, key, "", string(e.State), fmt.Sprintf("new undeclared communication %s → %s", e.From, e.To))
-		case !ok:
-			add(model.ChangeEdgeAdded, key, "", string(e.State), fmt.Sprintf("new communication %s → %s (%s)", e.From, e.To, e.State))
+		case !existed && e.State == model.EdgeGhost:
+			add(model.Change{Type: model.ChangeEdgeAdded, Subject: key, To: string(e.State),
+				Message: fmt.Sprintf("new undeclared communication %s → %s", e.From, e.To)})
+		case !existed:
+			add(model.Change{Type: model.ChangeEdgeAdded, Subject: key, To: string(e.State),
+				Message: fmt.Sprintf("new communication %s → %s (%s)", e.From, e.To, e.State)})
 		default:
 			if p.State != e.State {
-				add(model.ChangeEdgeState, key, string(p.State), string(e.State),
-					fmt.Sprintf("%s → %s went from %s to %s", e.From, e.To, p.State, e.State))
+				add(model.Change{Type: model.ChangeEdgeState, Subject: key, From: string(p.State), To: string(e.State),
+					Message: fmt.Sprintf("%s → %s went from %s to %s", e.From, e.To, p.State, e.State)})
 			}
-			if p.Health != e.Health && e.Health != model.HealthUnknown {
-				add(model.ChangeEdgeHealth, key, string(p.Health), string(e.Health),
-					fmt.Sprintf("%s → %s is %s (%.1f%% errors)", e.From, e.To, e.Health, e.ErrorRate*100))
+			if changed {
+				add(model.Change{Type: model.ChangeEdgeHealth, Subject: key, From: string(from), To: string(e.Health),
+					Message: fmt.Sprintf("%s → %s is %s (%.1f%% errors)", e.From, e.To, e.Health, e.ErrorRate*100)})
 			}
 		}
 	}
-	for key, e := range prevEdges {
-		if !nextEdges[key] {
-			add(model.ChangeEdgeRemoved, key, string(e.State), "", fmt.Sprintf("%s → %s is no longer seen", e.From, e.To))
+	for _, e := range prev.Edges {
+		if key := e.Key(); !nextEdges[key] {
+			add(model.Change{Type: model.ChangeEdgeRemoved, Subject: key, From: string(e.State),
+				Message: fmt.Sprintf("%s → %s is no longer seen", e.From, e.To)})
 		}
 	}
 
-	prevFindings := map[string]model.Finding{}
+	prevFindings := map[string]bool{}
 	for _, f := range prev.Findings {
-		prevFindings[f.ID] = f
+		prevFindings[f.ID] = true
 	}
 	nextFindings := map[string]bool{}
 	for _, f := range next.Findings {
 		nextFindings[f.ID] = true
-		if _, ok := prevFindings[f.ID]; !ok {
-			add(model.ChangeFindingOpened, f.Subject, "", string(f.Severity), f.Title)
+		if !prevFindings[f.ID] {
+			add(model.Change{Type: model.ChangeFindingOpened, Subject: f.Subject, ID: f.ID, To: string(f.Severity), Message: f.Title})
 		}
 	}
-	for id, f := range prevFindings {
-		if !nextFindings[id] {
-			add(model.ChangeFindingResolved, f.Subject, string(f.Severity), "", "resolved: "+f.Title)
+	for _, f := range prev.Findings {
+		if !nextFindings[f.ID] {
+			add(model.Change{Type: model.ChangeFindingResolved, Subject: f.Subject, ID: f.ID, From: string(f.Severity), Message: "resolved: " + f.Title})
+		}
+	}
+
+	// Forget what is gone, so the memory does not grow with every name
+	// that ever passed through.
+	for key := range d.known {
+		if !present[key] {
+			delete(d.known, key)
 		}
 	}
 	return out
+}
+
+// seed records a known health for a subject the differ has not seen yet.
+func (d *Differ) seed(key string, h model.Health) {
+	if _, ok := d.known[key]; !ok && h != model.HealthUnknown && h != "" {
+		d.known[key] = h
+	}
+}
+
+// health records h for key and says whether it is news: a subject that
+// existed and is now in a known state that differs from the last known
+// one. It returns that last known state (unknown if there was none).
+func (d *Differ) health(key string, existed bool, h model.Health) (model.Health, bool) {
+	if h == model.HealthUnknown || h == "" {
+		return "", false
+	}
+	last, ok := d.known[key]
+	d.known[key] = h
+	if !ok {
+		last = model.HealthUnknown
+	}
+	return last, existed && last != h
 }

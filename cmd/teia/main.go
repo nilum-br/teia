@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -116,7 +117,15 @@ func serve(args []string) error {
 	eng := newEngine(cfg, log)
 	go eng.Run(ctx)
 
-	srv := &http.Server{Addr: cfg.Listen, Handler: api.Handler(eng), ReadHeaderTimeout: 5 * time.Second}
+	if cfg.Auth.Token == "" {
+		log.Warn("the API has no auth.token: anyone who can reach this address can read the map", "addr", cfg.Listen)
+	}
+	srv := newServer(cfg.Listen, api.Handler(eng, api.Options{
+		Token:          cfg.Auth.Token,
+		AllowedOrigins: cfg.CORS.AllowedOrigins,
+		MaxStreams:     cfg.MaxStreams,
+		Log:            log,
+	}))
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -130,6 +139,20 @@ func serve(args []string) error {
 	return nil
 }
 
+// newServer builds the HTTP server. Shutdown cancels every request context,
+// so open event streams end instead of holding Shutdown until its deadline.
+func newServer(addr string, h http.Handler) *http.Server {
+	base, cancel := context.WithCancel(context.Background())
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: 5 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return base },
+	}
+	srv.RegisterOnShutdown(cancel)
+	return srv
+}
+
 func discover(args []string) error {
 	fs := flag.NewFlagSet("discover", flag.ExitOnError)
 	path := fs.String("config", defaultConfig(), "config file (env TEIA_CONFIG)")
@@ -137,6 +160,10 @@ func discover(args []string) error {
 	failOn := fs.String("fail-on", "", "exit 1 if a finding of this severity or worse exists: critical, warning, info")
 	_ = fs.Parse(args)
 
+	threshold, err := parseFailOn(*failOn)
+	if err != nil {
+		return err
+	}
 	cfg, err := config.Load(*path)
 	if err != nil {
 		return err
@@ -155,13 +182,36 @@ func discover(args []string) error {
 		printReport(os.Stdout, snap)
 	}
 
-	if *failOn != "" {
-		threshold := model.Severity(*failOn).Rank()
-		for _, f := range snap.Findings {
-			if f.Severity.Rank() <= threshold {
-				return fmt.Errorf("found %s finding(s) at or above %q", f.Kind, *failOn)
+	return failOnFindings(snap.Findings, threshold)
+}
+
+// parseFailOn validates --fail-on: a typo must not rank as info and fail
+// every run.
+func parseFailOn(v string) (model.Severity, error) {
+	switch s := model.Severity(v); s {
+	case "", model.SeverityCritical, model.SeverityWarning, model.SeverityInfo:
+		return s, nil
+	}
+	return "", fmt.Errorf("--fail-on must be critical, warning or info, got %q", v)
+}
+
+// failOnFindings fails when a finding is at least as urgent as threshold;
+// an empty threshold never fails.
+func failOnFindings(findings []model.Finding, threshold model.Severity) error {
+	if threshold == "" {
+		return nil
+	}
+	count, worst := 0, threshold
+	for _, f := range findings {
+		if f.Severity.Rank() <= threshold.Rank() {
+			count++
+			if f.Severity.Rank() < worst.Rank() {
+				worst = f.Severity
 			}
 		}
+	}
+	if count > 0 {
+		return fmt.Errorf("%d finding(s) at or above %s (most urgent: %s)", count, threshold, worst)
 	}
 	return nil
 }

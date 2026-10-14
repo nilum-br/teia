@@ -199,6 +199,9 @@ type Change struct {
 	From    string     `json:"from,omitempty"` // previous value
 	To      string     `json:"to,omitempty"`   // new value
 	Message string     `json:"message"`
+	// ID is the finding's ID on finding changes, so an opened and a resolved
+	// finding can be matched when several rules share a subject.
+	ID string `json:"id,omitempty"`
 }
 
 // Snapshot is the result of one discovery round.

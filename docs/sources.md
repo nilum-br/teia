@@ -95,3 +95,7 @@ Everything teia learns is exposed in several ways at once:
 | `/metrics` | `teia_edge_info`, `teia_node_info`, `teia_coverage_ratio`, `teia_findings`, for alerting |
 | webhooks | `notify.webhooks` (JSON or Slack) with every change: new undeclared communication, health changes, findings |
 | CLI | `teia discover --fail-on warning` in CI, `teia export matrix` for firewall requests |
+
+The API listens on every interface by default (`listen: :8080`). Protect it with `auth: { token: ${TEIA_TOKEN} }`
+or keep it on a private network, and list browser origins that may call it (Grafana in direct mode) under
+`cors.allowedOrigins`. See [Exposing the API](architecture.md#exposing-the-api).

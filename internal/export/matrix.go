@@ -80,10 +80,26 @@ func Matrix(w io.Writer, s model.Snapshot, opts MatrixOptions) error {
 			e.Protocol, port, e.Reason, stateLabel[lang][e.State],
 			flag(e.Declared), flag(e.Observed), rate, strings.Join(e.Sources, " "),
 		}
+		for i := range row {
+			row[i] = cell(row[i])
+		}
 		if err := cw.Write(row); err != nil {
 			return err
 		}
 	}
 	cw.Flush()
 	return cw.Error()
+}
+
+// formulaStart lists what makes a spreadsheet read a cell as a formula.
+const formulaStart = "=+-@\t\r"
+
+// cell keeps a value inert in a spreadsheet: names, reasons and addresses
+// come from telemetry and flows files, and "=HYPERLINK(...)" in one would
+// run when a reviewer opens the matrix. A leading quote makes it text.
+func cell(v string) string {
+	if v != "" && strings.ContainsRune(formulaStart, rune(v[0])) {
+		return "'" + v
+	}
+	return v
 }

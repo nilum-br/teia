@@ -1,24 +1,40 @@
 package api
 
 import (
-	"encoding/json"
-	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
+
+// streamRetryAfter is what a client over the stream cap is told to wait.
+const streamRetryAfter = "30"
 
 // streamHandler pushes every new snapshot as a Server-Sent Event, so the UI
 // (and anything else) follows the platform live without polling:
 //
 //	event: snapshot
 //	data: {...}
-func streamHandler(eng Snapshotter) http.HandlerFunc {
+//
+// The engine encodes each snapshot once and every stream sends those bytes.
+// At most max streams are open at once, and each ends with its request
+// context, which the server cancels on shutdown.
+func streamHandler(eng Snapshotter, max int) http.HandlerFunc {
+	slots := make(chan struct{}, max)
 	return func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+			writeError(w, http.StatusInternalServerError, "streaming unsupported")
 			return
 		}
+		select {
+		case slots <- struct{}{}:
+			defer func() { <-slots }()
+		default:
+			w.Header().Set("Retry-After", streamRetryAfter)
+			writeError(w, http.StatusServiceUnavailable, "too many open streams; retry later or poll /api/v1/snapshot")
+			return
+		}
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
@@ -27,32 +43,34 @@ func streamHandler(eng Snapshotter) http.HandlerFunc {
 		updates, stop := eng.Subscribe()
 		defer stop()
 
-		send := func(v any) bool {
-			data, err := json.Marshal(v)
-			if err != nil {
-				return false
-			}
-			if _, err := fmt.Fprintf(w, "event: snapshot\ndata: %s\n\n", data); err != nil {
-				return false
+		send := func(data []byte) bool {
+			for _, part := range [][]byte{[]byte("event: snapshot\ndata: "), data, []byte("\n\n")} {
+				if _, err := w.Write(part); err != nil {
+					return false
+				}
 			}
 			flusher.Flush()
 			return true
 		}
-		if s := eng.Snapshot(); !s.GeneratedAt.IsZero() && !send(s) {
+		if data := eng.SnapshotJSON(); len(data) > 0 && !send(data) {
 			return
 		}
+		// Headers go out now even before the first round, so clients know
+		// the stream is open.
+		flusher.Flush()
+
 		keepalive := time.NewTicker(15 * time.Second)
 		defer keepalive.Stop()
 		for {
 			select {
 			case <-r.Context().Done():
 				return
-			case s := <-updates:
-				if !send(s) {
+			case data := <-updates:
+				if !send(data) {
 					return
 				}
 			case <-keepalive.C:
-				if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
+				if _, err := io.WriteString(w, ": keepalive\n\n"); err != nil {
 					return
 				}
 				flusher.Flush()

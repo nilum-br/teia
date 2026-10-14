@@ -54,7 +54,12 @@ An `Observation` carries:
   advisor stops suggesting it;
 - **degraded**: the round worked but saw less than it could.
 
-A source that returns an error is reported as `error` and contributes nothing to that round.
+A source that returns an error, panics or ignores its `timeout` is reported as `error`. So that one bad round
+(a broken flows file, an inventory restart) does not turn every `ok` edge into a ghost or every name back into an
+address, teia keeps using the source's last good observation for up to `retention` and says so in the status
+(`failed: ...; using the last good observation from 40s ago`). After that, the source contributes nothing until it
+recovers. A source that has not answered a little after `timeout` is given up on for the round, and skipped while
+it is still busy.
 
 Every source is read-only and talks to systems you already run. teia ships no agent.
 
@@ -134,4 +139,31 @@ has full visibility. Otherwise teia cannot tell "not happening" from "not visibl
 | `GET /healthz` | liveness |
 | `GET /` | built-in UI |
 
-The API is unauthenticated and meant to sit behind your platform's ingress or Backstage's proxy.
+Finding changes (`finding.opened`, `finding.resolved`) carry the finding's `id`, so the two can be matched when
+several rules share a subject. Health changes are reported against the last known state: a round without rates
+(`unknown`) is silent, and `failing → unknown → failing` alerts once.
+
+### Exposing the API
+
+```yaml
+listen: :8080                  # all interfaces; 127.0.0.1:8080 for this host only
+auth:
+  token: ${TEIA_TOKEN}         # every endpoint but /healthz needs it
+cors:
+  allowedOrigins: [https://grafana.example.com]
+maxStreams: 100                # concurrent /api/v1/stream clients; more get 503 + Retry-After
+```
+
+- `listen` binds every interface by default. Set `auth.token`, or keep teia on a private network (or both).
+- With `auth.token`, clients send `Authorization: Bearer <token>`; that includes `/metrics` (Prometheus:
+  `authorization: { credentials: <token> }` in the scrape config) and the Grafana Infinity data source (a header).
+  Tokens are compared in constant time.
+- The built-in UI cannot send headers on its live stream, so a browser opens `/?token=<token>` once: teia sets an
+  `HttpOnly`, `SameSite=Lax` session cookie (derived from the token, not the token itself) and redirects to the
+  clean URL. Opening the UI behind your platform's own auth (an ingress with SSO, Backstage's proxy) works too.
+- `${NAME}` that is not set is a config error, so a missing `TEIA_TOKEN` cannot quietly turn auth off. Write
+  `${TEIA_TOKEN:-}` to make it optional on purpose.
+- `cors.allowedOrigins` lets browser pages on those exact origins read `/api/v1/*`, including the stream (the
+  Grafana panel's direct mode). `"*"` allows any origin and must be listed explicitly. Cookies are never accepted
+  across origins, and the panel's live stream cannot send a bearer token: with `auth.token` set, feed the panel from
+  dashboard queries instead of direct mode.

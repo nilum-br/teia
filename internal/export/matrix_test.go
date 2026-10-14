@@ -53,3 +53,36 @@ func TestMatrix(t *testing.T) {
 		t.Errorf("declared-only in English should have header + 1 row, got %v", rows)
 	}
 }
+
+func TestMatrixNeutralisesFormulas(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{`=HYPERLINK("https://evil.example","x")`, `'=HYPERLINK("https://evil.example","x")`},
+		{"+1+1", "'+1+1"},
+		{"-2+3", "'-2+3"},
+		{"@SUM(A1)", "'@SUM(A1)"},
+		{"\tcmd", "'\tcmd"},
+		{"\rcmd", "'\rcmd"},
+		{"persist orders", "persist orders"},
+		{"a-b=c", "a-b=c"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		snap := model.Snapshot{Edges: []model.Edge{{From: tt.in, To: "db", Reason: tt.in, State: model.EdgeOK}}}
+		var buf bytes.Buffer
+		if err := Matrix(&buf, snap, MatrixOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		rows, err := csv.NewReader(&buf).ReadAll()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := rows[1][0]; got != tt.want {
+			t.Errorf("source %q became %q, want %q", tt.in, got, tt.want)
+		}
+		if got := rows[1][7]; got != tt.want {
+			t.Errorf("reason %q became %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
