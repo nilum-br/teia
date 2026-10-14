@@ -18,7 +18,7 @@ func Diff(prev, next model.Snapshot, at time.Time) []model.Change {
 // Differ lists what changed between consecutive rounds. It remembers the
 // last known health of every node and edge: a round without rates (health
 // "unknown") reports nothing, and the next known state is compared with the
-// one before the blip, so failing, unknown, failing alerts once.
+// one before the gap, so failing, unknown, failing alerts once.
 type Differ struct {
 	known map[string]model.Health
 }

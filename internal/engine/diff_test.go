@@ -104,13 +104,13 @@ func TestDiff(t *testing.T) {
 	}
 }
 
-// A blip to unknown neither alerts nor makes the next known state look new.
+// A brief drop to unknown neither alerts nor makes the next known state look new.
 func TestDifferRemembersLastKnownHealth(t *testing.T) {
 	healths := []model.Health{
 		model.HealthHealthy, // first round: nothing
 		model.HealthFailing, // healthy -> failing
 		model.HealthUnknown, // silent
-		model.HealthFailing, // same as before the blip: silent
+		model.HealthFailing, // same as before the gap: silent
 		model.HealthUnknown, // silent
 		model.HealthHealthy, // failing -> healthy
 	}
