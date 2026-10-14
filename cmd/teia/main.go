@@ -255,11 +255,14 @@ func printReport(w io.Writer, s model.Snapshot) {
 
 	fmt.Fprintln(w, "\nEdges")
 	for _, e := range s.Edges {
-		rate := ""
+		var traffic []string
 		if e.RequestRate > 0 {
-			rate = fmt.Sprintf("%.2f req/s", e.RequestRate)
+			traffic = append(traffic, fmt.Sprintf("%.2f req/s", e.RequestRate), fmt.Sprintf("%.1f%% errors", e.ErrorRate*100))
 		}
-		fmt.Fprintf(w, "  %-6s %-40s %-11s %s\n", e.State, e.From+" -> "+e.To, e.Protocol, rate)
+		if e.LatencyP95Ms > 0 {
+			traffic = append(traffic, "p95 "+api.FormatMs(e.LatencyP95Ms))
+		}
+		fmt.Fprintf(w, "  %-6s %-40s %-11s %s\n", e.State, e.From+" -> "+e.To, e.Protocol, strings.Join(traffic, "  "))
 	}
 
 	fmt.Fprintf(w, "\nNext steps (%d)\n", len(s.Findings))

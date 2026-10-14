@@ -32,7 +32,9 @@ func (t HealthThresholds) Classify(requestRate, errorRate float64) model.Health 
 // node from the traffic it receives; a node nobody calls is judged by the
 // calls it makes.
 func ApplyHealth(g *Graph, t HealthThresholds) {
-	type sum struct{ rate, failed float64 }
+	// timed is the traffic of the calls that measured latency, and their
+	// latencies weighted by it.
+	type sum struct{ rate, failed, timed, p50, p95 float64 }
 	in, out := map[string]*sum{}, map[string]*sum{}
 	add := func(m map[string]*sum, id string, e *model.Edge) {
 		s, ok := m[id]
@@ -42,6 +44,11 @@ func ApplyHealth(g *Graph, t HealthThresholds) {
 		}
 		s.rate += e.RequestRate
 		s.failed += e.RequestRate * e.ErrorRate
+		if e.LatencyP95Ms > 0 {
+			s.timed += e.RequestRate
+			s.p50 += e.RequestRate * e.LatencyP50Ms
+			s.p95 += e.RequestRate * e.LatencyP95Ms
+		}
 	}
 	for _, e := range g.Edges {
 		e.Health = t.Classify(e.RequestRate, e.ErrorRate)
@@ -62,6 +69,11 @@ func ApplyHealth(g *Graph, t HealthThresholds) {
 		n.RequestRate = s.rate
 		n.ErrorRate = s.failed / s.rate
 		n.Health = t.Classify(n.RequestRate, n.ErrorRate)
+		// A node's latency is how long it takes to answer, so only the calls
+		// it serves count, never the ones it makes.
+		if s := in[id]; s != nil && s.timed > 0 {
+			n.LatencyP50Ms, n.LatencyP95Ms = s.p50/s.timed, s.p95/s.timed
+		}
 	}
 }
 
@@ -112,6 +124,7 @@ func (m *Memory) Retain(g *Graph, now time.Time) {
 		} else {
 			e.Observed = true
 			e.RequestRate, e.ErrorRate = r.edge.RequestRate, r.edge.ErrorRate
+			e.LatencyP50Ms, e.LatencyP95Ms = r.edge.LatencyP50Ms, r.edge.LatencyP95Ms
 			for _, s := range r.edge.Sources {
 				e.Sources = appendUnique(e.Sources, s)
 			}

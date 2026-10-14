@@ -55,6 +55,10 @@ type EdgeObservation struct {
 	Window      time.Duration
 	RequestRate float64
 	ErrorRate   float64
+	// LatencyP50Ms and LatencyP95Ms are call durations in milliseconds;
+	// zero when the signal does not measure them.
+	LatencyP50Ms float64
+	LatencyP95Ms float64
 }
 
 // Signals name the kind of telemetry that saw a node first-hand. A node

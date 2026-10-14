@@ -294,3 +294,42 @@ func TestAddressesAreTimedPerObservation(t *testing.T) {
 		t.Errorf("orders addresses = %v, want both pods'", got)
 	}
 }
+
+func TestLatencyFromTheBusiestMeasurement(t *testing.T) {
+	sampled := source.Observation{Edges: []source.EdgeObservation{
+		{From: "web", To: "orders", Signal: source.SignalTraces, LatencyP50Ms: 50, LatencyP95Ms: 60},
+	}}
+	histogram := source.Observation{Edges: []source.EdgeObservation{
+		{From: "web", To: "orders", Signal: source.SignalTraces, RequestRate: 5, LatencyP50Ms: 100, LatencyP95Ms: 200},
+	}}
+	for _, order := range [][]Result{
+		{result("tempo", "tempo", sampled), result("prometheus", "prometheus", histogram)},
+		{result("prometheus", "prometheus", histogram), result("tempo", "tempo", sampled)},
+	} {
+		e := Build(order, nil, nil).Edges["web->orders"]
+		if e.LatencyP50Ms != 100 || e.LatencyP95Ms != 200 {
+			t.Errorf("histograms (with a rate) should win over sampled spans, got p50 %v p95 %v", e.LatencyP50Ms, e.LatencyP95Ms)
+		}
+	}
+}
+
+func TestNodeLatencyIsWhatItsCallersWaitFor(t *testing.T) {
+	g := Build([]Result{result("prometheus", "prometheus", source.Observation{Edges: []source.EdgeObservation{
+		{From: "web", To: "orders", RequestRate: 3, LatencyP50Ms: 40, LatencyP95Ms: 100},
+		{From: "batch", To: "orders", RequestRate: 1, LatencyP50Ms: 80, LatencyP95Ms: 300},
+		{From: "orders", To: "payments", RequestRate: 2, LatencyP50Ms: 10, LatencyP95Ms: 20},
+		{From: "orders", To: "audit", RequestRate: 1}, // no durations measured
+	}})}, nil, nil)
+	ApplyHealth(g, DefaultHealth)
+
+	// (3*100 + 1*300) / 4 for the calls orders serves; its own calls do not count.
+	if n := g.Nodes["orders"]; n.LatencyP95Ms != 150 || n.LatencyP50Ms != 50 {
+		t.Errorf("orders p50/p95 = %v/%v, want 50/150", n.LatencyP50Ms, n.LatencyP95Ms)
+	}
+	if n := g.Nodes["web"]; n.LatencyP95Ms != 0 {
+		t.Errorf("web serves nothing, so it has no latency, got %v", n.LatencyP95Ms)
+	}
+	if n := g.Nodes["audit"]; n.LatencyP95Ms != 0 {
+		t.Errorf("nobody measured audit's calls, got %v", n.LatencyP95Ms)
+	}
+}

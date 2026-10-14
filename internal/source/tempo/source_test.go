@@ -9,21 +9,24 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/nilum-br/teia/internal/model"
+	"github.com/nilum-br/teia/internal/source"
 )
 
 // One trace: web (server) -> web client -> orders (server) -> orders client to
-// postgres (no server span) ; plus a span kind given as a number.
+// postgres (no server span) ; plus a span kind given as a number. The client
+// spans last 20 ms (times as strings) and 5 ms (times as numbers).
 const trace = `{"trace":{"resourceSpans":[
  {"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"web"}}]},
   "scopeSpans":[{"spans":[
    {"spanId":"A","kind":"SPAN_KIND_SERVER","attributes":[{"key":"http.request.method","value":{"stringValue":"GET"}}]},
-   {"spanId":"B","parentSpanId":"A","kind":"SPAN_KIND_CLIENT","attributes":[{"key":"http.request.method","value":{"stringValue":"GET"}},{"key":"peer.service","value":{"stringValue":"orders"}}]}]}]},
+   {"spanId":"B","parentSpanId":"A","kind":"SPAN_KIND_CLIENT","attributes":[{"key":"http.request.method","value":{"stringValue":"GET"}},{"key":"peer.service","value":{"stringValue":"orders"}}],"startTimeUnixNano":"1000000000","endTimeUnixNano":"1020000000"}]}]},
  {"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"orders"}}]},
   "scopeSpans":[{"spans":[
    {"spanId":"C","parentSpanId":"B","kind":2},
-   {"spanId":"D","parentSpanId":"C","kind":"SPAN_KIND_CLIENT","attributes":[{"key":"db.system.name","value":{"stringValue":"postgresql"}},{"key":"peer.service","value":{"stringValue":"orders-db"}}]}]}]}]}}`
+   {"spanId":"D","parentSpanId":"C","kind":"SPAN_KIND_CLIENT","attributes":[{"key":"db.system.name","value":{"stringValue":"postgresql"}},{"key":"peer.service","value":{"stringValue":"orders-db"}}],"startTimeUnixNano":2000000000,"endTimeUnixNano":2005000000}]}]}]}}`
 
 func fakeTempo(t *testing.T) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -262,5 +265,58 @@ func TestURLPasswordStaysOutOfMessages(t *testing.T) {
 	_, err = New("tempo", Config{URL: "http://teia:s3cret@tempo.example:port"}).Discover(context.Background())
 	if err == nil || strings.Contains(err.Error(), "s3cret") {
 		t.Errorf("error leaks the password: %v", err)
+	}
+}
+
+func TestDiscoverMeasuresCallDurations(t *testing.T) {
+	srv := fakeTempo(t)
+	defer srv.Close()
+	obs, err := New("tempo", Config{URL: srv.URL}).Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]float64{"web->orders": 20, "orders->orders-db": 5}
+	for _, e := range obs.Edges {
+		key := e.From + "->" + e.To
+		if e.LatencyP50Ms != want[key] || e.LatencyP95Ms != want[key] {
+			t.Errorf("%s p50/p95 = %v/%v ms, want %v (the caller's span)", key, e.LatencyP50Ms, e.LatencyP95Ms, want[key])
+		}
+	}
+}
+
+func TestMessagesHaveNoLatency(t *testing.T) {
+	edges := map[string]*source.EdgeObservation{}
+	durations := map[string][]float64{}
+	pairTrace([]span{
+		{id: "P", service: "orders", kind: "producer", dur: 3 * time.Millisecond, attrs: map[string]string{"messaging.system": "kafka", "peer.service": "order-events"}},
+		{id: "C", parent: "P", service: "email-worker", kind: "consumer", dur: 900 * time.Millisecond},
+	}, edges, map[string]bool{}, map[string]model.NodeKind{}, durations)
+	if len(edges) == 0 {
+		t.Fatal("the message should still be an edge")
+	}
+	if len(durations) != 0 {
+		t.Errorf("waiting in a queue is not latency, got %v", durations)
+	}
+}
+
+func TestQuantile(t *testing.T) {
+	sample := make([]float64, 20)
+	for i := range sample {
+		sample[19-i] = float64(i + 1) // unsorted on purpose
+	}
+	if got := quantile(sample, 0.5); got != 10 {
+		t.Errorf("p50 = %v, want 10", got)
+	}
+	if got := quantile(sample, 0.95); got != 19 {
+		t.Errorf("p95 = %v, want 19", got)
+	}
+	if got := quantile([]float64{7}, 0.95); got != 7 {
+		t.Errorf("one value is every quantile, got %v", got)
+	}
+	if got := quantile(nil, 0.5); got != 0 {
+		t.Errorf("no sample, no latency, got %v", got)
+	}
+	if sample[0] != 20 {
+		t.Error("quantile must not reorder its input")
 	}
 }

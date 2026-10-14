@@ -468,6 +468,7 @@ button.label { cursor: pointer; }
         health: oneOf(n.health, ['healthy', 'degraded', 'failing', 'unknown'], 'unknown'),
         visibility: oneOf(n.visibility, ['full', 'partial', 'none'], 'partial'),
         requestRate: finite(n.requestRate), errorRate: finite(n.errorRate),
+        latencyP50Ms: finite(n.latencyP50Ms), latencyP95Ms: finite(n.latencyP95Ms),
         sources: strings(n.sources), addresses: strings(n.addresses),
         labels: n.labels && typeof n.labels === 'object' ? n.labels : {},
       });
@@ -483,6 +484,7 @@ button.label { cursor: pointer; }
         state: oneOf(String(e.state || '').toLowerCase(), ['ok', 'ghost', 'stale'], e.declared === false ? 'ghost' : 'ok'),
         health: oneOf(e.health, ['healthy', 'degraded', 'failing', 'unknown'], 'unknown'),
         requestRate: finite(e.requestRate), errorRate: finite(e.errorRate),
+        latencyP50Ms: finite(e.latencyP50Ms), latencyP95Ms: finite(e.latencyP95Ms),
         declared: !!e.declared, observed: e.observed !== false,
         signals: strings(e.signals), sources: strings(e.sources),
       });
@@ -542,6 +544,45 @@ button.label { cursor: pointer; }
     return [...keys.entries()].filter(([, c]) => c > 1).map(([k]) => k).sort();
   }
 
+  // latencySum folds the latencies of several edges or nodes into one, each
+  // weighted by its traffic: an approximation, since percentiles do not add
+  // up, but the one Grafana and Kiali make too. Members that measured no
+  // latency do not count.
+  function latencySum() {
+    let weight = 0, p50 = 0, p95 = 0;
+    return {
+      add(x) {
+        if (!(x.latencyP95Ms > 0)) return;
+        const w = Math.max(x.requestRate || 0, 1e-9);
+        weight += w; p50 += w * (x.latencyP50Ms || 0); p95 += w * x.latencyP95Ms;
+      },
+      result: () => weight > 0 ? { latencyP50Ms: p50 / weight, latencyP95Ms: p95 / weight } : { latencyP50Ms: 0, latencyP95Ms: 0 },
+    };
+  }
+
+  // fmtMs writes milliseconds the way people read them, like teia's CLI.
+  function fmtMs(ms) {
+    if (ms >= 999.5) return (ms / 1000).toFixed(1) + ' s';
+    if (ms >= 9.95) return ms.toFixed(0) + ' ms';
+    return ms.toFixed(1) + ' ms';
+  }
+  const fmtRate = r => r >= 100 ? r.toFixed(0) : r >= 10 ? r.toFixed(1) : r.toFixed(2);
+  const pct = v => (v * 100).toFixed(v > 0 && v < 0.1 ? 1 : 0) + '%';
+
+  // cardSubtitle is the second line of a card: what it is, then the golden
+  // signals it has (traffic, latency, errors). When that does not fit, what
+  // it is goes first: the icon and the details already say it.
+  function cardSubtitle(n, max = 30) {
+    const what = n.group ? `${n.members.length} workload${n.members.length === 1 ? '' : 's'}` : techLabel(n);
+    const stats = [];
+    if (n.requestRate > 0) stats.push(`${fmtRate(n.requestRate)}/s`);
+    if (n.latencyP95Ms > 0) stats.push(fmtMs(n.latencyP95Ms));
+    if (n.errorRate > 0.0005 && !n.group) stats.push(`${pct(n.errorRate)} err`);
+    let text = [what, ...stats].join(' · ');
+    if (text.length > max && stats.length) text = stats.join(' · ');
+    return text.length > max ? text.slice(0, max - 1) + '…' : text;
+  }
+
   // buildView: what is drawn. Grouping by a label folds nodes into one card
   // and sums the traffic between groups.
   function buildView(snap, index, { groupBy = '', expanded = new Set() } = {}) {
@@ -557,13 +598,14 @@ button.label { cursor: pointer; }
       if (!g) { nodes.set(n.id, { ...n, title: n.id, signals: nodeSignals(n, index) }); continue; }
       let gn = nodes.get(g);
       if (!gn) {
-        gn = { id: g, group: true, kind: 'group', title: g.slice(6), labelKey: groupBy, members: [], health: 'unknown', visibility: 'none', requestRate: 0, signals: [], labels: { [groupBy]: g.slice(6) } };
+        gn = { id: g, group: true, kind: 'group', title: g.slice(6), labelKey: groupBy, members: [], health: 'unknown', visibility: 'none', requestRate: 0, latency: latencySum(), signals: [], labels: { [groupBy]: g.slice(6) } };
         nodes.set(g, gn);
       }
       gn.members.push(n);
       if (HEALTH_RANK[n.health] > HEALTH_RANK[gn.health]) gn.health = n.health;
       if (n.visibility === 'full' || (n.visibility === 'partial' && gn.visibility === 'none')) gn.visibility = n.visibility;
       gn.requestRate += n.requestRate || 0;
+      gn.latency.add(n);
       gn.signals = [...new Set([...gn.signals, ...nodeSignals(n, index)])];
     }
     const edges = new Map(), internal = new Map();
@@ -573,12 +615,13 @@ button.label { cursor: pointer; }
       const id = from + '->' + to;
       let ve = edges.get(id);
       if (!ve) {
-        ve = { id, from, to, members: [], requestRate: 0, failed: 0, signals: new Set(), states: new Set(), declared: false, observed: false, health: 'unknown', protocol: e.protocol, reason: e.reason, port: e.port, sources: new Set() };
+        ve = { id, from, to, members: [], requestRate: 0, failed: 0, latency: latencySum(), signals: new Set(), states: new Set(), declared: false, observed: false, health: 'unknown', protocol: e.protocol, reason: e.reason, port: e.port, sources: new Set() };
         edges.set(id, ve);
       }
       ve.members.push(e);
       ve.requestRate += e.requestRate;
       ve.failed += e.requestRate * e.errorRate;
+      ve.latency.add(e);
       e.signals.forEach(s => ve.signals.add(s));
       e.sources.forEach(s => ve.sources.add(s));
       ve.states.add(e.state);
@@ -587,10 +630,13 @@ button.label { cursor: pointer; }
     }
     for (const ve of edges.values()) {
       ve.errorRate = ve.requestRate > 0 ? ve.failed / ve.requestRate : 0;
+      Object.assign(ve, ve.latency.result());
+      delete ve.latency;
       ve.state = ve.states.has('ghost') ? 'ghost' : ve.states.has('ok') ? 'ok' : 'stale';
       ve.signals = [...ve.signals]; ve.sources = [...ve.sources];
       delete ve.states; delete ve.failed;
     }
+    for (const n of nodes.values()) if (n.group) { Object.assign(n, n.latency.result()); delete n.latency; }
     for (const [g, c] of internal) if (nodes.has(g)) nodes.get(g).internal = c;
     return { nodes, edges, groupOf };
   }
@@ -699,7 +745,7 @@ button.label { cursor: pointer; }
     } catch { return null; }
   }
 
-  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, TECH, CATEGORY, SIGNAL };
+  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, TECH, CATEGORY, SIGNAL };
 
   // ============================================================== mount
   function mount(host, opts = {}) {
@@ -755,8 +801,6 @@ button.label { cursor: pointer; }
       s.innerHTML = paths;
       return s;
     };
-    const fmtRate = r => r >= 100 ? r.toFixed(0) : r >= 10 ? r.toFixed(1) : r.toFixed(2);
-    const pct = v => (v * 100).toFixed(v > 0 && v < 0.1 ? 1 : 0) + '%';
     const css = name => getComputedStyle(host).getPropertyValue(name).trim();
     const timeOf = iso => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const stored = (k, d) => { const v = store.get(k, null); return v == null ? d : v; };
@@ -948,10 +992,7 @@ button.label { cursor: pointer; }
         p.cat = cat;
       }
       p.title.textContent = n.title.length > 17 ? n.title.slice(0, 16) + '…' : n.title;
-      let sub = n.group ? `${n.members.length} workload${n.members.length === 1 ? '' : 's'}` : techLabel(n);
-      if (n.requestRate > 0) sub += ` · ${fmtRate(n.requestRate)}/s`;
-      if (n.errorRate > 0.0005 && !n.group) sub += ` · ${pct(n.errorRate)} err`;
-      p.sub.textContent = sub.length > 30 ? sub.slice(0, 29) + '…' : sub;
+      p.sub.textContent = cardSubtitle(n);
       p.badges.replaceChildren(...n.signals.slice(0, 6).map((s, i) => {
         const b = sv('g', { class: 'badge', transform: `translate(${-NODE_W / 2 + 70 + i * 21},${NODE_H / 2})` });
         b.append(sv('circle', { r: 9 }));
@@ -968,7 +1009,8 @@ button.label { cursor: pointer; }
         p.alert.append(sv('circle', { r: 9 }));
         const t = sv('text', { y: 3.6 }); t.textContent = fs.length; p.alert.append(t);
       }
-      const label = `${n.title}, ${n.group ? 'group' : CATEGORY[cat]?.label || n.kind}${n.tech ? ' (' + techLabel(n) + ')' : ''}, ${HEALTH_LABEL[n.health]}, ${n.visibility} visibility${fs.length ? `, ${fs.length} next step${fs.length > 1 ? 's' : ''}` : ''}`;
+      const traffic = n.requestRate > 0 ? `, ${fmtRate(n.requestRate)} requests per second${n.latencyP95Ms > 0 ? `, p95 ${fmtMs(n.latencyP95Ms)}` : ''}, ${pct(n.errorRate)} errors` : '';
+      const label = `${n.title}, ${n.group ? 'group' : CATEGORY[cat]?.label || n.kind}${n.tech ? ' (' + techLabel(n) + ')' : ''}, ${HEALTH_LABEL[n.health]}${traffic}, ${n.visibility} visibility${fs.length ? `, ${fs.length} next step${fs.length > 1 ? 's' : ''}` : ''}`;
       p.tip.textContent = label;
       g.setAttribute('aria-label', label);
     }
@@ -1046,6 +1088,7 @@ button.label { cursor: pointer; }
       const e = g._edge;
       const parts = [e.protocol || (e.signals[0] || 'tcp')];
       if (e.requestRate > 0) parts.push(`${fmtRate(e.requestRate)} req/s`);
+      if (e.latencyP95Ms > 0) parts.push(`p95 ${fmtMs(e.latencyP95Ms)}`);
       if (e.errorRate > 0.0005) parts.push(`${pct(e.errorRate)} errors`);
       if (state.snap.drift && e.state !== 'ok') parts.push(STATE_LABEL[e.state]);
       const p = mid(g);
@@ -1478,6 +1521,7 @@ button.label { cursor: pointer; }
           const kv = el('dl', { class: 'kv' });
           const row = (k, v) => kv.append(el('dt', {}, k), el('dd', {}, v));
           if (n.requestRate > 0) row('traffic in', `${fmtRate(n.requestRate)} req/s · ${pct(n.errorRate)} errors`);
+          if (n.latencyP95Ms > 0) row('latency', `p50 ${fmtMs(n.latencyP50Ms)} · p95 ${fmtMs(n.latencyP95Ms)} (what its callers wait for)`);
           row('component', `${CATEGORY[categoryOf(n)]?.label || n.kind}${n.tech ? ' · ' + techLabel(n) : ''}`);
           row('known from', n.sources.join(', ') || '—');
           if (n.addresses.length) row('addresses', n.addresses.join(', '));
@@ -1523,6 +1567,7 @@ button.label { cursor: pointer; }
       const row = (k, v) => kv.append(el('dt', {}, k), el('dd', {}, v));
       row('protocol', [e.protocol || '—', e.port ? ':' + e.port : ''].join(''));
       if (e.requestRate > 0) { row('traffic', `${fmtRate(e.requestRate)} req/s`); row('errors', pct(e.errorRate)); }
+      if (e.latencyP95Ms > 0) row('latency', `p50 ${fmtMs(e.latencyP50Ms)} · p95 ${fmtMs(e.latencyP95Ms)}`);
       if (state.snap.drift) row('reason', e.reason || (e.declared ? '—' : 'not declared'));
       row('seen by', e.signals.map(s => has(SIGNAL, s) ? SIGNAL[s].label : s).join(', ') || (e.observed ? '—' : 'nobody yet'));
       if (e.sources.length) row('sources', e.sources.join(', '));

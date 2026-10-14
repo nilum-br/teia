@@ -49,7 +49,7 @@ O mapa, no Grafana (`nilum-teia-panel`) ou na interface da própria teia, é o m
 
 ![O painel da teia dentro de um dashboard do Grafana](docs/assets/screenshots/grafana-panel.png)
 
-- **Saúde:** cada card fica verde, amarelo ou vermelho pela taxa de erro.
+- **Sinais de ouro:** cada card e cada linha mostram tráfego, latência p95 e taxa de erro, e ficam verdes, amarelos ou vermelhos pela taxa de erro. A latência vem dos histogramas que você já tem (service graph, Istio, Linkerd, Hubble) ou dos traces amostrados.
 - **Tráfego andando:** pontos percorrem cada comunicação na velocidade do tráfego; pontos vermelhos são erros. Ao vivo.
 - **Drift e visibilidade:** tracejado é não declarado, pontilhado é declarado e não visto; a borda do card diz o quanto a teia vê em primeira mão.
 - **[Biblioteca de ícones](docs/icons.md) padronizada:** microsserviço, banco relacional, banco de documentos (NoSQL), cache, stream (Kafka), fila, gateway, job, SaaS externo. A tecnologia é detectada pelos spans, pela imagem ou por label.

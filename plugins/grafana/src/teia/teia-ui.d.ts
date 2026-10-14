@@ -8,6 +8,9 @@ export interface TeiaNode {
   health: 'healthy' | 'degraded' | 'failing' | 'unknown';
   requestRate?: number;
   errorRate?: number;
+  /** Call durations in milliseconds, when a signal measures them. */
+  latencyP50Ms?: number;
+  latencyP95Ms?: number;
   sources: string[];
   addresses?: string[];
   labels?: Record<string, string>;
@@ -25,6 +28,8 @@ export interface TeiaEdge {
   observed: boolean;
   requestRate?: number;
   errorRate?: number;
+  latencyP50Ms?: number;
+  latencyP95Ms?: number;
   signals: string[];
   sources: string[];
 }

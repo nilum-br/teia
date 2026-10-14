@@ -73,6 +73,24 @@ It prints what it found per source and a starting `teia.yaml`.
 | `hubble-tcp`, `hubble-http` | `hubble_tcp_flags_total{flag="SYN"}` / `hubble_http_requests_total` | `source_workload` → `destination_workload` | Needs `labelsContext` workload labels in the Hubble metrics config. |
 | `retina` | `networkobservability_adv_forward_count` | `source_workload_name` → `destination_workload_name` | Needs remote context (`MetricsConfiguration`). |
 
+### Latency
+
+Four presets also read a duration histogram, so edges carry how long calls take (p50 and p95, in milliseconds,
+as the caller waits for them):
+
+| Preset | Histogram |
+|---|---|
+| `servicegraph` | `traces_service_graph_request_client_seconds_bucket` (the client side, which exists for databases and brokers too) |
+| `istio` | `istio_request_duration_milliseconds_bucket`, with the same reporters as the requests |
+| `linkerd` | `response_latency_ms_bucket{direction="outbound"}` |
+| `hubble-http` | `hubble_http_request_duration_seconds_bucket` |
+
+When one edge is made of several series (HTTP and gRPC, two destination services), their quantiles are weighted
+by each series' traffic. `tempo` measures the caller's span of each sampled call, which is only a hint with few
+traces: histograms win when both exist. Messages (producer and consumer spans) have no latency: nobody waits for
+them. A node's latency is that of the calls it serves, weighted by each caller's traffic. A failing latency query
+keeps the edges and says so in the source's message.
+
 Anything else becomes edges through a `queries` entry: any PromQL or LogQL that returns one series per caller and
 callee pair, plus a mapping of which label is which.
 

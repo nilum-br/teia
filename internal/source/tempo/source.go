@@ -16,9 +16,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -110,8 +112,12 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	edges := map[string]*source.EdgeObservation{}
 	self := map[string]bool{}
 	targets := map[string]model.NodeKind{}
+	durations := map[string][]float64{}
 	for _, t := range traces {
-		pairTrace(t, edges, self, targets)
+		pairTrace(t, edges, self, targets, durations)
+	}
+	for key, ms := range durations {
+		edges[key].LatencyP50Ms, edges[key].LatencyP95Ms = quantile(ms, 0.5), quantile(ms, 0.95)
 	}
 	for id := range self {
 		obs.Nodes = append(obs.Nodes, source.NodeObservation{ID: id, Kind: model.KindService, SelfReported: true,
@@ -155,9 +161,12 @@ func (s *Source) denied(err *deniedError) source.Observation {
 type span struct {
 	id, parent, service, kind string
 	attrs                     map[string]string
+	dur                       time.Duration // zero when the span has no valid times
 }
 
-func pairTrace(spans []span, edges map[string]*source.EdgeObservation, self map[string]bool, targets map[string]model.NodeKind) {
+// pairTrace adds the edges one trace shows, and the duration of each call
+// (in milliseconds) to durations under the edge's key.
+func pairTrace(spans []span, edges map[string]*source.EdgeObservation, self map[string]bool, targets map[string]model.NodeKind, durations map[string][]float64) {
 	byID := map[string]span{}
 	hasRemoteChild := map[string]bool{}
 	for _, sp := range spans {
@@ -166,11 +175,17 @@ func pairTrace(spans []span, edges map[string]*source.EdgeObservation, self map[
 			self[sp.service] = true
 		}
 	}
-	add := func(from, to, protocol string) {
+	add := func(from, to, protocol string, call span) {
 		if from == "" || to == "" || from == to {
 			return
 		}
 		key := from + "->" + to
+		// A synchronous call's span lasts as long as the caller waits; a
+		// message is not waited for, so producer and consumer spans say
+		// nothing about latency.
+		if call.dur > 0 && (call.kind == "client" || call.kind == "server") {
+			durations[key] = append(durations[key], float64(call.dur)/float64(time.Millisecond))
+		}
 		if e, ok := edges[key]; ok {
 			if e.Protocol == "" {
 				e.Protocol = protocol
@@ -188,7 +203,13 @@ func pairTrace(spans []span, edges map[string]*source.EdgeObservation, self map[
 			continue
 		}
 		hasRemoteChild[parent.id] = true
-		add(parent.service, sp.service, protocolOf(parent.attrs, sp.attrs))
+		// The caller's client span includes the network; fall back to the
+		// server span when the caller only has an internal one.
+		call := parent
+		if call.kind != "client" {
+			call = sp
+		}
+		add(parent.service, sp.service, protocolOf(parent.attrs, sp.attrs), call)
 	}
 	for _, sp := range spans {
 		if (sp.kind != "client" && sp.kind != "producer") || hasRemoteChild[sp.id] {
@@ -201,8 +222,21 @@ func pairTrace(spans []span, edges map[string]*source.EdgeObservation, self map[
 		if _, known := targets[target]; !known || kind != model.KindUnknown {
 			targets[target] = kind
 		}
-		add(sp.service, target, protocolOf(sp.attrs, nil))
+		add(sp.service, target, protocolOf(sp.attrs, nil), sp)
 	}
+}
+
+// quantile returns the q-quantile of a sample (nearest rank). With the few
+// traces a round samples, it is a hint rather than a measurement; metrics
+// from histograms take precedence when both exist.
+func quantile(sample []float64, q float64) float64 {
+	if len(sample) == 0 {
+		return 0
+	}
+	sorted := slices.Clone(sample)
+	slices.Sort(sorted)
+	i := int(math.Ceil(q*float64(len(sorted)))) - 1
+	return sorted[max(0, min(i, len(sorted)-1))]
 }
 
 // peerOf names the callee of a client span. db.name and db.namespace are
@@ -438,6 +472,21 @@ type otlpSpan struct {
 	ParentSpanID string          `json:"parentSpanId"`
 	Kind         json.RawMessage `json:"kind"`
 	Attributes   []attribute     `json:"attributes"`
+	// Nanoseconds since the epoch, as a string or a number depending on the
+	// encoder.
+	StartTimeUnixNano json.RawMessage `json:"startTimeUnixNano"`
+	EndTimeUnixNano   json.RawMessage `json:"endTimeUnixNano"`
+}
+
+// duration is how long the span lasted; zero when its times are missing or
+// make no sense.
+func (sp otlpSpan) duration() time.Duration {
+	start, err1 := strconv.ParseInt(strings.Trim(string(sp.StartTimeUnixNano), `"`), 10, 64)
+	end, err2 := strconv.ParseInt(strings.Trim(string(sp.EndTimeUnixNano), `"`), 10, 64)
+	if err1 != nil || err2 != nil || end <= start {
+		return 0
+	}
+	return time.Duration(end - start)
 }
 
 type attribute struct {
@@ -496,7 +545,7 @@ func (t otlpTrace) spans() []span {
 			for _, sp := range g.Spans {
 				out = append(out, span{
 					id: sp.SpanID, parent: sp.ParentSpanID, service: service,
-					kind: spanKind(sp.Kind), attrs: attrs(sp.Attributes),
+					kind: spanKind(sp.Kind), attrs: attrs(sp.Attributes), dur: sp.duration(),
 				})
 			}
 		}

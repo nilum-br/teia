@@ -244,3 +244,11 @@ func TestCORS(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatMs(t *testing.T) {
+	for ms, want := range map[float64]string{0.42: "0.4 ms", 9.96: "10 ms", 12.4: "12 ms", 999: "999 ms", 1234: "1.2 s", 999.7: "1.0 s"} {
+		if got := FormatMs(ms); got != want {
+			t.Errorf("FormatMs(%v) = %q, want %q", ms, got, want)
+		}
+	}
+}

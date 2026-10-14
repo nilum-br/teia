@@ -107,6 +107,8 @@ function toNode(r: Row): TeiaNode {
     health: oneOf(r.health, HEALTH, health(errorRate, rate)),
     requestRate: rate,
     errorRate,
+    latencyP50Ms: num(r.latencyP50Ms),
+    latencyP95Ms: num(r.latencyP95Ms),
     sources: list(r.sources),
     addresses: list(r.addresses),
     labels: labelsOf(r.labels),
@@ -135,6 +137,8 @@ function toEdge(r: Row, drift: boolean): TeiaEdge {
     observed,
     requestRate: rate,
     errorRate,
+    latencyP50Ms: num(r.latencyP50Ms),
+    latencyP95Ms: num(r.latencyP95Ms),
     signals: list(r.signals),
     sources: list(r.sources),
   };

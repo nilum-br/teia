@@ -47,11 +47,16 @@ type Node struct {
 	Visibility Visibility `json:"visibility"`
 	Health     Health     `json:"health"`
 	// RequestRate and ErrorRate summarise traffic into the node.
-	RequestRate float64           `json:"requestRate,omitempty"`
-	ErrorRate   float64           `json:"errorRate,omitempty"`
-	Sources     []string          `json:"sources"`
-	Addresses   []string          `json:"addresses,omitempty"`
-	Labels      map[string]string `json:"labels,omitempty"`
+	RequestRate float64 `json:"requestRate,omitempty"`
+	ErrorRate   float64 `json:"errorRate,omitempty"`
+	// LatencyP50Ms and LatencyP95Ms summarise how long the calls it serves
+	// take, in milliseconds: its callers' percentiles weighted by their
+	// traffic, an approximation (percentiles do not add up exactly).
+	LatencyP50Ms float64           `json:"latencyP50Ms,omitempty"`
+	LatencyP95Ms float64           `json:"latencyP95Ms,omitempty"`
+	Sources      []string          `json:"sources"`
+	Addresses    []string          `json:"addresses,omitempty"`
+	Labels       map[string]string `json:"labels,omitempty"`
 }
 
 // EdgeState is the result of comparing declared and observed communication.
@@ -83,6 +88,11 @@ type Edge struct {
 	Reason      string   `json:"reason,omitempty"`
 	RequestRate float64  `json:"requestRate,omitempty"` // requests per second
 	ErrorRate   float64  `json:"errorRate,omitempty"`   // failed share, 0..1
+	// LatencyP50Ms and LatencyP95Ms are how long calls take as the caller
+	// sees them, in milliseconds, when a signal measures durations (the
+	// histograms of the service graph, a mesh or Hubble; sampled spans).
+	LatencyP50Ms float64 `json:"latencyP50Ms,omitempty"`
+	LatencyP95Ms float64 `json:"latencyP95Ms,omitempty"`
 }
 
 // Key identifies an edge inside a graph.

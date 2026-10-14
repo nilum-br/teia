@@ -196,6 +196,9 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 		return n
 	}
 
+	// latencyRate is the request rate of the observation each edge's latency
+	// came from.
+	latencyRate := map[string]float64{}
 	for _, r := range results {
 		if r.Err != nil {
 			continue
@@ -261,6 +264,13 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 				if o.RequestRate > e.RequestRate {
 					e.RequestRate = o.RequestRate
 					e.ErrorRate = o.ErrorRate
+				}
+				// Latency comes from the busiest observation that measured
+				// it, so histograms (with a rate) win over sampled spans.
+				key := e.Key()
+				if o.LatencyP95Ms > 0 && (e.LatencyP95Ms == 0 || o.RequestRate > latencyRate[key]) {
+					e.LatencyP50Ms, e.LatencyP95Ms = o.LatencyP50Ms, o.LatencyP95Ms
+					latencyRate[key] = o.RequestRate
 				}
 			}
 		}

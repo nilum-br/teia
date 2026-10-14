@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -121,10 +122,13 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	// Presets run independently: one family timing out or rejected must not
 	// hide the edges the others found.
 	window := promapi.Duration(s.cfg.Window)
-	var used, empty, failedNames, failures []string
+	var used, empty, failedNames, failures, noLatency []string
 	var firstErr error
 	for _, p := range presets {
-		n, err := s.runPreset(ctx, p, window, &obs)
+		n, latencyErr, err := s.runPreset(ctx, p, window, &obs)
+		if err == nil && latencyErr != nil {
+			noLatency = append(noLatency, p.Name)
+		}
 		switch {
 		case err != nil:
 			if firstErr == nil {
@@ -158,6 +162,9 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		parts = append(parts, "failed: "+strings.Join(failedNames, ", "))
 		obs.Findings = append(obs.Findings, s.presetsFailedFinding(failures))
 	}
+	if len(noLatency) > 0 {
+		parts = append(parts, "latency query failed: "+strings.Join(noLatency, ", "))
+	}
 	obs.Message = strings.Join(parts, "; ")
 	obs.Degraded = len(used) == 0 || len(failedNames) > 0
 	return obs, nil
@@ -168,20 +175,34 @@ func (s *Source) denied(err *promapi.DeniedError) source.Observation {
 }
 
 // runPreset adds one preset's edges to obs and returns how many it found.
-// obs is only touched once every query of the preset has succeeded.
-func (s *Source) runPreset(ctx context.Context, p *Preset, window string, obs *source.Observation) (int, error) {
+// obs is only touched once the request and failure queries have succeeded;
+// latency is optional, so its failure (latencyErr) keeps the edges.
+func (s *Source) runPreset(ctx context.Context, p *Preset, window string, obs *source.Observation) (found int, latencyErr error, err error) {
 	requests, err := s.client.Query(ctx, p.Requests(window))
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	failedBy := map[string]float64{}
 	if p.Failures != nil {
 		failed, err := s.client.Query(ctx, p.Failures(window))
 		if err != nil {
-			return 0, err
+			return 0, nil, err
 		}
 		for _, f := range failed {
 			failedBy[seriesKey(f.Metric)] += f.Value
+		}
+	}
+	rateBy := make(map[string]float64, len(requests))
+	for _, r := range requests {
+		rateBy[seriesKey(r.Metric)] += r.Value
+	}
+	var p50, p95 map[string]float64
+	if p.Latency != nil && !p.NoRate {
+		if p50, latencyErr = s.latency(ctx, p, window, 0.5, rateBy); latencyErr == nil {
+			p95, latencyErr = s.latency(ctx, p, window, 0.95, rateBy)
+		}
+		if latencyErr != nil {
+			p50, p95 = nil, nil
 		}
 	}
 
@@ -239,7 +260,8 @@ func (s *Source) runPreset(ctx context.Context, p *Preset, window string, obs *s
 			source.NodeObservation{ID: e.From, Kind: kindOr(e.FromKind), SelfReported: e.FromSelf, Labels: nodeLabels(p, e.FromSelf, e.FromNS)},
 			source.NodeObservation{ID: e.To, Kind: kindOr(e.ToKind), SelfReported: e.ToSelf, Labels: nodeLabels(p, e.ToSelf, e.ToNS)},
 		)
-		edge := source.EdgeObservation{From: e.From, To: e.To, Protocol: e.Protocol, Signal: p.Signal}
+		edge := source.EdgeObservation{From: e.From, To: e.To, Protocol: e.Protocol, Signal: p.Signal,
+			LatencyP50Ms: p50[k], LatencyP95Ms: p95[k]}
 		if !p.NoRate {
 			edge.RequestRate = a.rate
 			if a.rate > 0 {
@@ -261,7 +283,41 @@ func (s *Source) runPreset(ctx context.Context, p *Preset, window string, obs *s
 		// The callee reported the traffic itself, so its signal saw it.
 		obs.Nodes = append(obs.Nodes, source.NodeObservation{ID: c, Kind: model.KindUnknown, SelfReported: true, Labels: nodeLabels(p, true, "")})
 	}
-	return len(edges), nil
+	return len(edges), latencyErr, nil
+}
+
+// latency returns the q-quantile of call durations per edge key, in
+// milliseconds. An edge made of several series (HTTP and gRPC, two
+// destination services) gets their quantiles weighted by each series'
+// request rate: an approximation, since quantiles do not add up.
+func (s *Source) latency(ctx context.Context, p *Preset, window string, q float64, rateBy map[string]float64) (map[string]float64, error) {
+	series, err := s.client.Query(ctx, p.Latency(window, q))
+	if err != nil {
+		return nil, err
+	}
+	type weighted struct{ sum, weight float64 }
+	by := map[string]*weighted{}
+	for _, r := range series {
+		e := p.Map(r.Metric).Edge
+		if e == nil {
+			continue
+		}
+		key := e.From + "->" + e.To
+		w, ok := by[key]
+		if !ok {
+			w = &weighted{}
+			by[key] = w
+		}
+		// A series with no request rate of its own still counts, barely.
+		weight := math.Max(rateBy[seriesKey(r.Metric)], 1e-9)
+		w.sum += r.Value * weight
+		w.weight += weight
+	}
+	out := make(map[string]float64, len(by))
+	for key, w := range by {
+		out[key] = w.sum / w.weight * 1000
+	}
+	return out, nil
 }
 
 // nodeLabels records which signal saw a node first-hand and, when the

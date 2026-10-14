@@ -4,7 +4,8 @@ package main
 //
 //   - an access log line per request (what ingress controllers, web servers
 //     and frameworks write), shipped to Loki by Alloy;
-//   - Istio sidecar telemetry (istio_requests_total), for the part of the
+//   - Istio sidecar telemetry (istio_requests_total and the
+//     istio_request_duration_milliseconds histogram), for the part of the
 //     shop that runs "in the mesh". The labels follow Istio's standard
 //     metrics, including how Envoy reports peers outside the mesh as
 //     "unknown". Peer identity, which Istio learns through mTLS metadata
@@ -19,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -58,12 +60,21 @@ func accessLog(next http.Handler) http.Handler {
 	})
 }
 
+// durationBuckets are upper bounds in milliseconds, a subset of Istio's.
+var durationBuckets = []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000}
+
+// requests is what the sidecar knows about one label set.
+type requests struct {
+	count, sumMs float64
+	buckets      []float64 // cumulative counts per durationBuckets entry
+}
+
 // sidecar simulates an Istio sidecar next to this workload.
 type sidecar struct {
 	workload, namespace string
 
 	mu     sync.Mutex
-	counts map[string]float64 // rendered label set -> requests
+	counts map[string]*requests // rendered label set -> requests
 }
 
 func newSidecar() *sidecar {
@@ -73,11 +84,11 @@ func newSidecar() *sidecar {
 	return &sidecar{
 		workload:  env("SERVICE_NAME", "demo"),
 		namespace: env("MESH_NAMESPACE", "default"),
-		counts:    map[string]float64{},
+		counts:    map[string]*requests{},
 	}
 }
 
-func (s *sidecar) record(labels map[string]string) {
+func (s *sidecar) record(labels map[string]string, took time.Duration) {
 	keys := make([]string, 0, len(labels))
 	for k := range labels {
 		keys = append(keys, k)
@@ -87,9 +98,22 @@ func (s *sidecar) record(labels map[string]string) {
 	for i, k := range keys {
 		parts[i] = fmt.Sprintf("%s=%q", k, labels[k])
 	}
+	key := strings.Join(parts, ",")
+	ms := float64(took) / float64(time.Millisecond)
 	s.mu.Lock()
-	s.counts["{"+strings.Join(parts, ",")+"}"]++
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	r, ok := s.counts[key]
+	if !ok {
+		r = &requests{buckets: make([]float64, len(durationBuckets))}
+		s.counts[key] = r
+	}
+	r.count++
+	r.sumMs += ms
+	for i, le := range durationBuckets {
+		if ms <= le {
+			r.buckets[i]++
+		}
+	}
 }
 
 // inbound plays the destination-side proxy (reporter="destination").
@@ -105,7 +129,9 @@ func (s *sidecar) inbound(next http.Handler) http.Handler {
 		w.Header().Set(peerHeader, s.workload)
 		w.Header().Set(peerNSHeader, s.namespace)
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		start := time.Now()
 		next.ServeHTTP(rec, r)
+		took := time.Since(start)
 		src, srcNS := r.Header.Get(peerHeader), r.Header.Get(peerNSHeader)
 		if src == "" {
 			src, srcNS = "unknown", "unknown" // caller has no sidecar
@@ -115,7 +141,7 @@ func (s *sidecar) inbound(next http.Handler) http.Handler {
 			"source_workload": src, "source_workload_namespace": srcNS,
 			"destination_workload": s.workload, "destination_workload_namespace": s.namespace,
 			"destination_service_name": s.workload,
-		})
+		}, took)
 	})
 }
 
@@ -126,7 +152,9 @@ func (s *sidecar) outbound(req *http.Request, service string, call func(*http.Re
 	}
 	req.Header.Set(peerHeader, s.workload)
 	req.Header.Set(peerNSHeader, s.namespace)
+	start := time.Now()
 	resp, err := call(req)
+	took := time.Since(start)
 	code := "0"
 	dst, dstNS := "unknown", "unknown" // callee has no sidecar
 	if resp != nil {
@@ -140,7 +168,7 @@ func (s *sidecar) outbound(req *http.Request, service string, call func(*http.Re
 		"source_workload": s.workload, "source_workload_namespace": s.namespace,
 		"destination_workload": dst, "destination_workload_namespace": dstNS,
 		"destination_service_name": service,
-	})
+	}, took)
 	return resp, err
 }
 
@@ -148,13 +176,23 @@ func (s *sidecar) serveMetrics(w http.ResponseWriter) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	fmt.Fprintln(w, "# TYPE istio_requests_total counter")
 	keys := make([]string, 0, len(s.counts))
 	for k := range s.counts {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	fmt.Fprintln(w, "# TYPE istio_requests_total counter")
 	for _, k := range keys {
-		fmt.Fprintf(w, "istio_requests_total%s %g\n", k, s.counts[k])
+		fmt.Fprintf(w, "istio_requests_total{%s} %g\n", k, s.counts[k].count)
+	}
+	fmt.Fprintln(w, "# TYPE istio_request_duration_milliseconds histogram")
+	for _, k := range keys {
+		r := s.counts[k]
+		for i, le := range durationBuckets {
+			fmt.Fprintf(w, "istio_request_duration_milliseconds_bucket{%s,le=\"%g\"} %g\n", k, le, r.buckets[i])
+		}
+		fmt.Fprintf(w, "istio_request_duration_milliseconds_bucket{%s,le=\"+Inf\"} %g\n", k, r.count)
+		fmt.Fprintf(w, "istio_request_duration_milliseconds_sum{%s} %g\n", k, r.sumMs)
+		fmt.Fprintf(w, "istio_request_duration_milliseconds_count{%s} %g\n", k, r.count)
 	}
 }

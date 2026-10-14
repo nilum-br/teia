@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 import { describe, it } from 'node:test';
 
 const { core } = createRequire(import.meta.url)('./ui/teia-ui.js');
-const { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf } = core;
+const { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs } = core;
 
 const node = (id, extra = {}) => ({ id, kind: 'service', health: 'healthy', visibility: 'full', sources: [], ...extra });
 const edge = (from, to, extra = {}) => ({ from, to, state: 'ok', health: 'healthy', declared: true, observed: true, requestRate: 1, errorRate: 0, signals: ['traces'], sources: [], ...extra });
@@ -222,3 +222,44 @@ describe('categoryOf', () => {
     assert.equal(categoryOf({ group: true }), 'group');
   });
 });
+
+describe('latency', () => {
+  it('survives sanitising, and junk becomes "not measured"', () => {
+    const s = sanitize({ nodes: [{ id: 'a', latencyP95Ms: 'slow' }], edges: [{ from: 'a', to: 'b', latencyP50Ms: 12, latencyP95Ms: NaN }] });
+    assert.equal(s.nodes[0].latencyP95Ms, 0);
+    assert.equal(s.edges[0].latencyP50Ms, 12);
+    assert.equal(s.edges[0].latencyP95Ms, 0);
+  });
+
+  it('folds into groups weighted by traffic, ignoring members that measured none', () => {
+    const s = snap(
+      [node('web', { labels: { team: 'front' } }), node('api', { labels: { team: 'core' } }), node('worker', { labels: { team: 'core' } })],
+      [
+        edge('web', 'api', { requestRate: 3, latencyP50Ms: 40, latencyP95Ms: 100 }),
+        edge('web', 'worker', { requestRate: 1, latencyP50Ms: 80, latencyP95Ms: 300 }),
+        edge('api', 'worker', { requestRate: 5 }),
+      ],
+    );
+    const e = view(s, { groupBy: 'team' }).edges.get('group:front->group:core');
+    assert.equal(e.latencyP95Ms, 150);
+    assert.equal(e.latencyP50Ms, 50);
+    assert.equal(view(s).edges.get('api->worker').latencyP95Ms, 0);
+  });
+
+  it('is written the way people read it', () => {
+    assert.deepEqual([0.42, 9.96, 12.4, 999.7, 1234].map(fmtMs), ['0.4 ms', '10 ms', '12 ms', '1.0 s', '1.2 s']);
+  });
+});
+
+describe('cardSubtitle', () => {
+  it('shows what it is and its golden signals', () => {
+    assert.equal(cardSubtitle({ kind: 'database', tech: 'postgresql', requestRate: 2, latencyP95Ms: 12, errorRate: 0 }), 'PostgreSQL · 2.00/s · 12 ms');
+  });
+  it('drops what it is before the signals when they do not fit', () => {
+    assert.equal(cardSubtitle({ kind: 'service', requestRate: 2, latencyP95Ms: 120, errorRate: 0.051 }), '2.00/s · 120 ms · 5.1% err');
+  });
+  it('says what it is when there is no traffic', () => {
+    assert.equal(cardSubtitle({ kind: 'service', tech: 'job', requestRate: 0, latencyP95Ms: 0, errorRate: 0 }), 'Job');
+  });
+});
+

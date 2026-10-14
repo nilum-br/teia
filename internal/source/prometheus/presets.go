@@ -43,6 +43,9 @@ type Preset struct {
 	// rate; Failures, when set, the same grouping restricted to failures.
 	Requests func(window string) string
 	Failures func(window string) string
+	// Latency, when set, returns the q-quantile of call durations in
+	// seconds, one series per edge grouped like Requests.
+	Latency func(window string, q float64) string
 	// NoRate: the series value is not a request rate (bytes, flows), so it
 	// proves the edge exists but is not reported as req/s.
 	NoRate bool
@@ -110,6 +113,20 @@ func or(by, metric, window string, selectors ...string) string {
 	return strings.Join(parts, " or ")
 }
 
+// quantileOr is or() for duration histograms: the q-quantile of each
+// selector's buckets, divided by perSecond to turn the metric's unit into
+// seconds (1000 for a _milliseconds histogram).
+func quantileOr(q float64, by, metric, window string, perSecond float64, selectors ...string) string {
+	parts := make([]string, len(selectors))
+	for i, sel := range selectors {
+		parts[i] = fmt.Sprintf("histogram_quantile(%g, sum by (%s, le) (rate(%s{%s}[%s])))", q, by, metric, sel, window)
+		if perSecond != 1 {
+			parts[i] += fmt.Sprintf(" / %g", perSecond)
+		}
+	}
+	return strings.Join(parts, " or ")
+}
+
 // --- traces: OpenTelemetry Collector service_graph / Tempo metrics-generator / Beyla
 
 const (
@@ -128,6 +145,11 @@ var servicegraphPreset = &Preset{
 	},
 	Failures: func(w string) string {
 		return fmt.Sprintf("sum by (%s) (rate(traces_service_graph_request_failed_total[%s]))", sgLabels, w)
+	},
+	// The client side: it exists for virtual servers (databases, brokers) too,
+	// and it is what the caller waits for.
+	Latency: func(w string, q float64) string {
+		return quantileOr(q, sgLabels, "traces_service_graph_request_client_seconds_bucket", w, 1, "")
 	},
 	Map: func(m map[string]string) Result {
 		client, server, ctype := m["client"], m["server"], m["connection_type"]
@@ -188,6 +210,10 @@ var istioPreset = &Preset{
 		return or(istioBy, "istio_requests_total", w,
 			`reporter="source",response_code=~"5..|0"`, `reporter="waypoint",response_code=~"5..|0"`,
 			`reporter="destination",source_workload="unknown",response_code=~"5..|0"`)
+	},
+	Latency: func(w string, q float64) string {
+		return quantileOr(q, istioBy, "istio_request_duration_milliseconds_bucket", w, 1000,
+			`reporter="source"`, `reporter="waypoint"`, `reporter="destination",source_workload="unknown"`)
 	},
 	Map: func(m map[string]string) Result { return istioMap(m, strings.ToLower(m["request_protocol"])) },
 }
@@ -265,6 +291,9 @@ var linkerdPreset = &Preset{
 	},
 	Failures: func(w string) string {
 		return fmt.Sprintf(`sum by (%s) (rate(response_total{direction="outbound",classification="failure"}[%s]))`, linkerdBy, w)
+	},
+	Latency: func(w string, q float64) string {
+		return quantileOr(q, linkerdBy, "response_latency_ms_bucket", w, 1000, `direction="outbound"`)
 	},
 	Map: func(m map[string]string) Result { return linkerdMap(m, "http") },
 }
@@ -350,6 +379,9 @@ var hubbleHTTPPreset = &Preset{
 	},
 	Failures: func(w string) string {
 		return or(hubbleBy, "hubble_http_requests_total", w, `reporter="client",status=~"5.."`, `reporter="server",status=~"5.."`)
+	},
+	Latency: func(w string, q float64) string {
+		return quantileOr(q, hubbleBy, "hubble_http_request_duration_seconds_bucket", w, 1, `reporter="client"`, `reporter="server"`)
 	},
 	Map: func(m map[string]string) Result {
 		return workloadPair(m, "source_workload", "destination_workload", "source_namespace", "destination_namespace", "http")

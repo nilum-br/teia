@@ -65,7 +65,7 @@ The map, in Grafana (`nilum-teia-panel`) or in teia's own UI, is the same compon
 
 ![The teia panel inside a Grafana dashboard](docs/assets/screenshots/grafana-panel.png)
 
-- **Health:** each card turns green, amber or red with its error rate (thresholds configurable).
+- **Golden signals:** each card and line shows its traffic, p95 latency and error rate, and turns green, amber or red with its error rate (thresholds configurable). Latency comes from the histograms you already have (service graph, Istio, Linkerd, Hubble) or from sampled traces.
 - **Live traffic:** dots travel along each communication at its speed, and red dots are errors. Updates arrive live (Server-Sent Events, or the dashboard refresh in Grafana).
 - **Drift and visibility:** dashed means undeclared, dotted means declared but not seen; card borders say how first-hand teia's view is.
 - **One [icon library](docs/icons.md):** microservices, relational and document databases, caches, Kafka streams, queues, gateways, jobs, external SaaS. The technology is detected from spans, images or labels.

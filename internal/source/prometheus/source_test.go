@@ -3,6 +3,7 @@ package prometheus
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -283,5 +284,61 @@ func TestNetworkPresetsDoNotReportBytesAsRequests(t *testing.T) {
 	}
 	if obs.Nodes[0].Labels["k8s.namespace"] != "shop" || obs.Nodes[0].Labels["teia.signal.network"] != "true" {
 		t.Errorf("node labels = %v", obs.Nodes[0].Labels)
+	}
+}
+
+func TestLatencyComesFromHistograms(t *testing.T) {
+	series := func(http, grpc string) string {
+		return `{"metric":{"source_workload":"orders","destination_workload":"payments","destination_service_name":"payments","request_protocol":"http"},"value":[0,"` + http + `"]},
+			{"metric":{"source_workload":"orders","destination_workload":"payments","destination_service_name":"payments","request_protocol":"grpc"},"value":[0,"` + grpc + `"]}`
+	}
+	srv := fakeProm(t, map[string]string{
+		`istio_requests_total{reporter="source"}[`: series("10", "2"),
+		// Quantiles in seconds, as the preset's query returns them.
+		`histogram_quantile(0.5, `:  series("0.02", "0.08"),
+		`histogram_quantile(0.95, `: series("0.1", "0.4"),
+	}, 0)
+	defer srv.Close()
+	obs, err := New("prometheus", Config{URL: srv.URL, Presets: []string{"istio"}}).Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := edges(obs)["orders->payments"]
+	// Weighted by each series' traffic: (0.02*10 + 0.08*2) / 12 s, (0.1*10 + 0.4*2) / 12 s.
+	if math.Abs(e.LatencyP50Ms-30) > 1e-9 || math.Abs(e.LatencyP95Ms-150) > 1e-9 {
+		t.Errorf("p50/p95 = %v/%v ms, want 30/150", e.LatencyP50Ms, e.LatencyP95Ms)
+	}
+}
+
+func TestFailingLatencyKeepsTheEdges(t *testing.T) {
+	srv := fakeProm(t, map[string]string{
+		`istio_requests_total{reporter="source"}[`: `{"metric":{"source_workload":"orders","destination_workload":"payments","request_protocol":"http"},"value":[0,"3"]}`,
+	}, 0, "histogram_quantile")
+	defer srv.Close()
+	obs, err := New("prometheus", Config{URL: srv.URL, Presets: []string{"istio"}}).Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, ok := edges(obs)["orders->payments"]
+	if !ok || e.RequestRate != 3 || e.LatencyP95Ms != 0 {
+		t.Errorf("want the edge with its rate and no latency, got %+v (found %v)", e, ok)
+	}
+	if !strings.Contains(obs.Message, "latency query failed: istio") || obs.Degraded {
+		t.Errorf("a failed latency query is worth a word, not a degraded source: %q degraded=%v", obs.Message, obs.Degraded)
+	}
+}
+
+func TestLatencyQueriesMatchTheirRequestGrouping(t *testing.T) {
+	for _, p := range Presets {
+		if p.Latency == nil {
+			continue
+		}
+		q := p.Latency("5m", 0.95)
+		if !strings.Contains(q, "histogram_quantile(0.95, sum by (") || !strings.Contains(q, ", le) (rate(") {
+			t.Errorf("%s: unexpected latency query %s", p.Name, q)
+		}
+		if p.NoRate {
+			t.Errorf("%s measures latency but reports no rate", p.Name)
+		}
 	}
 }

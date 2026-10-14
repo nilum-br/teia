@@ -32,6 +32,7 @@ type snapshot struct {
 		State    string   `json:"state"`
 		Observed bool     `json:"observed"`
 		Sources  []string `json:"sources"`
+		P95      float64  `json:"latencyP95Ms"`
 	} `json:"edges"`
 	Findings []struct {
 		Rule    string `json:"rule"`
@@ -59,6 +60,16 @@ func (s *snapshot) edge(from, to string, sources ...string) bool {
 				}
 			}
 			return true
+		}
+	}
+	return false
+}
+
+// latency reports whether the edge has a p95 latency measured.
+func (s *snapshot) latency(from, to string) bool {
+	for _, e := range s.Edges {
+		if e.From == from && e.To == to {
+			return e.P95 > 0
 		}
 	}
 	return false
@@ -164,6 +175,9 @@ func e2e(ctx context.Context) error {
 		{"traces: web -> orders seen by prometheus (service graph) and tempo", func(s *snapshot) bool { return s.edge("web", "orders", "prometheus", "tempo") }},
 		{"traces: orders -> orders-db (database seen from its callers)", func(s *snapshot) bool { return s.edge("orders", "orders-db") }},
 		{"mesh: recommendations -> inventory, no OpenTelemetry involved", func(s *snapshot) bool { return s.edge("recommendations", "inventory", "prometheus") }},
+		{"latency: p95 from the service graph (web -> orders) and from the mesh (recommendations -> inventory)", func(s *snapshot) bool {
+			return s.latency("web", "orders") && s.latency("recommendations", "inventory")
+		}},
 		{"traces + mesh: web -> recommendations", func(s *snapshot) bool { return s.edge("web", "recommendations") }},
 		{"logs: partner-sync -> catalog, named from catalog's access log", func(s *snapshot) bool { return s.edge("partner-sync", "catalog", "loki/access-logs") }},
 		{"inventory: legacy-reports exists although it emits nothing", func(s *snapshot) bool { return s.node("legacy-reports") }},

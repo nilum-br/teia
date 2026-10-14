@@ -46,6 +46,8 @@ type grafanaNode struct {
 	Visibility    string  `json:"visibility"`
 	RequestRate   float64 `json:"requestRate"`
 	ErrorRate     float64 `json:"errorRate"`
+	LatencyP50Ms  float64 `json:"latencyP50Ms"`
+	LatencyP95Ms  float64 `json:"latencyP95Ms"`
 	Sources       string  `json:"sources"`
 	Addresses     string  `json:"addresses"`
 	Labels        string  `json:"labels"` // JSON object
@@ -71,6 +73,8 @@ type grafanaEdge struct {
 	Observed        bool    `json:"observed"`
 	RequestRate     float64 `json:"requestRate"`
 	ErrorRate       float64 `json:"errorRate"`
+	LatencyP50Ms    float64 `json:"latencyP50Ms"`
+	LatencyP95Ms    float64 `json:"latencyP95Ms"`
 	Signals         string  `json:"signals"`
 	Sources         string  `json:"sources"`
 	DetailState     string  `json:"detail__state"`
@@ -99,7 +103,7 @@ func grafanaNodes(s model.Snapshot) []grafanaNode {
 		out = append(out, grafanaNode{
 			ID: n.ID, Title: n.ID, Subtitle: subtitle(n), MainStat: main, SecondaryStat: secondary,
 			Color: healthColor[n.Health], Kind: string(n.Kind), Tech: n.Tech, Health: string(n.Health), Visibility: string(n.Visibility),
-			RequestRate: n.RequestRate, ErrorRate: n.ErrorRate,
+			RequestRate: n.RequestRate, ErrorRate: n.ErrorRate, LatencyP50Ms: n.LatencyP50Ms, LatencyP95Ms: n.LatencyP95Ms,
 			Sources: strings.Join(n.Sources, ","), Addresses: strings.Join(n.Addresses, ","), Labels: string(labels),
 			Findings: findings[n.ID], DetailSources: strings.Join(n.Sources, ", "),
 		})
@@ -115,6 +119,7 @@ func grafanaEdges(s model.Snapshot) []grafanaEdge {
 			Color: healthColor[e.Health], StrokeDasharray: stateDash[e.State], Thickness: 1,
 			State: string(e.State), Health: string(e.Health), Protocol: e.Protocol, Port: e.Port, Reason: e.Reason,
 			Declared: e.Declared, Observed: e.Observed, RequestRate: e.RequestRate, ErrorRate: e.ErrorRate,
+			LatencyP50Ms: e.LatencyP50Ms, LatencyP95Ms: e.LatencyP95Ms,
 			Signals: strings.Join(e.Signals, ","), Sources: strings.Join(e.Sources, ","),
 			DetailState: string(e.State), DetailSources: strings.Join(e.Sources, ", "),
 		}
@@ -122,6 +127,9 @@ func grafanaEdges(s model.Snapshot) []grafanaEdge {
 			ge.MainStat = fmt.Sprintf("%.2f req/s", e.RequestRate)
 			ge.SecondaryStat = fmt.Sprintf("%.1f%% errors", e.ErrorRate*100)
 			ge.Thickness = 2
+		}
+		if e.LatencyP95Ms > 0 {
+			ge.SecondaryStat = strings.TrimPrefix(ge.SecondaryStat+" · p95 "+FormatMs(e.LatencyP95Ms), " · ")
 		}
 		if e.State == model.EdgeStale {
 			ge.Color = healthColor[model.HealthUnknown]
@@ -174,6 +182,19 @@ func grafanaSources(s model.Snapshot) []grafanaSource {
 		out = append(out, grafanaSource{Name: src.Name, Type: src.Type, State: string(src.State), Message: src.Message, Nodes: src.Nodes, Edges: src.Edges})
 	}
 	return out
+}
+
+// FormatMs writes a duration in milliseconds the way people read it
+// ("0.4 ms", "12 ms", "1.2 s"), for the Grafana frames and the CLI report.
+func FormatMs(ms float64) string {
+	switch {
+	case ms >= 999.5: // rounds to 1000 or more
+		return fmt.Sprintf("%.1f s", ms/1000)
+	case ms >= 9.95: // rounds to 10 or more
+		return fmt.Sprintf("%.0f ms", ms)
+	default:
+		return fmt.Sprintf("%.1f ms", ms)
+	}
 }
 
 func subtitle(n model.Node) string {
