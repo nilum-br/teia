@@ -641,6 +641,22 @@ button.label { cursor: pointer; }
     return what + via + (more > 0 ? ` +${more}` : '');
   }
 
+  // placeTag picks where a w × h tag goes: the first spot (its centre) that
+  // overlaps none of the obstacles ({x0, y0, x1, y1}); when every spot does,
+  // the one that covers the least. Spots run from the middle of a line out.
+  function placeTag(spots, w, h, obstacles) {
+    const box = p => ({ x0: p.x - w / 2, y0: p.y - h / 2, x1: p.x + w / 2, y1: p.y + h / 2 });
+    const overlap = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+    let best = null;
+    for (const p of spots) {
+      const b = box(p);
+      const covered = obstacles.reduce((sum, o) => sum + overlap(b, o), 0);
+      if (covered === 0) return { ...p, box: b };
+      if (!best || covered < best.covered) best = { ...p, box: b, covered };
+    }
+    return { x: best.x, y: best.y, box: best.box };
+  }
+
   // cardSubtitle is the second line of a card: what it is, then the golden
   // signals it has (traffic, latency, errors). When that does not fit, what
   // it is goes first: the icon and the details already say it.
@@ -670,7 +686,7 @@ button.label { cursor: pointer; }
       if (!g) { nodes.set(n.id, { ...n, title: n.id, signals: nodeSignals(n, index) }); continue; }
       let gn = nodes.get(g);
       if (!gn) {
-        gn = { id: g, group: true, kind: 'group', title: g.slice(6), labelKey: groupBy, members: [], health: 'unknown', visibility: 'none', requestRate: 0, latency: latencySum(), reasons: [], signals: [], labels: { [groupBy]: g.slice(6) } };
+        gn = { id: g, group: true, kind: 'group', title: g.slice(6), labelKey: groupBy, members: [], health: 'unknown', visibility: 'none', requestRate: 0, latency: latencySum(), reasons: [], measures: [], signals: [], labels: { [groupBy]: g.slice(6) } };
         nodes.set(g, gn);
       }
       gn.members.push(n);
@@ -688,13 +704,14 @@ button.label { cursor: pointer; }
       const id = from + '->' + to;
       let ve = edges.get(id);
       if (!ve) {
-        ve = { id, from, to, members: [], requestRate: 0, failed: 0, latency: latencySum(), reasons: [], signals: new Set(), states: new Set(), declared: false, observed: false, health: 'unknown', protocol: e.protocol, reason: e.reason, port: e.port, sources: new Set() };
+        ve = { id, from, to, members: [], requestRate: 0, failed: 0, latency: latencySum(), reasons: [], measures: [], signals: new Set(), states: new Set(), declared: false, observed: false, health: 'unknown', protocol: e.protocol, reason: e.reason, port: e.port, sources: new Set() };
         edges.set(id, ve);
       }
       ve.members.push(e);
       ve.requestRate += e.requestRate;
       ve.failed += e.requestRate * e.errorRate;
       ve.latency.add(e);
+      ve.measures.push(...e.measures);
       if (e.reasons.length) ve.reasons.push(...e.reasons.map(r => (from === e.from && to === e.to ? r : { ...r, subject: `${e.from}→${e.to}` })));
       e.signals.forEach(s => ve.signals.add(s));
       e.sources.forEach(s => ve.sources.add(s));
@@ -825,7 +842,7 @@ button.label { cursor: pointer; }
     } catch { return null; }
   }
 
-  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, TECH, CATEGORY, SIGNAL, REASON };
+  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, TECH, CATEGORY, SIGNAL, REASON };
 
   // ============================================================== mount
   function mount(host, opts = {}) {
@@ -1191,18 +1208,27 @@ button.label { cursor: pointer; }
 
     // renderReasons pins each amber or red line's worst reason above its
     // middle, so the map says why without hovering.
+    // Each tag sits on its own line, at the first spot from the middle out
+    // where it covers no card and no tag placed before it.
     function renderReasons() {
       layerReasons.replaceChildren();
+      const obstacles = [...nodeEls.values()].map(n => ({
+        x0: n._pos.x - NODE_W / 2 - 6, x1: n._pos.x + NODE_W / 2 + 6,
+        y0: n._pos.y - NODE_H / 2 - 14, y1: n._pos.y + NODE_H / 2 + 12, // the card's own tag and badges
+      }));
       for (const g of edgeEls.values()) {
         const e = g._edge;
         if (g.style.display === 'none' || !e.reasons.length) continue;
-        const p = mid(g);
-        const tag = sv('g', { transform: `translate(${p.x - 40},${p.y - 16})` });
+        const tag = sv('g');
         tag._edge = e;
         layerReasons.append(tag);
         drawWhy(tag, e.reasons);
-        const w = tag.firstChild ? Number(tag.firstChild.getAttribute('width')) : 0;
-        tag.setAttribute('transform', `translate(${p.x - w / 2},${p.y - 16})`);
+        const w = Number(tag.querySelector('rect')?.getAttribute('width')) || 80;
+        const pts = samples(g);
+        const spots = [24, 20, 28, 16, 32, 12, 36, 8, 40, 5, 43].map(i => ({ x: pts[i][0], y: pts[i][1] }));
+        const at = placeTag(spots, w, 18, obstacles);
+        obstacles.push(at.box);
+        tag.setAttribute('transform', `translate(${at.x - w / 2},${at.y})`);
         tag.addEventListener('click', ev => { ev.stopPropagation(); select({ type: 'edge', id: e.id }); });
       }
     }

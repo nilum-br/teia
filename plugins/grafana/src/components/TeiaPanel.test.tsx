@@ -71,6 +71,31 @@ describe('TeiaPanel', () => {
     expect(shadow(container).querySelector('#live')!.textContent).toContain('datasource down');
   });
 
+  it('opens the details of a line with its readings and why it is amber', () => {
+    const queue = [
+      toDataFrame({ refId: 'nodes', fields: [{ name: 'id', values: ['email-worker', 'order-events'] }] }),
+      toDataFrame({
+        refId: 'edges',
+        fields: [
+          { name: 'source', values: ['email-worker'] },
+          { name: 'target', values: ['order-events'] },
+          { name: 'requestRate', values: [0.5] },
+          { name: 'declared', values: [false] },
+          { name: 'measures', values: ['[{"cause":"backlog","what":"messages waiting","value":1500}]'] },
+          { name: 'reasons', values: ['[{"cause":"backlog","health":"degraded","value":1500,"limit":1000,"summary":"1.5k messages waiting, over 1.0k","what":"messages waiting"}]'] },
+        ],
+      }),
+    ];
+    const { container } = render(<TeiaPanel {...props({ data: { series: queue, state: LoadingState.Done } as never })} />);
+    const root = shadow(container);
+    expect(root.querySelector('.why-tag')?.textContent).toContain('1.5k messages waiting');
+    (root.querySelector('.edge path.hit') as SVGElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const details = root.querySelector('#pane-details')!.textContent!;
+    expect(details).toContain('Why it is amber');
+    expect(details).toContain('messages waiting');
+    expect(details).toContain('1.5k');
+  });
+
   it('cleans up when the panel goes away', () => {
     const { container, unmount } = render(<TeiaPanel {...props()} />);
     const root = shadow(container);

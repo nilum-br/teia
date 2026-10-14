@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 import { describe, it } from 'node:test';
 
 const { core } = createRequire(import.meta.url)('./ui/teia-ui.js');
-const { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact } = core;
+const { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag } = core;
 
 const node = (id, extra = {}) => ({ id, kind: 'service', health: 'healthy', visibility: 'full', sources: [], ...extra });
 const edge = (from, to, extra = {}) => ({ from, to, state: 'ok', health: 'healthy', declared: true, observed: true, requestRate: 1, errorRate: 0, signals: ['traces'], sources: [], ...extra });
@@ -317,6 +317,33 @@ describe('reasons', () => {
   it('can be searched with why:', () => {
     const v = view(snap([node('api', { reasons: [slow] }), node('db')], []));
     assert.deepEqual([...v.nodes.values()].filter(matcher('why:latency')).map(n => n.id), ['api']);
+  });
+});
+
+describe('placeTag', () => {
+  const card = { x0: 0, y0: 0, x1: 100, y1: 60 };
+  it('takes the middle when it is free', () => {
+    const at = placeTag([{ x: 200, y: 30 }, { x: 300, y: 30 }], 80, 18, [card]);
+    assert.deepEqual([at.x, at.y], [200, 30]);
+  });
+  it('moves along the line past a card or a tag', () => {
+    const at = placeTag([{ x: 50, y: 30 }, { x: 140, y: 30 }, { x: 260, y: 30 }], 80, 18, [card, { x0: 100, y0: 20, x1: 180, y1: 40 }]);
+    assert.deepEqual([at.x, at.y], [260, 30]);
+  });
+  it('falls back to the middle when there is no room anywhere', () => {
+    const at = placeTag([{ x: 50, y: 30 }], 80, 18, [card]);
+    assert.deepEqual([at.x, at.y, at.box.x0], [50, 30, 10]);
+  });
+  it('covers as little as it can when every spot is taken', () => {
+    const at = placeTag([{ x: 50, y: 30 }, { x: 130, y: 30 }], 80, 18, [card]);
+    assert.deepEqual([at.x, at.y], [130, 30]);
+  });
+});
+
+describe('view edges', () => {
+  it('carry the measures of the communications they draw', () => {
+    const s = snap([node('worker'), node('topic')], [edge('worker', 'topic', { measures: [{ cause: 'backlog', what: 'messages waiting', value: 1500 }] })]);
+    assert.equal(view(s).edges.get('worker->topic').measures[0].value, 1500);
   });
 });
 

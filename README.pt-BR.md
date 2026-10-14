@@ -60,7 +60,9 @@ O mapa, no Grafana (`nilum-teia-panel`) ou na interface da própria teia, é o m
 
 | Amarelo ou vermelho diz o porquê, e de onde vem | Agrupe por qualquer label, no tema escuro ou claro |
 |---|---|
-| ![recommendations está amarelo: o p95 de 739 ms vem do inventory, com um botão para ir até lá](docs/assets/screenshots/teia-details.png) | ![O lab agrupado por time, tema claro](docs/assets/screenshots/teia-groups-light.png) |
+| ![recommendations está amarelo: o p95 vem do inventory, com um botão para ir até lá](docs/assets/screenshots/teia-details.png) | ![O lab agrupado por time, tema claro](docs/assets/screenshots/teia-groups-light.png) |
+| **A fila diz quanto espera e quão atrasada está** | **O cache ou o banco diz o quanto está cheio** |
+| ![email-worker para order-events está amarelo: 1,5 mil mensagens esperando, 75 s de atraso, do kafka_exporter](docs/assets/screenshots/teia-queue.png) | ![catalog-cache: memória contra o maxmemory e clientes contra o maxclients, do redis_exporter](docs/assets/screenshots/teia-cache-light.png) |
 
 As visões viram links compartilháveis: `?group=team`, `?q=kind:database`, `?select=orders-db`, `?theme=light`, `?flow=1`, `?legend=icons`.
 
@@ -78,7 +80,10 @@ advisor o que deixaria o quadro mais completo. O resultado sai como JSON, stream
 
 ## Testar em 5 minutos
 
-Só precisa de Docker (Linux, macOS ou Windows):
+Só precisa de Docker (Linux, macOS ou Windows). O lab é uma pequena loja com a mistura que as plataformas reais têm
+(parte OpenTelemetry, parte mesh Istio, Kafka e MongoDB gerenciados, Redis, PostgreSQL e jobs sem instrumentação) e
+um problema de cada tipo para o mapa explicar: o payments falha chamadas, o inventory responde devagar, um
+consumidor está atrasado e o teste ponta a ponta trava uma tabela.
 
 ```sh
 docker compose -f lab/compose.yaml up -d --build

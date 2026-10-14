@@ -37,7 +37,7 @@
     </g>
     <g transform="translate(40 318)">
       <rect width="330" height="52" rx="12" fill="#0a155f" stroke="rgba(255,255,255,.12)"/>
-      <text x="18" y="22" font-weight="600">Datastores, from inside</text><text x="18" y="41" fill="#9aa6d6" font-size="12.5">PostgreSQL pg_stat_activity (more coming)</text>
+      <text x="18" y="22" font-weight="600">Datastores, from inside</text><text x="18" y="41" fill="#9aa6d6" font-size="12.5">Postgres explorer; Redis, Kafka, Mongo exporters</text>
     </g>
     <g transform="translate(40 380)">
       <rect width="330" height="52" rx="12" fill="#0a155f" stroke="rgba(255,255,255,.12)"/>
@@ -64,8 +64,8 @@
         <text x="266" y="27" text-anchor="end" fill="#9aa6d6" font-size="12">ok · ghost · stale</text>
       </g>
       <g transform="translate(24 196)">
-        <rect width="282" height="44" rx="10" fill="#020f59"/><text x="16" y="27">health + technology</text>
-        <text x="266" y="27" text-anchor="end" fill="#9aa6d6" font-size="12">errors · icons</text>
+        <rect width="282" height="44" rx="10" fill="#020f59"/><text x="16" y="27">health and why</text>
+        <text x="266" y="27" text-anchor="end" fill="#9aa6d6" font-size="12">golden signals</text>
       </g>
       <g transform="translate(24 250)">
         <rect width="282" height="44" rx="10" fill="#020f59"/><text x="16" y="27">coverage</text>

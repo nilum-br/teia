@@ -76,7 +76,9 @@ The map, in Grafana (`nilum-teia-panel`) or in teia's own UI, is the same compon
 
 | Amber or red says why, and where it comes from | Group by any label, in dark or light |
 |---|---|
-| ![recommendations is amber: its p95 of 739 ms comes from inventory, with a button to go there](docs/assets/screenshots/teia-details.png) | ![The lab grouped by team, light theme](docs/assets/screenshots/teia-groups-light.png) |
+| ![recommendations is amber: its p95 comes from inventory, with a button to go there](docs/assets/screenshots/teia-details.png) | ![The lab grouped by team, light theme](docs/assets/screenshots/teia-groups-light.png) |
+| **A queue says how much waits and how far behind** | **A cache or database says how full it is** |
+| ![email-worker to order-events is amber: 1.5k messages waiting, 75 s behind, from kafka_exporter](docs/assets/screenshots/teia-queue.png) | ![catalog-cache: memory against maxmemory and clients against maxclients, from redis_exporter](docs/assets/screenshots/teia-cache-light.png) |
 
 Views are shareable links: `?group=team`, `?q=kind:database`, `?select=orders-db`, `?theme=light`, `?flow=1`, `?legend=icons`.
 
@@ -96,7 +98,9 @@ advisor what would make the picture more complete. The result is served as JSON,
 
 You only need Docker (Linux, macOS or Windows). The lab is a small shop with the mix real platforms have: part
 OpenTelemetry, part Istio mesh without OpenTelemetry, a managed Kafka and MongoDB seen only through client spans, a
-third-party gateway, Redis, PostgreSQL, and jobs nobody instrumented.
+third-party gateway, Redis, PostgreSQL, and jobs nobody instrumented. It also has one problem of each kind, so the
+map has something to explain: payments fails some calls, inventory answers slowly, a consumer is behind, and the
+end-to-end check takes a lock on a table.
 
 ```sh
 docker compose -f lab/compose.yaml up -d --build

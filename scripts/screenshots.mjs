@@ -21,6 +21,8 @@ const SHOTS = [
   { file: 'docs/assets/screenshots/teia-map.png', url: `${teia}/?theme=dark&flow=1`, width: 1600, height: 960 },
   { file: 'docs/assets/screenshots/teia-details.png', url: `${teia}/?theme=dark&flow=1&select=recommendations`, width: 1600, height: 960 },
   { file: 'docs/assets/screenshots/teia-groups-light.png', url: `${teia}/?theme=light&flow=1&group=team`, width: 1600, height: 960 },
+  { file: 'docs/assets/screenshots/teia-queue.png', url: `${teia}/?theme=dark&flow=1&select=${encodeURIComponent('email-worker->order-events')}`, width: 1600, height: 960 },
+  { file: 'docs/assets/screenshots/teia-cache-light.png', url: `${teia}/?theme=light&flow=1&select=catalog-cache`, width: 1600, height: 960 },
   { file: 'docs/assets/screenshots/grafana-panel.png', url: `${grafana}/d/teia-overview?orgId=1&kiosk&theme=dark&viewPanel=1`, width: 1600, height: 900, wait: 15000 },
 ];
 
@@ -80,4 +82,13 @@ async function capture({ file, url, width, height, wait = 9000 }) {
   }
 }
 
-for (const shot of SHOTS) await capture(shot);
+// A headless browser now and then fails to start or to answer; one more try
+// is usually enough.
+for (const shot of SHOTS) {
+  try {
+    await capture(shot);
+  } catch (err) {
+    console.warn(`retrying ${shot.file}: ${err.message}`);
+    await capture(shot);
+  }
+}
