@@ -67,6 +67,13 @@ jobs:
         with:
           # Keep in sync with GOLANGCI_LINT_VERSION in the Makefile.
           version: v2.14.0
+      - name: golangci-lint (lab/demo)
+        if: ${{ !cancelled() }}
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+          working-directory: lab/demo
+          args: --config ../../.golangci.yml
       - name: go.mod and go.sum are tidy
         if: ${{ !cancelled() }}
         run: |

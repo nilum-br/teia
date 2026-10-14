@@ -62,7 +62,7 @@ check-ui:        ## map component tests, panel typecheck, lint and tests
 	  npm run test:ci'
 
 lint:            ## golangci-lint, in its container
-	$(LINT) golangci-lint run ./...
+	$(LINT) sh -c 'golangci-lint run ./... && cd lab/demo && golangci-lint run --config ../../.golangci.yml ./...'
 
 build:           ## build the teia image
 	docker build -t teia:dev .
