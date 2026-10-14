@@ -142,6 +142,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		}
 		obs.Nodes = append(obs.Nodes, n)
 	}
+	obs.Message = fmt.Sprintf("%d containers at %s", len(containers), s.endpoint)
 	return obs, nil
 }
 

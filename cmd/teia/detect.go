@@ -99,7 +99,7 @@ func detect(args []string) error {
       dialect: loki
       url: %s
       # one series per (callee, caller address); adapt the selector and parser to your logs
-      query: sum by (service, remote_addr) (rate({service=~".+"} | json [$window]))
+      query: sum by (service, remote_addr) (rate({service=~".+"} | json | __error__="" [$window]))
       from: remote_addr
       fromAddress: true
       to: service
