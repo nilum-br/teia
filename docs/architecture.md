@@ -61,7 +61,9 @@ address, teia keeps using the source's last good observation for up to `retentio
 recovers. A source that has not answered a little after `timeout` is given up on for the round, and skipped while
 it is still busy.
 
-Every source is read-only and talks to systems you already run. teia ships no agent.
+Every source is read-only and talks to systems you already run. teia ships no agent. Where the API it reads can
+do more than read, give teia a narrower door: an RBAC role for Kubernetes, a socket proxy for Docker (see
+[Docker access](sources.md#docker-access)). Every config key is in [configuration.md](configuration.md).
 
 ## Identity
 
@@ -70,10 +72,12 @@ Everything ends up keyed by a **node ID**, which is a plain name such as `orders
 | Input | Becomes |
 |---|---|
 | `component:default/orders` in a flows file | `orders` |
-| OTel `service.name=orders` | `orders` |
-| compose service `orders` or label `teia.node=orders` | `orders` |
-| `ip:172.18.0.14`, seen by the postgres explorer | `orders`, if an inventory source owns that address |
-| anything listed in `aliases:` | its alias target |
+| OTel `service.name=orders` (traces, service graph metrics) | `orders` |
+| a workload label in mesh or eBPF metrics, such as Istio `source_workload="orders"` | `orders` |
+| a Kubernetes pod of Deployment `orders` (ReplicaSet → Deployment, Job → CronJob), or annotation `teia.nilum.io/node-id: orders` | `orders` |
+| compose service `orders` (else the container name), or label `teia.node=orders` | `orders` |
+| `ip:172.18.0.14`, from the postgres explorer or a query with `fromAddress` / `toAddress` | `orders`, if an inventory says `orders` held that address for the whole time window |
+| a name or `ip:` address listed in `aliases:` | its alias target |
 
 IDs are case-insensitive: every source's names are lowercased (OTel `OrderService` and a flows file's
 `orderservice` are one node), and `aliases:` and `ignore:` match whatever the case. `ip:...` IDs are
@@ -137,7 +141,7 @@ has full visibility. Otherwise teia cannot tell "not happening" from "not visibl
 | `GET /api/v1/grafana/{nodes,edges,findings,sources,changes}` | flat frames for Grafana (teia panel, Node Graph, tables) |
 | `GET /metrics` | Prometheus metrics: edges, nodes, coverage, findings, sources |
 | `GET /healthz` | liveness |
-| `GET /` | built-in UI |
+| `GET /` | built-in UI (`teia serve --ui-dir DIR` serves it from disk while you work on it) |
 
 Finding changes (`finding.opened`, `finding.resolved`) carry the finding's `id`, so the two can be matched when
 several rules share a subject. Health changes are reported against the last known state: a round without rates

@@ -14,7 +14,7 @@ Rule IDs are stable. You can filter on them, and they will not be renamed betwee
 | `source-error` | source | critical | a source failed this round | check reachability and config |
 | `servicegraph-unnamed-target` | blind-spot | info | client spans with no matching server span and no `peer.service` / `db.*` | set `peer.service`, raise `store.ttl` |
 | `invalid-flows-file` | source | warning | a flows file does not parse or validate | `teia validate` |
-| `docker-socket` | permission | warning | the Docker socket is missing or not readable | mount it read-only |
+| `docker-socket` | permission | warning | the Docker socket is missing, or the Docker API refuses to list containers | a socket proxy that only allows listing containers ([Docker access](sources.md#docker-access)) |
 | `postgres-login` | permission | warning | teia cannot log into a database | dedicated login with `pg_monitor` |
 | `postgres-privilege` | permission | warning | logged in, but without `pg_read_all_stats`, so other sessions' origins are hidden | `GRANT pg_monitor TO teia;` |
 | `no-telemetry` | blind-spot | warning | a workload has no telemetry of its own (seen only via peers, or not at all) | OTel SDK env vars, or Beyla (eBPF) |
@@ -34,7 +34,9 @@ teia asks for read-only access to systems people are protective of. Every fix na
 
 - **PostgreSQL**: `pg_monitor` exposes session metadata and statistics, not table data.
 - **Prometheus**: query API only.
-- **Docker**: read-only socket in the lab. On Kubernetes this becomes `get/list/watch` on pods and services.
+- **Docker**: the API has no read-only mode, and a read-only mount of the socket does not change that. teia gets
+  it through a socket proxy that only allows listing containers, as in the lab. On Kubernetes this becomes
+  `get/list/watch` on pods, services and namespaces.
 
 ## Writing a rule
 

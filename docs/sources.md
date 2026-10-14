@@ -67,13 +67,50 @@ It prints what it found per source and a starting `teia.yaml`.
 | `servicegraph` | `traces_service_graph_request_total` | `client` → `server` | OTel Collector `service_graph` connector, Tempo metrics-generator, Beyla/OBI. `client="user"` is reported as unknown callers; `db.system` / `messaging.system` dimensions name datastores and brokers. |
 | `istio` | `istio_requests_total` | `source_workload` → `destination_workload` | `reporter="source"`, then `"waypoint"`, then `"destination"` for unknown callers, joined with `or` the way Kiali does, so no double count. |
 | `istio-tcp` | `istio_tcp_connections_opened_total` | same | Plain TCP through the mesh and ambient ztunnel. Waypoint hops are folded back into end-to-end edges. |
-| `linkerd`, `linkerd-tcp` | `response_total{direction="outbound"}` | `deployment` → `dst_deployment` / `dst_service` | Needs the linkerd-viz scrape labels. |
+| `linkerd` | `response_total{direction="outbound"}` | `deployment` (or `statefulset`, `daemonset`, `k8s_job`) → `dst_deployment` / `dst_service` | Outbound side only, so each request counts once. Needs the linkerd-viz scrape labels. |
+| `linkerd-tcp` | `tcp_open_total{direction="outbound",peer="dst"}` | same | TCP connections opened through the proxy (databases, brokers). Same labels needed. |
 | `beyla-network`, `obi-network` | `*_network_flow_bytes_total{direction="request"}` | `k8s_src_owner_name` → `k8s_dst_owner_name` | Proves edges exist; bytes are not reported as requests. |
 | `hubble-tcp`, `hubble-http` | `hubble_tcp_flags_total{flag="SYN"}` / `hubble_http_requests_total` | `source_workload` → `destination_workload` | Needs `labelsContext` workload labels in the Hubble metrics config. |
 | `retina` | `networkobservability_adv_forward_count` | `source_workload_name` → `destination_workload_name` | Needs remote context (`MetricsConfiguration`). |
 
 Anything else becomes edges through a `queries` entry: any PromQL or LogQL that returns one series per caller and
 callee pair, plus a mapping of which label is which.
+
+## Docker access
+
+The Docker inventory makes one call per round: `GET /containers/json` (filtered to one compose project with
+`sources.docker.project`). The Docker API itself has no read-only mode, and mounting `docker.sock` into a container
+**read-only (`:ro`) does not restrict it**: connecting to a socket is not a write to the file, so every API call
+still goes through, and a client that can connect can start privileged containers, that is, control the host.
+
+So in a container, give teia the API through a socket proxy that allows only that call:
+
+```yaml
+services:
+  docker-proxy:
+    image: lscr.io/linuxserver/socket-proxy:3.4.6-r0-ls102
+    environment:
+      CONTAINERS: 1   # list and inspect containers; POST is off by default
+      EVENTS: 0       # on by default, not needed by teia
+      PING: 0
+      VERSION: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    read_only: true
+    tmpfs: [/run]
+  teia:
+    environment:
+      DOCKER_HOST: tcp://docker-proxy:2375   # or sources.docker.host
+```
+
+Keep the proxy on a network only teia can reach: `CONTAINERS` also allows `GET /containers/{id}/json`, which shows
+every container's environment variables. With the proxy, teia needs no access to the socket and runs as its image's
+non-root user. A proxy that refuses the call (HTTP 403) shows up as the `docker-socket` finding.
+
+The lab does exactly this, with a second proxy for Alloy (which also needs networks and container logs), each on an
+internal network with its one client. Running teia on your own machine instead (`lab/teia.host.yaml`), it uses
+`DOCKER_HOST` or the OS default, like the `docker` CLI. On Kubernetes, use the `kubernetes` inventory: it needs
+`get`, `list` and `watch` on pods, services and namespaces, and no Docker access at all.
 
 ## Identity: names, IPs and recycled addresses
 
@@ -98,4 +135,5 @@ Everything teia learns is exposed in several ways at once:
 
 The API listens on every interface by default (`listen: :8080`). Protect it with `auth: { token: ${TEIA_TOKEN} }`
 or keep it on a private network, and list browser origins that may call it (Grafana in direct mode) under
-`cors.allowedOrigins`. See [Exposing the API](architecture.md#exposing-the-api).
+`cors.allowedOrigins`. See [Exposing the API](architecture.md#exposing-the-api), and
+[configuration.md](configuration.md) for every key.

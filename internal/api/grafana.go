@@ -15,8 +15,9 @@ import (
 //	nodes, edges     the Node Graph field names plus teia's own fields, read
 //	                 by the teia panel (nilum-teia-panel) and still usable by
 //	                 Grafana's built-in Node Graph panel
-//	findings, sources, changes, coverage
-//	                 everything else the teia panel shows
+//	findings, sources, changes
+//	                 everything else the teia panel shows; coverage is a
+//	                 single row already, so the panel reads /api/v1/coverage
 
 // Colours follow the UI: state is carried by colour and dash.
 var (

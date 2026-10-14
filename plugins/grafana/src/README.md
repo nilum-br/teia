@@ -17,9 +17,14 @@ The panel reads the frames returned by its queries:
 |---|---|---|
 | `nodes` | one per service/datastore: `id`, `kind`, `tech`, `health`, `visibility`, `labels`... | teia `/api/v1/grafana/nodes` |
 | `edges` | one per communication: `source`, `target`, `state`, `health`, `requestRate`, `errorRate`, `signals`... | teia `/api/v1/grafana/edges` |
-| `findings`, `sources`, `coverage`, `changes` | optional extras | teia `/api/v1/grafana/*` |
+| `findings`, `sources`, `changes` | optional extras | teia `/api/v1/grafana/findings`, `/sources`, `/changes` |
+| `coverage` | optional, one row | teia `/api/v1/coverage` |
 
-Any Node Graph shaped data (`id` / `source` / `target`, such as Tempo's service graph) also renders. Alternatively,
-set **teia API URL** in the panel options to stream straight from teia.
+Any Node Graph shaped data (`id` / `source` / `target`, such as Tempo's service graph) also renders.
+
+Alternatively, set **teia API URL** in the panel options to stream straight from teia. The viewer's browser connects
+to it, so use an address the browser reaches (for example `http://localhost:8480/api/v1/`) and list Grafana's origin
+in teia's `cors.allowedOrigins`. Browsers cannot send a token on that stream: when teia has `auth.token`, use the
+queries above instead.
 
 Built by [Nilum](https://nilum.com.br). Source and docs: https://github.com/nilum-br/teia
