@@ -87,7 +87,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 				Kind:     model.FindingPermission,
 				Severity: model.SeverityCritical,
 				Subject:  s.name,
-				Title:    fmt.Sprintf("%s refused teia's query (%s)", s.cfg.URL, denied),
+				Title:    fmt.Sprintf("%s refused teia's query (%s)", promapi.RedactURL(s.cfg.URL), denied),
 				Fix: &model.Fix{
 					Summary:  "Give teia a read-only credential and pass it as a header.",
 					Language: "yaml",

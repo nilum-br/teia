@@ -6,8 +6,10 @@ package promapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -41,19 +43,21 @@ func New(baseURL, path string, headers map[string]string) *Client {
 	return &Client{BaseURL: baseURL, Path: path, Headers: headers, HTTP: &http.Client{Timeout: 15 * time.Second}}
 }
 
-// Query runs an instant query and returns its vector.
+// Query runs an instant query and returns its vector. Samples that are not
+// finite numbers (NaN from a ratio over zero traffic, ±Inf) are dropped: they
+// carry no rate and cannot be encoded as JSON further down.
 func (c *Client) Query(ctx context.Context, query string) ([]Sample, error) {
 	u := strings.TrimRight(c.BaseURL, "/") + c.Path + "?query=" + url.QueryEscape(query)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, err
+		return nil, RedactError(err)
 	}
 	for k, v := range c.Headers {
 		req.Header.Set(k, v)
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, RedactError(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
@@ -71,10 +75,9 @@ func (c *Client) Query(ctx context.Context, query string) ([]Sample, error) {
 		Error  string `json:"error"`
 		Data   struct {
 			ResultType string `json:"resultType"`
-			Result     []struct {
-				Metric map[string]string `json:"metric"`
-				Value  [2]any            `json:"value"`
-			} `json:"result"`
+			// Decoded once the type is known: scalars and strings are
+			// not lists of series.
+			Result json.RawMessage `json:"result"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
@@ -86,16 +89,62 @@ func (c *Client) Query(ctx context.Context, query string) ([]Sample, error) {
 	if parsed.Data.ResultType != "" && parsed.Data.ResultType != "vector" {
 		return nil, fmt.Errorf("query returned %s, an instant vector is needed", parsed.Data.ResultType)
 	}
-	out := make([]Sample, 0, len(parsed.Data.Result))
-	for _, r := range parsed.Data.Result {
+	var result []struct {
+		Metric map[string]string `json:"metric"`
+		Value  [2]any            `json:"value"`
+	}
+	if len(parsed.Data.Result) > 0 {
+		if err := json.Unmarshal(parsed.Data.Result, &result); err != nil {
+			return nil, fmt.Errorf("decoding vector: %w", err)
+		}
+	}
+	out := make([]Sample, 0, len(result))
+	for _, r := range result {
 		str, _ := r.Value[1].(string)
 		v, err := strconv.ParseFloat(str, 64)
-		if err != nil {
+		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
 			continue
 		}
 		out = append(out, Sample{Metric: r.Metric, Value: v})
 	}
 	return out, nil
+}
+
+// RedactURL renders raw for messages and findings without the password it
+// may carry (https://user:pass@host). A URL that does not parse is reduced
+// to its host, since there is no telling where its password ends.
+func RedactURL(raw string) string {
+	if u, err := url.Parse(raw); err == nil && u.Opaque == "" {
+		return u.Redacted()
+	}
+	host := raw
+	if i := strings.Index(host, "://"); i >= 0 {
+		host = host[i+len("://"):]
+	}
+	// The host follows the last '@': a password may itself hold '@' or '/'.
+	if i := strings.LastIndex(host, "@"); i >= 0 {
+		host = host[i+1:]
+	}
+	if i := strings.IndexAny(host, "/?#"); i >= 0 {
+		host = host[:i]
+	}
+	return host
+}
+
+// RedactError keeps credentials out of a *url.Error. net/http masks the
+// password on transport errors, but a URL that fails to parse is quoted
+// whole, and the parser may quote a piece of a malformed password ("invalid
+// port"), so that detail is dropped when the URL has userinfo.
+func RedactError(err error) error {
+	var uerr *url.Error
+	if !errors.As(err, &uerr) {
+		return err
+	}
+	if uerr.Op == "parse" && strings.Contains(uerr.URL, "@") {
+		return fmt.Errorf("invalid URL %s", RedactURL(uerr.URL))
+	}
+	uerr.URL = RedactURL(uerr.URL)
+	return err
 }
 
 // Duration renders d the way PromQL and LogQL range selectors expect.

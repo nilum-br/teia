@@ -1,12 +1,17 @@
 package advisor
 
 import (
-	"fmt"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/nilum-br/teia/internal/graph"
 	"github.com/nilum-br/teia/internal/model"
+	"github.com/nilum-br/teia/internal/source/declared"
 )
+
+// todoReason is the placeholder the owning team replaces with the reason.
+const todoReason = "TODO why this call exists"
 
 // ref renders a node as the Backstage-style ref used in flows files.
 func ref(g *graph.Graph, id string) string {
@@ -28,34 +33,47 @@ func ref(g *graph.Graph, id string) string {
 	}
 }
 
-func egressEntry(g *graph.Graph, e model.Edge) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "- to: %s\n", ref(g, e.To))
+func flow(g *graph.Graph, e model.Edge) declared.Flow {
+	f := declared.Flow{To: ref(g, e.To), Protocol: e.Protocol, Reason: todoReason}
 	if n := g.Nodes[e.To]; n != nil && n.Kind != model.KindService && n.Kind != model.KindUnknown {
-		fmt.Fprintf(&b, "  kind: %s\n", n.Kind)
+		f.Kind = string(n.Kind)
 	}
-	if e.Protocol != "" {
-		fmt.Fprintf(&b, "  protocol: %s\n", e.Protocol)
-	}
-	b.WriteString("  reason: TODO why this call exists\n")
-	return b.String()
+	return f
+}
+
+// egressEntry renders one item to add under spec.egress.
+func egressEntry(g *graph.Graph, e model.Edge) string {
+	return marshal([]declared.Flow{flow(g, e)})
 }
 
 // FlowsFile generates a flows file for owner from observed edges.
 func FlowsFile(g *graph.Graph, owner string, edges []model.Edge) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, `apiVersion: teia.nilum.io/v1alpha1
-kind: Flows
-metadata:
-  name: %s
-spec:
-  owner: %s
-  egress:
-`, owner, ref(g, owner))
+	doc := declared.Document{
+		APIVersion: declared.APIVersion,
+		Kind:       declared.KindFlows,
+		Metadata:   declared.Metadata{Name: owner},
+		Spec:       declared.Spec{Owner: ref(g, owner)},
+	}
 	for _, e := range edges {
-		for _, line := range strings.Split(strings.TrimRight(egressEntry(g, e), "\n"), "\n") {
-			b.WriteString("    " + line + "\n")
-		}
+		doc.Spec.Egress = append(doc.Spec.Egress, flow(g, e))
+	}
+	return marshal(doc)
+}
+
+// marshal renders v with the YAML encoder rather than a template: names come
+// from telemetry, and a ':', '#' or newline in one must stay inside its
+// value instead of reshaping the file teams are asked to commit.
+func marshal(v any) string {
+	var b strings.Builder
+	enc := yaml.NewEncoder(&b)
+	enc.SetIndent(2)
+	err := enc.Encode(v)
+	if err == nil {
+		err = enc.Close()
+	}
+	if err != nil {
+		// Only unsupported Go types fail, and these are plain structs.
+		return "# teia could not render this snippet: " + err.Error() + "\n"
 	}
 	return b.String()
 }

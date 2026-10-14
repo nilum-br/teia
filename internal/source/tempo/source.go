@@ -6,7 +6,7 @@
 // graph processors do: a server or consumer span whose parent belongs to
 // another service is an edge from that service. Client spans that never
 // reach an instrumented server become edges to the peer they name
-// (peer.service, db.system, server.address). Being a sample, it sees which
+// (peer.service, server.address, db.system). Being a sample, it sees which
 // edges exist but not their rates.
 package tempo
 
@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/nilum-br/teia/internal/model"
 	"github.com/nilum-br/teia/internal/source"
+	"github.com/nilum-br/teia/internal/source/promapi"
 )
 
 type Config struct {
@@ -42,6 +44,12 @@ type Source struct {
 	name   string
 	cfg    Config
 	client *http.Client
+
+	mu sync.Mutex
+	// next is where the next round starts in the sorted service list: when
+	// MaxTraces cannot cover every service, rounds take turns instead of
+	// always sampling the same alphabetical head.
+	next int
 }
 
 func New(name string, cfg Config) *Source {
@@ -70,15 +78,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	if err != nil {
 		var denied *deniedError
 		if errors.As(err, &denied) {
-			obs.Degraded = true
-			obs.Message = "access denied"
-			obs.Findings = append(obs.Findings, model.Finding{
-				Rule: "tempo-denied", Kind: model.FindingPermission, Severity: model.SeverityCritical,
-				Subject: s.name, Title: fmt.Sprintf("Tempo refused teia (%s)", denied),
-				Fix: &model.Fix{Summary: "Give teia read access to Tempo's query API and pass the credential as a header (and X-Scope-OrgID for multi-tenant Tempo).",
-					Language: "yaml", Snippet: "headers:\n  Authorization: Bearer ${TEIA_TEMPO_TOKEN}\n  X-Scope-OrgID: your-tenant"},
-			})
-			return obs, nil
+			return s.denied(denied), nil
 		}
 		return obs, err
 	}
@@ -88,11 +88,25 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		return obs, nil
 	}
 
-	ids, err := s.traceIDs(ctx, services)
+	s.mu.Lock()
+	start := s.next % len(services)
+	s.mu.Unlock()
+	ids, searched, err := s.traceIDs(ctx, services, start)
 	if err != nil {
 		return obs, err
 	}
-	traces := s.fetch(ctx, ids)
+	s.mu.Lock()
+	s.next = (start + searched) % len(services)
+	s.mu.Unlock()
+
+	traces, failed, fetchErr := s.fetch(ctx, ids)
+	if failed > 0 && failed == len(ids) {
+		var denied *deniedError
+		if errors.As(fetchErr, &denied) {
+			return s.denied(denied), nil
+		}
+		return obs, fmt.Errorf("fetching traces: all %d failed, first %w", failed, fetchErr)
+	}
 	edges := map[string]*source.EdgeObservation{}
 	self := map[string]bool{}
 	targets := map[string]model.NodeKind{}
@@ -116,8 +130,25 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	for _, k := range keys {
 		obs.Edges = append(obs.Edges, *edges[k])
 	}
-	obs.Message = fmt.Sprintf("sampled %d traces from %d services", len(traces), len(services))
+	obs.Message = fmt.Sprintf("sampled %d traces from %d services", len(traces), searched)
+	if searched < len(services) {
+		obs.Message = fmt.Sprintf("sampled %d traces from %d of %d services (the others are next)", len(traces), searched, len(services))
+	}
+	if failed > 0 {
+		obs.Degraded = true
+		obs.Message += fmt.Sprintf("; %d of %d traces could not be fetched, first %v", failed, len(ids), fetchErr)
+	}
 	return obs, nil
+}
+
+func (s *Source) denied(err *deniedError) source.Observation {
+	return source.Observation{Degraded: true, Message: "access denied", Findings: []model.Finding{{
+		Rule: "tempo-denied", Kind: model.FindingPermission, Severity: model.SeverityCritical,
+		Subject: s.name, Title: fmt.Sprintf("Tempo refused teia (%s)", err),
+		Detail: fmt.Sprintf("teia only needs read access to the query API of %s.", promapi.RedactURL(s.cfg.URL)),
+		Fix: &model.Fix{Summary: "Give teia read access to Tempo's query API and pass the credential as a header (and X-Scope-OrgID for multi-tenant Tempo).",
+			Language: "yaml", Snippet: "headers:\n  Authorization: Bearer ${TEIA_TEMPO_TOKEN}\n  X-Scope-OrgID: your-tenant"},
+	}}}
 }
 
 // span is the part of an OTLP span teia needs.
@@ -174,6 +205,9 @@ func pairTrace(spans []span, edges map[string]*source.EdgeObservation, self map[
 	}
 }
 
+// peerOf names the callee of a client span. db.name and db.namespace are
+// not used: they name a database inside a server, and a database called
+// "orders" would merge with the orders service.
 func peerOf(a map[string]string) (string, model.NodeKind) {
 	system := first(a, "db.system.name", "db.system")
 	kind := model.KindUnknown
@@ -190,10 +224,32 @@ func peerOf(a map[string]string) (string, model.NodeKind) {
 	if p := first(a, "peer.service"); p != "" {
 		return p, kind
 	}
-	if host := first(a, "server.address", "net.peer.name", "db.namespace", "db.name"); host != "" {
-		return host, kind
+	if host := first(a, "server.address", "net.peer.name"); host != "" {
+		return hostID(host), kind
 	}
 	return system, kind
+}
+
+// hostID turns an address attribute into a node ID. An IP becomes an
+// address that inventory sources resolve to a workload; a cluster DNS name
+// is shortened the way the Prometheus presets do it
+// ("payments.shop.svc.cluster.local" is "payments"); other hosts such as
+// "api.stripe.com" are kept whole.
+func hostID(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if net.ParseIP(host) != nil {
+		return source.AddressID(host)
+	}
+	if i := strings.Index(host+".", ".svc."); i > 0 {
+		host = host[:i]
+		if j := strings.Index(host, "."); j > 0 {
+			host = host[:j]
+		}
+	}
+	return host
 }
 
 func protocolOf(client, server map[string]string) string {
@@ -226,7 +282,7 @@ func (s *Source) get(ctx context.Context, path string, params url.Values, out an
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return err
+		return promapi.RedactError(err)
 	}
 	req.Header.Set("Accept", "application/json")
 	for k, v := range s.cfg.Headers {
@@ -234,7 +290,7 @@ func (s *Source) get(ctx context.Context, path string, params url.Values, out an
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return err
+		return promapi.RedactError(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
@@ -277,33 +333,52 @@ func (s *Source) services(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-func (s *Source) traceIDs(ctx context.Context, services []string) ([]string, error) {
+// traceIDs searches recent traces service by service, from services[start]
+// and wrapping around. Each service gets an even share of MaxTraces (at
+// least one trace, at most TracesPerService) and the search stops once the
+// cap is reached, so a round stays within budget and the next one carries
+// on from the first service left out. It returns how many services it
+// searched.
+func (s *Source) traceIDs(ctx context.Context, services []string, start int) ([]string, int, error) {
+	per := max(1, min(s.cfg.MaxTraces/len(services), s.cfg.TracesPerService))
 	seen := map[string]bool{}
 	var ids []string
-	for _, svc := range services {
+	searched := 0
+	for searched < len(services) && len(ids) < s.cfg.MaxTraces {
+		svc := services[(start+searched)%len(services)]
+		searched++
+		limit := min(per, s.cfg.MaxTraces-len(ids))
 		params := s.window()
 		params.Set("q", fmt.Sprintf(`{ resource.service.name = %q }`, svc))
-		params.Set("limit", strconv.Itoa(s.cfg.TracesPerService))
+		params.Set("limit", strconv.Itoa(limit))
 		var resp struct {
 			Traces []struct {
 				TraceID string `json:"traceID"`
 			} `json:"traces"`
 		}
 		if err := s.get(ctx, "/api/search", params, &resp); err != nil {
-			return nil, fmt.Errorf("searching traces of %s: %w", svc, err)
+			return nil, searched, fmt.Errorf("searching traces of %s: %w", svc, err)
 		}
+		taken := 0
 		for _, t := range resp.Traces {
-			if !seen[t.TraceID] && len(ids) < s.cfg.MaxTraces {
+			if taken == limit {
+				break
+			}
+			if t.TraceID != "" && !seen[t.TraceID] {
 				seen[t.TraceID] = true
 				ids = append(ids, t.TraceID)
+				taken++
 			}
 		}
 	}
-	return ids, nil
+	return ids, searched, nil
 }
 
-func (s *Source) fetch(ctx context.Context, ids []string) [][]span {
+// fetch downloads the traces. It returns the ones it got, how many failed
+// and the first failure.
+func (s *Source) fetch(ctx context.Context, ids []string) ([][]span, int, error) {
 	out := make([][]span, len(ids))
+	errs := make([]error, len(ids))
 	sem := make(chan struct{}, 8)
 	var wg sync.WaitGroup
 	for i, id := range ids {
@@ -314,13 +389,27 @@ func (s *Source) fetch(ctx context.Context, ids []string) [][]span {
 			defer func() { <-sem }()
 			var raw otlpTrace
 			if err := s.get(ctx, "/api/v2/traces/"+url.PathEscape(id), nil, &raw); err != nil {
+				errs[i] = err
 				return
 			}
 			out[i] = raw.spans()
 		}()
 	}
 	wg.Wait()
-	return out
+	var traces [][]span
+	failed := 0
+	var first error
+	for i, err := range errs {
+		if err != nil {
+			failed++
+			if first == nil {
+				first = fmt.Errorf("trace %s: %w", ids[i], err)
+			}
+			continue
+		}
+		traces = append(traces, out[i])
+	}
+	return traces, failed, first
 }
 
 // otlpTrace accepts both Tempo trace formats: v2 {"trace":{"resourceSpans"}}

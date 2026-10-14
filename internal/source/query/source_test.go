@@ -56,3 +56,29 @@ func TestDeniedQueryIsAPermissionFinding(t *testing.T) {
 		t.Fatalf("unexpected: %+v", obs)
 	}
 }
+
+func TestURLPasswordStaysOutOfMessages(t *testing.T) {
+	denied := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer denied.Close()
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+
+	withPassword := func(u string) string { return strings.Replace(u, "http://", "http://teia:s3cret@", 1) }
+	cfg := func(u string) Config { return Config{Dialect: Loki, URL: u, Query: "up", From: "a", To: "b"} }
+
+	obs, err := New("q", cfg(withPassword(denied.URL))).Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if title := obs.Findings[0].Title; strings.Contains(title, "s3cret") || !strings.Contains(title, "teia:xxxxx@") {
+		t.Errorf("finding title leaks or drops the URL: %s", title)
+	}
+	for _, u := range []string{withPassword(closed.URL), "http://teia:s3cret@loki.example:port"} {
+		_, err := New("q", cfg(u)).Discover(context.Background())
+		if err == nil || strings.Contains(err.Error(), "s3cret") {
+			t.Errorf("error leaks the password: %v", err)
+		}
+	}
+}

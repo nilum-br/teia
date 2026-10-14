@@ -6,7 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -48,25 +48,91 @@ type Flow struct {
 	Reason   string `yaml:"reason,omitempty" json:"reason,omitempty"`
 }
 
-// Parse decodes every YAML document in data. Documents of other kinds
-// (e.g. a Backstage Component in the same file) are skipped.
+// Parse decodes the Flows documents in data. Everything else is skipped
+// without complaint, since flows files share repositories with other YAML:
+// documents of other kinds (a Backstage Component in the same file), lists
+// (Ansible), and text that does not parse at all (Helm templates) unless it
+// declares itself a Flows document.
 func Parse(data []byte) ([]Document, error) {
-	dec := yaml.NewDecoder(bytes.NewReader(data))
 	var docs []Document
-	for i := 0; ; i++ {
-		var doc Document
-		err := dec.Decode(&doc)
-		if errors.Is(err, io.EOF) {
-			return docs, nil
-		}
-		if err != nil {
-			return nil, fmt.Errorf("document %d: %w", i+1, err)
-		}
-		if doc.Kind != KindFlows {
+	for i, raw := range documents(data) {
+		var node yaml.Node
+		if err := yaml.Unmarshal(raw, &node); err != nil {
+			if flowsMarker.Match(raw) {
+				return nil, fmt.Errorf("document %d: %w", i+1, err)
+			}
 			continue
+		}
+		if !isFlows(&node) {
+			continue
+		}
+		var doc Document
+		if err := node.Decode(&doc); err != nil {
+			return nil, fmt.Errorf("document %d: %w", i+1, err)
 		}
 		docs = append(docs, doc)
 	}
+	return docs, nil
+}
+
+// flowsMarker finds a top-level "kind: Flows" or teia apiVersion line, which
+// tells a broken flows document from other YAML that does not parse.
+var flowsMarker = regexp.MustCompile(`(?m)^(kind:[ \t]*["']?` + KindFlows + `["']?[ \t]*(#.*)?\r?$|apiVersion:[ \t]*["']?teia\.nilum\.io/)`)
+
+// isFlows reports whether a parsed document is a mapping with kind: Flows.
+func isFlows(doc *yaml.Node) bool {
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return false
+	}
+	m := doc.Content[0].Content
+	for i := 0; i+1 < len(m); i += 2 {
+		if m[i].Value == "kind" {
+			return m[i+1].Kind == yaml.ScalarNode && m[i+1].Value == KindFlows
+		}
+	}
+	return false
+}
+
+// documents splits a YAML stream on its "---" and "..." markers, so that
+// one document that does not parse does not hide the others. Each document
+// is padded with the blank lines before it, keeping the line numbers of
+// parser errors those of the file. Comment-only stretches (a header before
+// the first "---") are not documents.
+func documents(data []byte) [][]byte {
+	var docs [][]byte
+	var cur []byte
+	start := 0 // line where cur starts
+	flush := func(next int) {
+		if !blank(cur) {
+			docs = append(docs, append(bytes.Repeat([]byte("\n"), start), cur...))
+		}
+		cur, start = nil, next
+	}
+	for i, line := range bytes.SplitAfter(data, []byte("\n")) {
+		text := bytes.TrimRight(line, "\r\n")
+		switch {
+		case bytes.Equal(text, []byte("---")) || bytes.HasPrefix(text, []byte("--- ")) || bytes.HasPrefix(text, []byte("---\t")):
+			flush(i)
+			cur = append(cur, line[len("---"):]...) // "--- |" starts a scalar on the marker line
+		case bytes.Equal(text, []byte("...")):
+			flush(i + 1)
+		default:
+			cur = append(cur, line...)
+		}
+	}
+	flush(0)
+	return docs
+}
+
+// blank reports whether doc holds only whitespace and comments.
+func blank(doc []byte) bool {
+	for _, line := range bytes.Split(doc, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) > 0 && line[0] != '#' {
+			return false
+		}
+	}
+	return true
 }
 
 // Validate returns every problem found in doc.

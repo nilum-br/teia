@@ -97,19 +97,20 @@ func (s *Source) presets(ctx context.Context) ([]*Preset, error) {
 	return found, nil
 }
 
+// redactedURL is the configured URL without its password, for messages and
+// findings.
+func (s *Source) redactedURL() string { return promapi.RedactURL(s.cfg.URL) }
+
 func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
-	var obs source.Observation
 	presets, err := s.presets(ctx)
 	if err != nil {
 		var denied *promapi.DeniedError
 		if errors.As(err, &denied) {
-			obs.Degraded = true
-			obs.Message = "access denied"
-			obs.Findings = append(obs.Findings, s.deniedFinding(denied))
-			return obs, nil
+			return s.denied(denied), nil
 		}
-		return obs, fmt.Errorf("prometheus at %s: %w", s.cfg.URL, err)
+		return source.Observation{}, fmt.Errorf("prometheus at %s: %w", s.redactedURL(), err)
 	}
+	var obs source.Observation
 	if len(presets) == 0 {
 		obs.Degraded = true
 		obs.Message = "no known communication metrics"
@@ -117,30 +118,57 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		return obs, nil
 	}
 
+	// Presets run independently: one family timing out or rejected must not
+	// hide the edges the others found.
 	window := promapi.Duration(s.cfg.Window)
-	var used, empty []string
+	var used, empty, failedNames, failures []string
+	var firstErr error
 	for _, p := range presets {
 		n, err := s.runPreset(ctx, p, window, &obs)
-		if err != nil {
-			return obs, fmt.Errorf("preset %s: %w", p.Name, err)
-		}
-		if n == 0 {
+		switch {
+		case err != nil:
+			if firstErr == nil {
+				firstErr = err
+			}
+			failedNames = append(failedNames, p.Name)
+			failures = append(failures, fmt.Sprintf("%s: %v", p.Name, err))
+		case n == 0:
 			empty = append(empty, p.Name)
-		} else {
+		default:
 			used = append(used, fmt.Sprintf("%s (%d)", p.Name, n))
 		}
 	}
-	obs.Message = "presets: " + strings.Join(used, ", ")
-	if len(empty) > 0 {
-		obs.Message += "; no traffic in window: " + strings.Join(empty, ", ")
-		if len(used) == 0 {
-			obs.Degraded = true
+	if len(failedNames) == len(presets) {
+		var denied *promapi.DeniedError
+		if errors.As(firstErr, &denied) {
+			return s.denied(denied), nil
 		}
+		return source.Observation{}, fmt.Errorf("prometheus at %s: every preset failed (%s); %s: %w",
+			s.redactedURL(), strings.Join(failedNames, ", "), failedNames[0], firstErr)
 	}
+
+	var parts []string
+	if len(used) > 0 {
+		parts = append(parts, "presets: "+strings.Join(used, ", "))
+	}
+	if len(empty) > 0 {
+		parts = append(parts, "no traffic in window: "+strings.Join(empty, ", "))
+	}
+	if len(failedNames) > 0 {
+		parts = append(parts, "failed: "+strings.Join(failedNames, ", "))
+		obs.Findings = append(obs.Findings, s.presetsFailedFinding(failures))
+	}
+	obs.Message = strings.Join(parts, "; ")
+	obs.Degraded = len(used) == 0 || len(failedNames) > 0
 	return obs, nil
 }
 
+func (s *Source) denied(err *promapi.DeniedError) source.Observation {
+	return source.Observation{Degraded: true, Message: "access denied", Findings: []model.Finding{s.deniedFinding(err)}}
+}
+
 // runPreset adds one preset's edges to obs and returns how many it found.
+// obs is only touched once every query of the preset has succeeded.
 func (s *Source) runPreset(ctx context.Context, p *Preset, window string, obs *source.Observation) (int, error) {
 	requests, err := s.client.Query(ctx, p.Requests(window))
 	if err != nil {
@@ -160,6 +188,7 @@ func (s *Source) runPreset(ctx context.Context, p *Preset, window string, obs *s
 	type acc struct {
 		edge          Edge
 		rate, failure float64
+		busiest       float64 // rate of the series the protocol comes from
 	}
 	edges := map[string]*acc{}
 	unnamed := map[string]float64{}
@@ -180,14 +209,19 @@ func (s *Source) runPreset(ctx context.Context, p *Preset, window string, obs *s
 		key := e.From + "->" + e.To
 		a, ok := edges[key]
 		if !ok {
-			a = &acc{edge: *e}
+			a = &acc{edge: *e, busiest: r.Value}
 			edges[key] = a
 		}
-		// Several series can describe one edge (both proxies of a mesh
-		// report it): keep the largest view, not the sum.
-		if r.Value > a.rate {
-			a.rate = r.Value
-			a.failure = failedBy[seriesKey(r.Metric)]
+		// Several series can make up one edge (HTTP and gRPC, two
+		// destination services). Each request is in only one of them, since
+		// the preset queries already drop the second reporter of a mesh
+		// with "or", so the edge's rates are their sum. The protocol is the
+		// one carrying most of the traffic.
+		a.rate += r.Value
+		a.failure += failedBy[seriesKey(r.Metric)]
+		if r.Value > a.busiest {
+			a.busiest = r.Value
+			a.edge.Protocol = e.Protocol
 		}
 		a.edge.FromSelf = a.edge.FromSelf || e.FromSelf
 		a.edge.ToSelf = a.edge.ToSelf || e.ToSelf
@@ -277,15 +311,31 @@ func (s *Source) deniedFinding(err *promapi.DeniedError) model.Finding {
 		Severity: model.SeverityCritical,
 		Subject:  s.name,
 		Title:    fmt.Sprintf("Prometheus refused teia's queries (%s)", err),
-		Detail:   fmt.Sprintf("teia only needs read access to the query API of %s.", s.cfg.URL),
+		Detail:   fmt.Sprintf("teia only needs read access to the query API of %s.", s.redactedURL()),
 		Fix: &model.Fix{
 			Summary:  "Give teia a read-only credential and pass it as a header (plus X-Scope-OrgID on multi-tenant Mimir/Cortex).",
 			Language: "yaml",
 			Snippet: `sources:
   prometheus:
-    - url: ` + s.cfg.URL + `
+    - url: ` + s.redactedURL() + `
       headers:
         Authorization: Bearer ${TEIA_PROMETHEUS_TOKEN}`,
+		},
+	}
+}
+
+// presetsFailedFinding explains the edges missing from a round where some
+// presets failed and others worked.
+func (s *Source) presetsFailedFinding(failures []string) model.Finding {
+	return model.Finding{
+		Rule:     "prometheus-preset-failed",
+		Kind:     model.FindingSource,
+		Severity: model.SeverityWarning,
+		Subject:  s.name,
+		Title:    "Some Prometheus queries failed, so the edges they cover are missing",
+		Detail:   "The other presets worked. Failed:\n" + strings.Join(failures, "\n"),
+		Fix: &model.Fix{
+			Summary: "On large setups the usual cause is the query timeout or sample limit (--query.timeout and --query.max-samples on Prometheus, the query limits on Thanos or Mimir); a shorter window makes the queries cheaper.",
 		},
 	}
 }

@@ -54,13 +54,20 @@ GROUP BY 1, 2`
 func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	obs := source.Observation{Explores: []string{s.cfg.Node}}
 
-	conn, err := pgx.Connect(ctx, s.cfg.DSN)
+	// pgx masks the password in the DSN it quotes on a parse error, but only
+	// as a best effort on malformed strings, so that error is not passed on.
+	cfg, err := pgx.ParseConfig(s.cfg.DSN)
 	if err != nil {
+		return obs, fmt.Errorf("the dsn of %s is not a valid connection string (URL or key=value; percent-encode special characters of a password in a URL)", s.cfg.Node)
+	}
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		err = redact(err, cfg.Password)
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && (pgErr.Code == "28P01" || pgErr.Code == "28000") {
 			obs.Degraded = true
 			obs.Message = "authentication failed"
-			obs.Findings = append(obs.Findings, s.loginFinding(pgErr.Message))
+			obs.Findings = append(obs.Findings, s.loginFinding(mask(pgErr.Message, cfg.Password)))
 			return obs, nil
 		}
 		return obs, fmt.Errorf("connecting to %s: %w", s.cfg.Node, err)
@@ -118,6 +125,31 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	}
 	return obs, nil
 }
+
+// redact masks the password wherever err's text quotes it. pgx leaves it
+// out of what it formats; this covers anything else on the way (a server or
+// proxy echoing it back), and keeps the error chain for errors.As.
+func redact(err error, password string) error {
+	if password == "" || !strings.Contains(err.Error(), password) {
+		return err
+	}
+	return &redactedError{msg: mask(err.Error(), password), err: err}
+}
+
+func mask(text, password string) string {
+	if password == "" {
+		return text
+	}
+	return strings.ReplaceAll(text, password, "xxxxx")
+}
+
+type redactedError struct {
+	msg string
+	err error
+}
+
+func (e *redactedError) Error() string { return e.msg }
+func (e *redactedError) Unwrap() error { return e.err }
 
 func (s *Source) privilegeFinding(user string, hidden map[string]int) model.Finding {
 	detail := fmt.Sprintf("teia is connected to %s as %q but PostgreSQL hides where other sessions come from.", s.cfg.Node, user)

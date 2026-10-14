@@ -2,6 +2,7 @@ package declared
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -25,17 +26,22 @@ func New(name string, paths []string) *Source {
 func (s *Source) Name() string { return s.name }
 func (s *Source) Type() string { return "declared" }
 
+// readFile is swapped by tests: as root, no file is unreadable.
+var readFile = os.ReadFile
+
 func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	var obs source.Observation
-	files, err := s.files()
+	files, bad, err := s.files()
 	if err != nil {
 		return obs, err
 	}
-	var bad []string
+	// A file that cannot be read or parsed is reported, not fatal: the
+	// other teams' flows files still count.
 	for _, file := range files {
-		data, err := os.ReadFile(file)
+		data, err := readFile(file)
 		if err != nil {
-			return obs, err
+			bad = append(bad, problem(file, err))
+			continue
 		}
 		docs, err := Parse(data)
 		if err != nil {
@@ -52,7 +58,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	}
 	if len(bad) > 0 {
 		obs.Degraded = true
-		obs.Message = fmt.Sprintf("%d invalid flows file(s)", len(bad))
+		obs.Message = fmt.Sprintf("%d unreadable or invalid flows file(s)", len(bad))
 		obs.Findings = append(obs.Findings, model.Finding{
 			Rule:     "invalid-flows-file",
 			Kind:     model.FindingSource,
@@ -103,25 +109,73 @@ func add(obs *source.Observation, doc Document) {
 	}
 }
 
-func (s *Source) files() ([]string, error) {
-	var files []string
+// skipDirs never hold a team's flows files, only other projects' YAML
+// (dependencies, build output, VCS and Terraform state), and can be huge.
+var skipDirs = map[string]bool{".git": true, "node_modules": true, "vendor": true, "dist": true, ".terraform": true}
+
+// maxFileSize skips generated manifests and API specs: a flows file is a
+// few kilobytes.
+const maxFileSize = 1 << 20
+
+// files lists the YAML files under the configured paths, and the
+// subdirectories that could not be read. Links inside the paths are not
+// followed, so the walk stays in the tree it was given; the configured paths
+// themselves may be links (a mounted volume).
+func (s *Source) files() (files, problems []string, err error) {
 	for _, root := range s.paths {
-		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		resolved, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			return nil, nil, fmt.Errorf("reading %s: %w", root, err)
+		}
+		err = filepath.WalkDir(resolved, func(path string, d fs.DirEntry, err error) error {
+			isRoot := path == resolved
+			// Report paths under the configured name, not the link target.
+			if rel, relErr := filepath.Rel(resolved, path); relErr == nil {
+				path = filepath.Join(root, rel)
+			}
 			if err != nil {
-				return err
+				if isRoot {
+					return err
+				}
+				problems = append(problems, problem(path, err))
+				return nil
 			}
 			if d.IsDir() {
+				if !isRoot && skipDirs[d.Name()] {
+					return filepath.SkipDir
+				}
 				return nil
+			}
+			if !d.Type().IsRegular() {
+				return nil // links, sockets, devices
 			}
 			switch strings.ToLower(filepath.Ext(path)) {
 			case ".yaml", ".yml":
+			default:
+				return nil
+			}
+			info, err := d.Info()
+			if err != nil {
+				problems = append(problems, problem(path, err))
+				return nil
+			}
+			if info.Size() <= maxFileSize {
 				files = append(files, path)
 			}
 			return nil
 		})
 		if err != nil {
-			return nil, fmt.Errorf("reading %s: %w", root, err)
+			return nil, nil, fmt.Errorf("reading %s: %w", root, err)
 		}
 	}
-	return files, nil
+	return files, problems, nil
+}
+
+// problem renders a file error once: fs errors already quote their path.
+func problem(path string, err error) string {
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		err = pathErr.Err
+	}
+	return fmt.Sprintf("%s: %v", path, err)
 }

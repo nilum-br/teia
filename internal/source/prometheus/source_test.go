@@ -12,8 +12,9 @@ import (
 	"github.com/nilum-br/teia/internal/source"
 )
 
-// fakeProm answers by matching a fragment of the query.
-func fakeProm(t *testing.T, answers map[string]string, status int) *httptest.Server {
+// fakeProm answers by matching a fragment of the query. Queries containing
+// one of the failing fragments get an HTTP 500.
+func fakeProm(t *testing.T, answers map[string]string, status int, failing ...string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if status != 0 {
@@ -21,6 +22,13 @@ func fakeProm(t *testing.T, answers map[string]string, status int) *httptest.Ser
 			return
 		}
 		q := r.URL.Query().Get("query")
+		for _, fragment := range failing {
+			if strings.Contains(q, fragment) {
+				w.WriteHeader(http.StatusInternalServerError)
+				fmt.Fprint(w, `{"status":"error","error":"query timed out in expression evaluation"}`)
+				return
+			}
+		}
 		for fragment, body := range answers {
 			if strings.Contains(q, fragment) {
 				fmt.Fprintf(w, `{"status":"success","data":{"resultType":"vector","result":[%s]}}`, body)
@@ -60,13 +68,16 @@ func TestAutoDetectsMixedMeshAndTraces(t *testing.T) {
 			{"metric":{"client":"user","server":"catalog","connection_type":"virtual_node"},"value":[0,"0.3"]},
 			{"metric":{"client":"web","server":"unknown","connection_type":"virtual_node"},"value":[0,"0.5"]}`,
 		"rate(traces_service_graph_request_failed_total": `{"metric":{"client":"web","server":"orders"},"value":[0,"1"]}`,
+		// What Prometheus answers to the "or" of the istio preset: the
+		// reporter label is aggregated away and the destination proxy's
+		// report of recommendations->inventory is dropped by "or", so only
+		// callers without a sidecar come from reporter="destination".
 		`response_code=~`: `
-			{"metric":{"reporter":"source","source_workload":"recommendations","destination_workload":"inventory","destination_service_name":"inventory","request_protocol":"http"},"value":[0,"0.2"]}`,
+			{"metric":{"source_workload":"recommendations","destination_workload":"inventory","destination_service_name":"inventory","request_protocol":"http"},"value":[0,"0.2"]}`,
 		`istio_requests_total{reporter="source"}[`: `
-			{"metric":{"reporter":"source","source_workload":"recommendations","destination_workload":"inventory","destination_service_name":"inventory","request_protocol":"http"},"value":[0,"2"]},
-			{"metric":{"reporter":"destination","source_workload":"recommendations","destination_workload":"inventory","destination_service_name":"inventory","request_protocol":"http"},"value":[0,"1.9"]},
-			{"metric":{"reporter":"destination","source_workload":"unknown","destination_workload":"recommendations","destination_service_name":"recommendations","request_protocol":"http"},"value":[0,"2"]},
-			{"metric":{"reporter":"source","source_workload":"inventory","destination_workload":"unknown","destination_service_name":"api.supplier.example","request_protocol":"http"},"value":[0,"0.4"]}`,
+			{"metric":{"source_workload":"recommendations","destination_workload":"inventory","destination_service_name":"inventory","request_protocol":"http"},"value":[0,"2"]},
+			{"metric":{"source_workload":"unknown","destination_workload":"recommendations","destination_service_name":"recommendations","request_protocol":"http"},"value":[0,"2"]},
+			{"metric":{"source_workload":"inventory","destination_workload":"unknown","destination_service_name":"api.supplier.example","request_protocol":"http"},"value":[0,"0.4"]}`,
 	}, 0)
 	defer srv.Close()
 
@@ -81,13 +92,13 @@ func TestAutoDetectsMixedMeshAndTraces(t *testing.T) {
 		}
 	}
 	if len(got) != 4 {
-		t.Errorf("want 4 edges (user, unknown and the mesh's double report do not add edges), got %d", len(got))
+		t.Errorf("want 4 edges (user and unknown do not add edges), got %d", len(got))
 	}
 	if e := got["web->orders"]; e.RequestRate != 4 || e.ErrorRate != 0.25 {
 		t.Errorf("web->orders rates: %+v", e)
 	}
 	if e := got["recommendations->inventory"]; e.RequestRate != 2 || e.ErrorRate != 0.1 {
-		t.Errorf("mesh edge should keep the largest report and its failures: %+v", e)
+		t.Errorf("mesh edge rates: %+v", e)
 	}
 	unknown := map[string]string{}
 	for _, u := range obs.UnknownCallers {
@@ -108,6 +119,80 @@ func TestAutoDetectsMixedMeshAndTraces(t *testing.T) {
 	}
 	if !strings.Contains(obs.Message, "servicegraph (2)") || !strings.Contains(obs.Message, "istio (2)") {
 		t.Errorf("message: %s", obs.Message)
+	}
+}
+
+// An edge made of several series is the sum of them: a healthy HTTP flow
+// must not hide a failing gRPC one between the same two workloads.
+func TestSeriesOfOneEdgeAreSummed(t *testing.T) {
+	srv := fakeProm(t, map[string]string{
+		`istio_requests_total{reporter="source"}[`: `
+			{"metric":{"source_workload":"orders","destination_workload":"payments","destination_service_name":"payments","request_protocol":"http"},"value":[0,"10"]},
+			{"metric":{"source_workload":"orders","destination_workload":"payments","destination_service_name":"payments","request_protocol":"grpc"},"value":[0,"2"]}`,
+		`response_code=~`: `
+			{"metric":{"source_workload":"orders","destination_workload":"payments","destination_service_name":"payments","request_protocol":"grpc"},"value":[0,"2"]}`,
+	}, 0)
+	defer srv.Close()
+	obs, err := New("prometheus", Config{URL: srv.URL, Presets: []string{"istio"}}).Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := edges(obs)["orders->payments"]
+	if e.RequestRate != 12 || e.ErrorRate != 2.0/12 || e.Protocol != "http" {
+		t.Errorf("want 12 req/s, 1/6 errors over http (the busiest series), got %+v", e)
+	}
+}
+
+func TestFailingPresetKeepsTheOthers(t *testing.T) {
+	srv := fakeProm(t, map[string]string{
+		"rate(traces_service_graph_request_total": `{"metric":{"client":"web","server":"orders"},"value":[0,"4"]}`,
+	}, 0, "istio_requests_total")
+	defer srv.Close()
+	obs, err := New("prometheus", Config{URL: srv.URL, Presets: []string{"servicegraph", "istio"}}).Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := edges(obs)["web->orders"]; !ok {
+		t.Errorf("servicegraph edges lost: %+v", obs.Edges)
+	}
+	if !obs.Degraded || !strings.Contains(obs.Message, "servicegraph (1)") || !strings.Contains(obs.Message, "failed: istio") {
+		t.Errorf("want a degraded round naming the failed preset, got %+v", obs)
+	}
+	if len(obs.Findings) != 1 || obs.Findings[0].Rule != "prometheus-preset-failed" || !strings.Contains(obs.Findings[0].Detail, "query timed out") {
+		t.Errorf("findings: %+v", obs.Findings)
+	}
+}
+
+func TestEveryPresetFailingIsAnError(t *testing.T) {
+	srv := fakeProm(t, nil, 0, "rate(")
+	defer srv.Close()
+	_, err := New("prometheus", Config{URL: srv.URL, Presets: []string{"servicegraph", "istio"}}).Discover(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "every preset failed (servicegraph, istio)") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestURLPasswordStaysOutOfMessages(t *testing.T) {
+	withPassword := func(u string) string { return strings.Replace(u, "http://", "http://teia:s3cret@", 1) }
+
+	denied := fakeProm(t, nil, http.StatusForbidden)
+	defer denied.Close()
+	obs, err := New("prometheus", Config{URL: withPassword(denied.URL)}).Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := obs.Findings[0]
+	if text := f.Title + f.Detail + f.Fix.Snippet; strings.Contains(text, "s3cret") || !strings.Contains(text, "teia:xxxxx@") {
+		t.Errorf("finding leaks or drops the URL: %+v %+v", f, f.Fix)
+	}
+
+	failing := fakeProm(t, nil, 0, "")
+	defer failing.Close()
+	for _, u := range []string{withPassword(failing.URL), "http://teia:s3cret@prom.example:port"} {
+		_, err = New("prometheus", Config{URL: u, Presets: []string{"istio"}}).Discover(context.Background())
+		if err == nil || strings.Contains(err.Error(), "s3cret") {
+			t.Errorf("error leaks the password: %v", err)
+		}
 	}
 }
 
