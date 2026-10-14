@@ -1,0 +1,94 @@
+# Weekly, grouped dependency updates. Minor and patch updates arrive as one
+# pull request per ecosystem; major updates arrive one by one so each can be
+# reviewed (or closed) on its own. Security updates are not limited by this.
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directories:
+      - /
+      - /lab/demo
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps(go)
+    groups:
+      go:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /plugins/grafana
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    # Leave new npm releases a week to be noticed (or pulled) first.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: deps(panel)
+    groups:
+      # The panel builds against one Grafana release: move every package together.
+      grafana:
+        patterns: ["@grafana/*"]
+      dev:
+        dependency-type: development
+        update-types: [minor, patch]
+      runtime:
+        dependency-type: production
+        update-types: [minor, patch]
+    ignore:
+      # Major versions of these follow Grafana and @grafana/create-plugin, not npm.
+      - dependency-name: react
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react-dom
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      # Types for the Node.js version CI runs (24).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps(ci)
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /lab/demo
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps(docker)
+    groups:
+      images:
+        patterns: ["*"]
+
+  - package-ecosystem: docker-compose
+    directory: /lab
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps(lab)
+    groups:
+      lab:
+        update-types: [minor, patch]

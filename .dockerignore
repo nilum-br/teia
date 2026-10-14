@@ -1,0 +1,39 @@
+# Build context for ./Dockerfile and lab/demo/Dockerfile, which both build
+# from the repository root. They need go.mod, go.sum, the Go sources (with
+# internal/api/ui, which is embedded), lab/demo and certs/.
+
+# VCS, CI and local assistant state. Without .git the Go build skips VCS
+# stamping; the version comes from the VERSION build argument.
+.git
+.github
+.claude
+
+# Build output and caches
+bin/
+dist/
+build/
+**/node_modules
+**/coverage
+**/.eslintcache
+
+# The Grafana panel is built with npm, outside these images
+plugins/grafana/dist
+plugins/grafana/src/teia/teia-ui.js
+
+# Documentation
+docs/
+/*.md
+
+# Extra CA certificates for TLS-inspecting proxies: only *.crt is used, and
+# the folder itself must exist for COPY certs/.
+certs/*
+!certs/.gitkeep
+!certs/*.crt
+
+# Local overrides and editors
+**/.env
+**/*.local.yaml
+**/.idea
+**/.vscode
+**/.DS_Store
+**/Thumbs.db
