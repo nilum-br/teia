@@ -1,0 +1,8 @@
+teia
+Copyright 2026 The teia authors (Nilum and contributors)
+
+This product includes software developed at Nilum (https://nilum.com.br).
+
+The built-in UI bundles Cytoscape.js (https://js.cytoscape.org),
+Copyright (c) 2016-2026 The Cytoscape Consortium, MIT License
+(internal/api/ui/vendor/cytoscape.LICENSE).

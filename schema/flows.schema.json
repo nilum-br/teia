@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/nilum-br/teia/main/schema/flows.schema.json",
+  "title": "teia Flows",
+  "description": "Intended outgoing communication of one service. Lives in the service repository, usually next to catalog-info.yaml.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "spec"],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": { "const": "teia.nilum.io/v1alpha1" },
+    "kind": { "const": "Flows" },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "required": ["owner"],
+      "additionalProperties": false,
+      "properties": {
+        "owner": {
+          "type": "string",
+          "description": "The calling side. A Backstage entity ref (component:default/orders) or a plain name.",
+          "examples": ["component:default/orders"]
+        },
+        "kind": { "$ref": "#/$defs/nodeKind" },
+        "egress": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/flow" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nodeKind": {
+      "enum": ["service", "database", "cache", "queue", "external", "unknown"]
+    },
+    "flow": {
+      "type": "object",
+      "required": ["to"],
+      "additionalProperties": false,
+      "properties": {
+        "to": {
+          "type": "string",
+          "description": "The callee: component:..., resource:..., external:host or a plain name.",
+          "examples": ["component:default/payments", "resource:default/orders-db", "external:api.stripe.com"]
+        },
+        "kind": { "$ref": "#/$defs/nodeKind" },
+        "protocol": {
+          "type": "string",
+          "examples": ["http", "grpc", "postgresql", "redis", "kafka"]
+        },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "reason": {
+          "type": "string",
+          "description": "Why this communication exists. Reviewers and firewall teams read this."
+        }
+      }
+    }
+  }
+}

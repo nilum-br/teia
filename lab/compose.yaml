@@ -1,0 +1,164 @@
+# teia lab: a small shop with the blind spots real platforms have.
+#
+#   loadgen -> web -> orders -> payments -> payment-gateway (third party, no telemetry)
+#                  |        \-> orders-db (postgres)  <- legacy-reports (no telemetry)
+#                  \-> catalog -> catalog-cache (redis)
+#
+# Run from the repository root:  docker compose -f lab/compose.yaml up -d --build
+name: teia-lab
+
+x-demo: &demo
+  image: teia-lab/demo:dev
+  build:
+    context: ..
+    dockerfile: lab/demo/Dockerfile
+  restart: unless-stopped
+  labels:
+    teia.kind: service
+
+x-otel: &otel
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+
+x-infra: &infra
+  restart: unless-stopped
+  labels:
+    teia.ignore: "true"
+
+services:
+  # --- the shop -------------------------------------------------------------
+  web:
+    <<: *demo
+    environment:
+      <<: *otel
+      SERVICE_NAME: web
+      CALLS: orders=http://orders:8080/,catalog=http://catalog:8080/
+
+  orders:
+    <<: *demo
+    environment:
+      <<: *otel
+      SERVICE_NAME: orders
+      CALLS: payments=http://payments:8080/
+      POSTGRES_DSN: postgres://orders:orders@orders-db:5432/orders?sslmode=disable
+      POSTGRES_PEER: orders-db
+    depends_on:
+      orders-db: { condition: service_healthy }
+
+  catalog:
+    <<: *demo
+    environment:
+      <<: *otel
+      SERVICE_NAME: catalog
+      REDIS_ADDR: catalog-cache:6379
+      REDIS_PEER: catalog-cache
+
+  payments:
+    <<: *demo
+    environment:
+      <<: *otel
+      SERVICE_NAME: payments
+      CALLS: payment-gateway=http://payment-gateway:8080/
+      ERROR_RATE: "0.05"
+
+  # A third party we do not control: answers HTTP, emits no telemetry.
+  payment-gateway:
+    <<: *demo
+    labels:
+      teia.kind: external
+    environment:
+      SERVICE_NAME: payment-gateway
+      TELEMETRY: "off"
+
+  # The job nobody instrumented. Only the database knows it exists.
+  legacy-reports:
+    <<: *demo
+    environment:
+      SERVICE_NAME: legacy-reports
+      ROLE: legacy
+      TELEMETRY: "off"
+      INTERVAL: 5s
+      POSTGRES_DSN: postgres://reports:reports@orders-db:5432/orders?sslmode=disable
+    depends_on:
+      orders-db: { condition: service_healthy }
+
+  loadgen:
+    <<: *demo
+    labels:
+      teia.ignore: "true"
+    environment:
+      <<: *otel
+      SERVICE_NAME: loadgen
+      ROLE: loadgen
+      TARGET: http://web:8080/
+      INTERVAL: 500ms
+
+  orders-db:
+    image: postgres:18.6-alpine
+    restart: unless-stopped
+    labels:
+      teia.kind: database
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: orders
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "orders"]
+      interval: 3s
+      retries: 20
+
+  catalog-cache:
+    image: redis:8.10.2-alpine
+    restart: unless-stopped
+    labels:
+      teia.kind: cache
+
+  # --- observability --------------------------------------------------------
+  otel-collector:
+    <<: *infra
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+
+  prometheus:
+    <<: *infra
+    image: prom/prometheus:v3.15.0
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "${PROMETHEUS_PORT:-9480}:9090"
+
+  grafana:
+    <<: *infra
+    image: grafana/grafana:13.2.4
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_PLUGINS_PREINSTALL_SYNC: yesoreyeram-infinity-datasource@4.1.1
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/teia.json
+      # Extra CAs from ../certs for networks with TLS inspection (plugin download).
+      SSL_CERT_DIR: /etc/ssl/certs:/etc/teia-certs
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ../certs:/etc/teia-certs:ro
+    ports:
+      - "${GRAFANA_PORT:-3480}:3000"
+
+  # --- teia -----------------------------------------------------------------
+  teia:
+    <<: *infra
+    image: teia-lab/teia:dev
+    build:
+      context: ..
+    # Root only to read the Docker socket in the lab; see docs/advisor.md.
+    user: "0:0"
+    environment:
+      TEIA_PG_PASSWORD: teia
+    volumes:
+      - ./teia.yaml:/etc/teia/teia.yaml:ro
+      - ./flows:/etc/teia/flows:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "${TEIA_PORT:-8480}:8080"

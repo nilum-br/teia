@@ -1,0 +1,20 @@
+apiVersion: teia.nilum.io/v1alpha1
+kind: Flows
+metadata:
+  name: orders
+spec:
+  owner: component:default/orders
+  egress:
+    - to: component:default/payments
+      protocol: http
+      port: 8080
+      reason: charge the customer
+    - to: resource:default/orders-db
+      kind: database
+      protocol: postgresql
+      port: 5432
+      reason: persist orders
+    # Declared but never deployed in the lab: teia reports it as stale.
+    - to: component:default/notifications
+      protocol: http
+      reason: e-mail the receipt

@@ -1,0 +1,17 @@
+# Build output
+/bin/
+/dist/
+
+# Extra CA certificates are machine-specific (corporate TLS inspection). Never commit them.
+/certs/*
+!/certs/.gitkeep
+
+# Local overrides
+*.local.yaml
+.env
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

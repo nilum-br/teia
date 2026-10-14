@@ -1,0 +1,14 @@
+listen: :8080
+interval: 15s
+sources:
+  declared:
+    paths: [/etc/teia/flows]
+  servicegraph:
+    prometheusURL: http://prometheus:9090
+    window: 2m
+  docker:
+    socket: /var/run/docker.sock
+    project: teia-lab
+  postgres:
+    - node: orders-db
+      dsn: postgres://teia:${TEIA_PG_PASSWORD}@orders-db:5432/orders?sslmode=disable

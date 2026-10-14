@@ -1,0 +1,15 @@
+apiVersion: teia.nilum.io/v1alpha1
+kind: Flows
+metadata:
+  name: web
+spec:
+  owner: component:default/web
+  egress:
+    - to: component:default/orders
+      protocol: http
+      port: 8080
+      reason: place and list orders
+    - to: component:default/catalog
+      protocol: http
+      port: 8080
+      reason: show products

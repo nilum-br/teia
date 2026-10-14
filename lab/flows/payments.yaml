@@ -1,0 +1,10 @@
+apiVersion: teia.nilum.io/v1alpha1
+kind: Flows
+metadata:
+  name: payments
+spec:
+  owner: component:default/payments
+  egress:
+    - to: external:payment-gateway
+      protocol: http
+      reason: card processor (third party)

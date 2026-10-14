@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nilum-br/teia/main/schema/flows.schema.json
+#
+# A flows document can live in the same file as the Backstage entity:
+# teia skips documents of other kinds.
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: checkout
+  annotations:
+    teia.nilum.io/node-id: checkout
+spec:
+  type: service
+  lifecycle: production
+  owner: team-payments
+---
+apiVersion: teia.nilum.io/v1alpha1
+kind: Flows
+metadata:
+  name: checkout
+spec:
+  owner: component:default/checkout
+  egress:
+    - to: component:default/payments-api
+      protocol: grpc
+      port: 443
+      reason: authorize the payment
+    - to: resource:default/checkout-db
+      kind: database
+      protocol: postgresql
+      port: 5432
+      reason: persist carts
+    - to: external:api.stripe.com
+      protocol: https
+      port: 443
+      reason: card processing
