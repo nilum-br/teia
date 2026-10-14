@@ -11,10 +11,11 @@ permissions:
   contents: read
 
 concurrency:
-  # A new push to a pull request cancels its previous run. Runs on main and
-  # release calls are never cancelled. The "ci-" prefix keeps this group apart
-  # from the release workflow's own group when it calls this workflow.
-  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  # A new push to a pull request cancels its previous run (one group per PR).
+  # Pushes to main and release calls get a group per ref and commit, so a tag
+  # on a commit main is still testing never waits on, or cancels, that run.
+  # The "ci-" prefix keeps this apart from the release workflow's own group.
+  group: ci-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
