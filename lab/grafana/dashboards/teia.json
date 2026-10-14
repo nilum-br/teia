@@ -40,7 +40,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "http://teia:8080/api/v1/grafana/nodes",
+          "url": "/api/v1/grafana/nodes",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -58,7 +58,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "http://teia:8080/api/v1/grafana/edges",
+          "url": "/api/v1/grafana/edges",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -76,7 +76,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "http://teia:8080/api/v1/grafana/findings",
+          "url": "/api/v1/grafana/findings",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -94,7 +94,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "http://teia:8080/api/v1/grafana/sources",
+          "url": "/api/v1/grafana/sources",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -112,7 +112,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "http://teia:8080/api/v1/coverage",
+          "url": "/api/v1/coverage",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -130,7 +130,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "http://teia:8080/api/v1/grafana/changes",
+          "url": "/api/v1/grafana/changes",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -184,7 +184,7 @@
               "source": "url",
               "parser": "backend",
               "format": "node-graph-nodes",
-              "url": "http://teia:8080/api/v1/grafana/nodes",
+              "url": "/api/v1/grafana/nodes",
               "url_options": {
                 "method": "GET",
                 "data": ""
@@ -202,7 +202,7 @@
               "source": "url",
               "parser": "backend",
               "format": "node-graph-edges",
-              "url": "http://teia:8080/api/v1/grafana/edges",
+              "url": "/api/v1/grafana/edges",
               "url_options": {
                 "method": "GET",
                 "data": ""
@@ -241,7 +241,7 @@
               "source": "url",
               "parser": "backend",
               "format": "table",
-              "url": "http://teia:8080/api/v1/grafana/findings",
+              "url": "/api/v1/grafana/findings",
               "url_options": {
                 "method": "GET",
                 "data": ""
@@ -298,19 +298,18 @@
   "templating": {
     "list": [
       {
-        "type": "custom",
+        "type": "textbox",
         "name": "journey",
         "label": "Journey",
-        "query": "Whole map : *, checkout, browse, reporting, partner-feed",
+        "query": "",
         "current": {
-          "text": "Whole map",
-          "value": "*",
-          "selected": true
+          "text": "",
+          "value": ""
         },
         "options": [],
-        "hide": 0,
+        "hide": 2,
         "skipUrlSync": false,
-        "description": "The journey the teia panel shows: services carry it in their journey label"
+        "description": "The journey the teia panel opens on, for links such as ?var-journey=checkout. Viewers pick journeys on the panel's own bar, from what the services carry."
       }
     ]
   }

@@ -29,14 +29,17 @@ Until the plugin is signed and in the catalog:
 allow_loading_unsigned_plugins = nilum-teia-panel
 ```
 
-and copy `dist/` to `<grafana plugins dir>/nilum-teia-panel`.
+and copy `dist/` to `<grafana plugins dir>/nilum-teia-panel`. Grafana lets browsers keep plugin files for an hour
+under the plugin's version, so a rebuild with the same version needs a hard reload (Ctrl+Shift+R); the lab stamps
+each build with its own version instead.
 
 ## Feeding it
 
 **Dashboard queries** (recommended, and the only way when teia has `auth.token`). Grafana's server calls teia, so
 the URL is one Grafana reaches (`http://teia:8080` in the lab) and the token stays on the server. Any JSON data
-source works; the lab's dashboard (`lab/grafana/dashboards/teia.json`) uses Infinity. One query per frame, with
-these refIds:
+source works; the lab's dashboard (`lab/grafana/dashboards/teia.json`) uses Infinity, with teia's address set once as
+the data source's URL and paths only in the queries, so the dashboard imports into any Grafana. One query per frame,
+with these refIds:
 
 | refId | teia endpoint |
 |---|---|
@@ -64,7 +67,8 @@ then follows `stream` (Server-Sent Events), so:
 
 | Option | What it does |
 |---|---|
-| Journey | Show one journey instead of the whole map: a value of the `journey` label (`checkout`), any label (`team=payments`), or what a service depends on (`from:orders`). Takes dashboard variables such as `${journey}`; "All" or an unresolved variable shows the whole map. See [journeys](../../docs/journeys.md). |
+| Journey | Open on one journey instead of the whole map: a journey name (`checkout`), any label (`team=payments`), or what a service depends on (`from:orders`). Takes dashboard variables such as `${journey}`; "All" or an unresolved variable shows the whole map. Viewers pick journeys and any other filter on the panel itself. See [journeys and filters](../../docs/journeys.md). |
+| Journey label | The label naming journeys. Empty: the first your services carry of `journey`, `app.kubernetes.io/part-of` and `system`. |
 | Values on lines | Traffic and p95 latency on every line; an amber or red line shows why instead. |
 | Group by label | Initial grouping, for example `team`, `system` or `k8s.namespace`. Viewers can change it. |
 | Animate traffic | Dots travel along each communication at the speed of its traffic; red dots are errors. |

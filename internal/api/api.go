@@ -5,11 +5,14 @@ package api
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/nilum-br/teia/internal/export"
 	"github.com/nilum-br/teia/internal/model"
@@ -132,18 +135,46 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 }
 
 // uiHandler serves the built-in UI: the embedded copy, or files when set.
-// Files from disk are sent with "Cache-Control: no-cache", so the browser
-// revalidates them on every reload instead of keeping a stale teia-ui.js.
+// Both go with "Cache-Control: no-cache": the browser asks again on every
+// load, so a new teia never runs an old teia-ui.js. Embedded files carry
+// their content hash as ETag (they have no modification time), so a file
+// that did not change costs a 304, not a download.
 func uiHandler(files fs.FS) http.Handler {
+	var etags map[string]string
 	if files == nil {
-		embedded, _ := fs.Sub(uiFiles, "ui")
-		return http.FileServerFS(embedded)
+		files, _ = fs.Sub(uiFiles, "ui")
+		etags = contentETags(files)
 	}
 	fileServer := http.FileServerFS(files)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		if name == "" || strings.HasSuffix(name, "/") {
+			name += "index.html"
+		}
+		if tag, ok := etags[name]; ok {
+			w.Header().Set("ETag", tag)
+		}
 		fileServer.ServeHTTP(w, r)
 	})
+}
+
+// contentETags hashes every file of fsys, keyed by its path.
+func contentETags(fsys fs.FS) map[string]string {
+	etags := map[string]string{}
+	_ = fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := fs.ReadFile(fsys, path)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(b)
+		etags[path] = `"` + hex.EncodeToString(sum[:10]) + `"`
+		return nil
+	})
+	return etags
 }
 
 // writeJSON encodes v before sending anything, so a value JSON cannot

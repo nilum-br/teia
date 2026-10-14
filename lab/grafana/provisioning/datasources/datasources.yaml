@@ -24,5 +24,6 @@ datasources:
     uid: teia
     type: yesoreyeram-infinity-datasource
     access: proxy
+    url: http://teia:8080
     jsonData:
       allowedHosts: ["http://teia:8080"]

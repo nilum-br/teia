@@ -70,11 +70,11 @@ The map, in Grafana (`nilum-teia-panel`) or in teia's own UI, is the same compon
 - **Live traffic:** dots travel along each communication at its speed, and red dots are errors. Updates arrive live (Server-Sent Events, or the dashboard refresh in Grafana).
 - **Drift and visibility:** dashed means undeclared, dotted means declared but not seen; card borders say how first-hand teia's view is.
 - **One [icon library](docs/icons.md):** microservices, relational and document databases, caches, Kafka streams, queues, gateways, jobs, external SaaS. The technology is detected from spans, images or labels.
-- **Journeys:** show one journey on its own (`journey=checkout` on the services it goes through): what it calls, stubs where it enters and leaves, and why it is red. See [docs/journeys.md](docs/journeys.md).
+- **Journeys and filters:** show one journey on its own, in a frame, with ports where it is entered and where it leaves, and why it is red. teia finds the journey label your services already carry (`journey`, `app.kubernetes.io/part-of` or `system`). The same Filter narrows the map by any label, health, kind of component or technology. See [docs/journeys.md](docs/journeys.md).
 - **Values on the lines:** each line says its traffic and p95 (`1.8/s · 9.5 ms`); an amber or red line says why instead. `V` toggles them.
 - **Labels:** group by `team`, `system`, `k8s.namespace` or any label; search with `team:checkout`, `tech:kafka`, `journey=checkout`.
 - **Next steps, live feed, export** (PNG, SVG, flow matrix CSV for firewall requests).
-- **Keyboard and screen readers:** every card and control is reachable with Tab; `F` fits, `/` searches, `J` picks a journey, `V` toggles values on lines, `Space` toggles the animation, which also follows the reduced-motion setting.
+- **Keyboard and screen readers:** every card and control is reachable with Tab; `F` fits, `/` searches, `J` opens the filters, `V` toggles values on lines, `Space` toggles the animation, which also follows the reduced-motion setting.
 
 | Amber or red says why, and where it comes from | Group by any label, in dark or light |
 |---|---|
@@ -82,9 +82,9 @@ The map, in Grafana (`nilum-teia-panel`) or in teia's own UI, is the same compon
 | **A queue says how much waits and how far behind** | **A cache or database says how full it is** |
 | ![email-worker to order-events is amber: 1.5k messages waiting, 75 s behind, from kafka_exporter](docs/assets/screenshots/teia-queue.png) | ![catalog-cache: memory against maxmemory and clients against maxclients, from redis_exporter](docs/assets/screenshots/teia-cache-light.png) |
 
-Views are shareable links: `?journey=checkout`, `?group=team`, `?q=kind:database`, `?select=orders-db`, `?theme=light`, `?flow=1`, `?values=0`, `?legend=icons`.
+Views are shareable links: `?journey=checkout`, `?filter=k8s.namespace:shop,health:failing`, `?group=team`, `?q=kind:database`, `?select=orders-db`, `?theme=light`, `?flow=1`, `?values=0`, `?legend=icons`.
 
-![The checkout journey on its own, with catalog and recommendations as stubs where it leaves, and its headline: orders → payments, errors](docs/assets/screenshots/teia-journey.png)
+![The checkout journey in its frame, its datastores and gateways in a lane on the right, a port where it leaves to browse, and its headline: orders → payments, errors](docs/assets/screenshots/teia-journey.png)
 
 <p align="center"><img src="docs/assets/icon-library.svg" alt="The teia icon library: one pictogram per kind of component" width="820"></p>
 
@@ -127,6 +127,78 @@ docker compose -f lab/compose.yaml run --rm e2e                     # the end-to
 ```
 
 Behind a TLS-inspecting proxy? Drop its CA as a `.crt` in `certs/` before building.
+
+## Use it in your Grafana
+
+Four steps, nothing to change in your services. teia reads the Prometheus, Tempo and Loki you already run. The
+panel then finds journeys, teams and namespaces in the labels your workloads already carry.
+
+**1. Run teia where it reaches your telemetry.** `teia detect` probes what you give it and writes a starting config:
+
+```sh
+docker build -t teia .     # releases will ship ghcr.io/nilum-br/teia
+docker run --rm teia detect --prometheus http://prometheus:9090 --tempo http://tempo:3200 --loki http://loki:3100 > teia.yaml
+docker run -d --name teia -p 8480:8080 -v "$PWD/teia.yaml:/etc/teia/teia.yaml:ro" teia
+```
+
+Add `--kubernetes` or `--docker` to `detect` so teia also knows the workloads that emit nothing. On a cluster, run it
+as a Deployment with a read-only ServiceAccount. Open http://localhost:8480: if the map is there, teia is reading
+your telemetry.
+
+**2. Install the panel plugin** (`nilum-teia-panel`). Until it is signed and in the catalog, build it and load it as
+an unsigned plugin:
+
+```sh
+docker run --rm --user "$(id -u):$(id -g)" -e npm_config_cache=/tmp/npm -v "$PWD:/repo" -w /repo/plugins/grafana node:24 sh -c "npm ci && npm run build"
+cp -r plugins/grafana/dist /var/lib/grafana/plugins/nilum-teia-panel
+```
+
+```ini
+# grafana.ini (or GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=nilum-teia-panel)
+[plugins]
+allow_loading_unsigned_plugins = nilum-teia-panel
+```
+
+Restart Grafana. With the Helm chart, mount `dist/` at the same path, or, from the first release on, list the zip
+under `plugins:`.
+
+**3. Add a data source that reads teia.** Install the [Infinity](https://grafana.com/grafana/plugins/yesoreyeram-infinity-datasource/)
+data source and give teia's address once, here. Grafana's server calls teia, so use an address Grafana reaches:
+
+```yaml
+# provisioning/datasources/teia.yaml
+apiVersion: 1
+datasources:
+  - name: teia
+    uid: teia                      # the dashboard looks for this uid
+    type: yesoreyeram-infinity-datasource
+    access: proxy
+    url: http://teia:8080          # your teia
+    jsonData:
+      allowedHosts: ["http://teia:8080"]
+      # with auth.token on teia:
+      # httpHeaderName1: Authorization
+    # secureJsonData:
+    #   httpHeaderValue1: Bearer ${TEIA_TOKEN}
+```
+
+**4. Import the dashboard.** In Grafana, go to Dashboards → New → Import and upload
+[`lab/grafana/dashboards/teia.json`](lab/grafana/dashboards/teia.json). Its queries hold paths only, so it works
+against any teia the data source points to.
+
+That is it. The **Filter** on the panel lists your journeys, namespaces, teams, health and technologies from the data
+itself. Panel options set where it opens:
+
+- **Journey** takes a value or a variable, such as `${journey}`; links like `?var-journey=checkout` work.
+- **Journey label** names another label, when yours is not `journey`, `app.kubernetes.io/part-of` or `system`.
+- **Group by label** sets the first grouping.
+
+More in [plugins/grafana](plugins/grafana/README.md), including a direct mode that streams from teia without
+queries.
+
+Rebuilt the plugin without changing its version, and Grafana still shows the old panel? Grafana lets browsers keep
+plugin files for an hour under their version: reload with Ctrl+Shift+R. Releases change the version, so this only
+happens with local builds. The lab stamps each build with its own version.
 
 ## Install
 

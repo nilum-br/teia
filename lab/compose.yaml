@@ -363,6 +363,9 @@ services:
         cat /repo/certs/*.crt > /tmp/extra-ca.pem 2>/dev/null || true
         export NODE_EXTRA_CA_CERTS=/tmp/extra-ca.pem
         npm ci --no-audit --no-fund && npm run build
+        # Grafana keeps a plugin's files for an hour under its version: each
+        # lab build gets its own, so a browser never runs the build before.
+        node -e "const f='dist/plugin.json',p=JSON.parse(require('fs').readFileSync(f));p.info.version+='-lab.'+Date.now().toString(36);require('fs').writeFileSync(f,JSON.stringify(p,null,2))"
     volumes:
       - ..:/repo
       - teia-panel-node-modules:/repo/plugins/grafana/node_modules

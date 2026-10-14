@@ -54,11 +54,11 @@ O mapa, no Grafana (`nilum-teia-panel`) ou na interface da própria teia, é o m
 - **Tráfego andando:** pontos percorrem cada comunicação na velocidade do tráfego; pontos vermelhos são erros. Ao vivo.
 - **Drift e visibilidade:** tracejado é não declarado, pontilhado é declarado e não visto; a borda do card diz o quanto a teia vê em primeira mão.
 - **[Biblioteca de ícones](docs/icons.md) padronizada:** microsserviço, banco relacional, banco de documentos (NoSQL), cache, stream (Kafka), fila, gateway, job, SaaS externo. A tecnologia é detectada pelos spans, pela imagem ou por label.
-- **Jornadas:** mostre uma jornada sozinha (`journey=checkout` nos serviços por onde ela passa): o que ela chama, stubs de onde entra e para onde sai, e por que está vermelha. Veja [docs/journeys.md](docs/journeys.md).
+- **Jornadas e filtros:** mostre uma jornada sozinha, num quadro, com portas por onde ela entra e por onde sai, e por que está vermelha. O teia acha a label de jornada que seus serviços já têm (`journey`, `app.kubernetes.io/part-of` ou `system`). O mesmo Filtro recorta o mapa por qualquer label, saúde, tipo de componente ou tecnologia. Veja [docs/journeys.md](docs/journeys.md).
 - **Valores nas linhas:** cada linha diz o tráfego e o p95 (`1.8/s · 9.5 ms`); uma linha amarela ou vermelha diz o porquê no lugar. `V` liga e desliga.
 - **Labels:** agrupe por `team`, `system`, `k8s.namespace` ou qualquer label; busque com `team:checkout`, `tech:kafka`, `journey=checkout`.
 - **Próximos passos, feed ao vivo e exportação** (PNG, SVG, matriz de fluxos em CSV para pedido de firewall).
-- **Teclado e leitor de tela:** todo card e controle é alcançável com Tab; `F` enquadra, `/` busca, `J` escolhe uma jornada, `V` liga os valores nas linhas e `Espaço` liga e desliga a animação, que também segue a preferência de movimento reduzido.
+- **Teclado e leitor de tela:** todo card e controle é alcançável com Tab; `F` enquadra, `/` busca, `J` abre os filtros, `V` liga os valores nas linhas e `Espaço` liga e desliga a animação, que também segue a preferência de movimento reduzido.
 
 | Amarelo ou vermelho diz o porquê, e de onde vem | Agrupe por qualquer label, no tema escuro ou claro |
 |---|---|
@@ -66,9 +66,9 @@ O mapa, no Grafana (`nilum-teia-panel`) ou na interface da própria teia, é o m
 | **A fila diz quanto espera e quão atrasada está** | **O cache ou o banco diz o quanto está cheio** |
 | ![email-worker para order-events está amarelo: 1,5 mil mensagens esperando, 75 s de atraso, do kafka_exporter](docs/assets/screenshots/teia-queue.png) | ![catalog-cache: memória contra o maxmemory e clientes contra o maxclients, do redis_exporter](docs/assets/screenshots/teia-cache-light.png) |
 
-As visões viram links compartilháveis: `?journey=checkout`, `?group=team`, `?q=kind:database`, `?select=orders-db`, `?theme=light`, `?flow=1`, `?values=0`, `?legend=icons`.
+As visões viram links compartilháveis: `?journey=checkout`, `?filter=k8s.namespace:shop,health:failing`, `?group=team`, `?q=kind:database`, `?select=orders-db`, `?theme=light`, `?flow=1`, `?values=0`, `?legend=icons`.
 
-![A jornada checkout sozinha, com catalog e recommendations como stubs onde ela sai, e o resumo: orders → payments, erros](docs/assets/screenshots/teia-journey.png)
+![A jornada checkout no seu quadro, com os bancos e gateways numa faixa à direita, uma porta onde ela sai para browse, e o resumo: orders → payments, erros](docs/assets/screenshots/teia-journey.png)
 
 <p align="center"><img src="docs/assets/icon-library.svg" alt="A biblioteca de ícones da teia: um pictograma por tipo de componente" width="820"></p>
 
@@ -108,6 +108,80 @@ docker compose -f lab/compose.yaml run --rm e2e                     # o teste po
 ```
 
 Atrás de proxy com inspeção TLS? Coloque a CA como `.crt` em `certs/` antes do build.
+
+## Usar no seu Grafana
+
+Quatro passos, sem mudar nada nos seus serviços. A teia lê o Prometheus, o Tempo e o Loki que você já tem. O painel
+acha jornadas, times e namespaces nas labels que seus workloads já carregam.
+
+**1. Rode a teia onde ela alcança sua telemetria.** O `teia detect` testa o que você passar e gera uma configuração
+inicial:
+
+```sh
+docker build -t teia .     # as releases vão publicar ghcr.io/nilum-br/teia
+docker run --rm teia detect --prometheus http://prometheus:9090 --tempo http://tempo:3200 --loki http://loki:3100 > teia.yaml
+docker run -d --name teia -p 8480:8080 -v "$PWD/teia.yaml:/etc/teia/teia.yaml:ro" teia
+```
+
+Adicione `--kubernetes` ou `--docker` ao `detect` para a teia conhecer também os workloads que não emitem nada. Num
+cluster, rode como Deployment com uma ServiceAccount só de leitura. Abra http://localhost:8480: se o mapa aparece, a
+teia está lendo sua telemetria.
+
+**2. Instale o plugin do painel** (`nilum-teia-panel`). Até ele ser assinado e entrar no catálogo, faça o build e
+carregue como plugin não assinado:
+
+```sh
+docker run --rm --user "$(id -u):$(id -g)" -e npm_config_cache=/tmp/npm -v "$PWD:/repo" -w /repo/plugins/grafana node:24 sh -c "npm ci && npm run build"
+cp -r plugins/grafana/dist /var/lib/grafana/plugins/nilum-teia-panel
+```
+
+```ini
+# grafana.ini (ou GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=nilum-teia-panel)
+[plugins]
+allow_loading_unsigned_plugins = nilum-teia-panel
+```
+
+Reinicie o Grafana. Com o Helm chart, monte o `dist/` no mesmo caminho ou, a partir da primeira release, liste o zip
+em `plugins:`.
+
+**3. Crie um data source que lê a teia.** Instale o data source
+[Infinity](https://grafana.com/grafana/plugins/yesoreyeram-infinity-datasource/) e informe o endereço da teia uma
+vez só, aqui. Quem chama a teia é o servidor do Grafana, então use um endereço que ele alcance:
+
+```yaml
+# provisioning/datasources/teia.yaml
+apiVersion: 1
+datasources:
+  - name: teia
+    uid: teia                      # o dashboard procura esse uid
+    type: yesoreyeram-infinity-datasource
+    access: proxy
+    url: http://teia:8080          # a sua teia
+    jsonData:
+      allowedHosts: ["http://teia:8080"]
+      # com auth.token na teia:
+      # httpHeaderName1: Authorization
+    # secureJsonData:
+    #   httpHeaderValue1: Bearer ${TEIA_TOKEN}
+```
+
+**4. Importe o dashboard.** No Grafana, vá em Dashboards → New → Import e envie o
+[`lab/grafana/dashboards/teia.json`](lab/grafana/dashboards/teia.json). As queries dele só têm caminhos, então ele
+funciona com qualquer teia para a qual o data source aponte.
+
+Pronto. O **Filtro** do painel lista suas jornadas, namespaces, times, saúde e tecnologias a partir dos próprios
+dados. As opções do painel definem onde ele abre:
+
+- **Journey** aceita um valor ou uma variável, como `${journey}`; links como `?var-journey=checkout` funcionam.
+- **Journey label** indica outra label, quando a sua não é `journey`, `app.kubernetes.io/part-of` nem `system`.
+- **Group by label** define o agrupamento inicial.
+
+Mais em [plugins/grafana](plugins/grafana/README.md), inclusive um modo direto que faz streaming da teia sem
+queries.
+
+Refez o build do plugin sem mudar a versão e o Grafana segue mostrando o painel antigo? O Grafana deixa o navegador
+guardar os arquivos do plugin por uma hora sob a versão: recarregue com Ctrl+Shift+R. As releases mudam a versão,
+então isso só acontece com builds locais. O lab carimba cada build com uma versão própria.
 
 ## Instalar
 

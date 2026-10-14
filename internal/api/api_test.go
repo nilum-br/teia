@@ -181,11 +181,20 @@ func TestEmbeddedUIByDefault(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "TeiaUI.mount") {
 		t.Fatalf("status %d, body %.80q", rec.Code, rec.Body.String())
 	}
-	if cc := rec.Header().Get("Cache-Control"); cc != "" {
-		t.Errorf("the embedded UI keeps the default caching, got Cache-Control %q", cc)
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("Cache-Control = %q, want no-cache: an upgraded teia must not run a cached teia-ui.js", cc)
 	}
-	if rec := get(Handler(newFakeEngine(), Options{}), "/teia-ui.js", nil); rec.Code != http.StatusOK {
-		t.Errorf("teia-ui.js: status %d", rec.Code)
+	h := Handler(newFakeEngine(), Options{})
+	js := get(h, "/teia-ui.js", nil)
+	tag := js.Header().Get("ETag")
+	if js.Code != http.StatusOK || tag == "" {
+		t.Fatalf("teia-ui.js: status %d, ETag %q", js.Code, tag)
+	}
+	if again := get(h, "/teia-ui.js", map[string]string{"If-None-Match": tag}); again.Code != http.StatusNotModified {
+		t.Errorf("unchanged teia-ui.js: status %d, want 304", again.Code)
+	}
+	if page := get(h, "/", map[string]string{"If-None-Match": rec.Header().Get("ETag")}); page.Code != http.StatusNotModified {
+		t.Errorf("unchanged page: status %d, want 304", page.Code)
 	}
 }
 
