@@ -1,0 +1,57 @@
+name: Feature request
+description: Suggest a source, an advisor rule, a change to the map or anything else teia should do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Describing the problem you have helps more than describing a solution.
+
+        This repository is public: use invented names instead of your company's or customers' systems.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - A new or existing source (signal)
+        - Advisor (blind spots, next steps)
+        - Map and UI
+        - Grafana panel
+        - Declared flows (Flows spec)
+        - Export, webhooks or metrics
+        - CLI
+        - Lab, docs or packaging
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to see or do, and what gets in the way today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: How teia could solve it. For a new source, say which telemetry or system it would read and what access it needs (teia stays read-only).
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use today, or other tools that do this.
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I would like to work on this myself (see CONTRIBUTING.md).

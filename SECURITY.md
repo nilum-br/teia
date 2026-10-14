@@ -52,3 +52,15 @@ Out of scope:
   socket. Do not expose it. Its defaults are not vulnerabilities, unless teia itself is affected.
 - Vulnerabilities in dependencies that teia does not reach. Report those upstream; tell us if you find that
   teia is affected in a way that scanners such as `govulncheck` do not show.
+
+## Verifying a release
+
+Every release publishes `checksums.txt` next to the binaries and the Grafana panel zip. The release
+artifacts also carry a signed build provenance attestation, which the GitHub CLI can check:
+
+```sh
+sha256sum --check --ignore-missing checksums.txt
+gh attestation verify teia_<version>_linux_amd64.tar.gz --repo nilum-br/teia
+```
+
+The container image (`ghcr.io/nilum-br/teia`) is published with an SBOM and build provenance attached.

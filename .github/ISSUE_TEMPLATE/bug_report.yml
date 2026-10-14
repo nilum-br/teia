@@ -1,0 +1,94 @@
+name: Bug report
+description: Something in teia, the map or the Grafana panel does not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this.
+
+        **Security problem?** Do not open an issue: report it privately as described in [SECURITY.md](https://github.com/nilum-br/teia/security/policy).
+
+        This repository is public. Before pasting configuration or logs, **remove passwords, tokens, hostnames, IP addresses and anything that identifies your company or your customers.** Invented names are fine.
+
+  - type: input
+    id: version
+    attributes:
+      label: teia version
+      description: Output of `teia version` (or the image tag), or the commit if you built from source.
+      placeholder: v0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: runs-as
+    attributes:
+      label: How does teia run?
+      multiple: true
+      options:
+        - Binary (Linux)
+        - Binary (macOS)
+        - Binary (Windows)
+        - Container image
+        - Kubernetes
+        - Grafana panel (nilum-teia-panel)
+        - The lab (lab/compose.yaml)
+    validations:
+      required: true
+
+  - type: textarea
+    id: sources
+    attributes:
+      label: Sources configured
+      description: |
+        Which sources teia reads (Prometheus presets, Tempo, Loki, Kubernetes, Docker, PostgreSQL, declared Flows...), and the relevant part of `teia.yaml` with secrets removed. `teia detect` output helps too.
+      render: yaml
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Include the command, page or panel where you saw it. Screenshots of the map are welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Ideally against the lab (`docker compose -f lab/compose.yaml up -d --build`), so we can run it too.
+      placeholder: |
+        1. ...
+        2. ...
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: teia's output around the problem (for example `teia discover`, or the container logs). Redact secrets first.
+      render: shell
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Anything else that matters, such as the Kubernetes, Grafana or Docker version and the OS.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I removed passwords, tokens, hostnames, IP addresses and customer data from everything above.
+          required: true
+        - label: I searched the existing issues and this is not a duplicate.
+          required: true
