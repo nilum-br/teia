@@ -22,7 +22,9 @@
 #
 # Published ports move with PROMETHEUS_PORT, TEMPO_PORT, LOKI_PORT,
 # GRAFANA_PORT, TEIA_PORT and POSTGRES_PORT, and the project name with -p, so
-# a second lab can run next to this one.
+# a second lab can run next to this one. They listen on this machine only:
+# Grafana is anonymous and teia has no token here. LAB_BIND=0.0.0.0 opens them
+# to the network, for a demo on another screen.
 name: teia-lab
 
 x-demo: &demo
@@ -230,9 +232,9 @@ services:
       POSTGRES_DB: orders
     volumes:
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    # For teia running on the host (lab/teia.host.yaml); this machine only.
+    # For teia running on the host (lab/teia.host.yaml).
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5480}:5432"
+      - "${LAB_BIND:-127.0.0.1}:${POSTGRES_PORT:-5480}:5432"
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "postgres", "-d", "orders"]
       interval: 3s
@@ -261,7 +263,7 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
-      - "${PROMETHEUS_PORT:-9480}:9090"
+      - "${LAB_BIND:-127.0.0.1}:${PROMETHEUS_PORT:-9480}:9090"
 
   tempo:
     <<: *infra
@@ -270,7 +272,7 @@ services:
     volumes:
       - ./tempo.yaml:/etc/tempo/tempo.yaml:ro
     ports:
-      - "${TEMPO_PORT:-3280}:3200"
+      - "${LAB_BIND:-127.0.0.1}:${TEMPO_PORT:-3280}:3200"
 
   loki:
     <<: *infra
@@ -279,7 +281,7 @@ services:
     volumes:
       - ./loki.yaml:/etc/loki/loki.yaml:ro
     ports:
-      - "${LOKI_PORT:-3180}:3100"
+      - "${LAB_BIND:-127.0.0.1}:${LOKI_PORT:-3180}:3100"
 
   alloy:
     <<: *infra
@@ -350,7 +352,7 @@ services:
       - ../certs:/etc/teia-certs:ro
       - ../plugins/grafana/dist:/var/lib/grafana/plugins/nilum-teia-panel:ro
     ports:
-      - "${GRAFANA_PORT:-3480}:3000"
+      - "${LAB_BIND:-127.0.0.1}:${GRAFANA_PORT:-3480}:3000"
 
   # End-to-end check: docker compose -f lab/compose.yaml run --rm e2e
   e2e:
@@ -389,7 +391,7 @@ services:
     networks: [default, docker-teia]
     depends_on: [docker-proxy-teia]
     ports:
-      - "${TEIA_PORT:-8480}:8080"
+      - "${LAB_BIND:-127.0.0.1}:${TEIA_PORT:-8480}:8080"
 
   # teia's view of Docker: GET /containers/json (and, by the same rule,
   # /containers/{id}/json, which shows environment variables). Nothing else.

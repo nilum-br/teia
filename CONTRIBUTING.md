@@ -110,7 +110,10 @@ docker compose -f lab/compose.yaml down -v          # stop and drop its data
 | 9480 | Prometheus | `PROMETHEUS_PORT` |
 | 3280 | Tempo | `TEMPO_PORT` |
 | 3180 | Loki | `LOKI_PORT` |
-| 127.0.0.1:5480 | PostgreSQL `orders-db` | `POSTGRES_PORT` |
+| 5480 | PostgreSQL `orders-db` | `POSTGRES_PORT` |
+
+Every port listens on this machine only (127.0.0.1): Grafana is anonymous and teia has no token in the lab.
+`LAB_BIND=0.0.0.0` opens them to your network, for a demo on another screen.
 
 ```sh
 GRAFANA_PORT=3481 TEIA_PORT=8481 docker compose -f lab/compose.yaml up -d                 # bash, zsh, Git Bash
