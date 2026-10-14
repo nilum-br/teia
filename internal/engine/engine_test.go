@@ -295,3 +295,15 @@ func TestRefreshMatchesExplorersAndIgnoresWhateverTheirSpelling(t *testing.T) {
 		}
 	}
 }
+
+// A source that answered must be free for the very next round: its slot is
+// released before its answer is handed over, not after.
+func TestAnsweredSourceIsNeverSkipped(t *testing.T) {
+	fast := &scripted{name: "fast", typ: "tempo", steps: []func(context.Context) (source.Observation, error){returns(source.Observation{})}}
+	e := New([]source.Source{fast}, Options{Interval: time.Second, Retention: time.Minute}, quiet())
+	for i := range 2000 {
+		if st := statusOf(t, e.Refresh(context.Background()), "fast"); st.State != model.SourceOK {
+			t.Fatalf("round %d: %s: %s", i, st.State, st.Message)
+		}
+	}
+}

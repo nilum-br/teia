@@ -288,11 +288,15 @@ func (e *Engine) discover(ctx context.Context) []answer {
 		}
 		pending++
 		go func() {
-			defer e.busy[i].Store(false)
 			sctx, cancel := context.WithTimeout(ctx, e.opts.Timeout)
 			defer cancel()
 			start := time.Now()
 			obs, err := e.discoverOne(sctx, src)
+			// Free the slot before answering: once the round has every
+			// answer it may end, and the next round must find this source
+			// idle. A source past the deadline keeps its slot until it
+			// returns, which is what the busy check is for.
+			e.busy[i].Store(false)
 			done <- indexed{i, answer{obs: obs, err: err, took: time.Since(start)}}
 		}()
 	}
