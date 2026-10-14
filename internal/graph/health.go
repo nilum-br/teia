@@ -35,22 +35,31 @@ var DefaultHealth = HealthThresholds{
 	RestartsDegraded: 1, RestartsFailing: 3,
 }
 
-// Judge returns the health of traffic with these signals and measures, and
-// a reason for every one past its limit, worst first. With no rate, latency
-// or measure there is nothing to judge.
-func (t HealthThresholds) Judge(requestRate, errorRate, latencyP95Ms float64, measures []model.Measure) (model.Health, []model.Reason) {
-	if requestRate <= 0 && latencyP95Ms <= 0 && len(measures) == 0 {
+// Signals are what a node or edge is judged on.
+type Signals struct {
+	RequestRate, ErrorRate, LatencyP95Ms float64
+	// ErrorsUnknown: failures were not measured, so ErrorRate is not judged.
+	ErrorsUnknown bool
+	Measures      []model.Measure
+}
+
+// Judge returns the health of these signals, and a reason for every one past
+// its limit, worst first. Healthy needs something measured within its
+// limits: traffic whose failures nobody measured is unknown, not healthy.
+func (t HealthThresholds) Judge(s Signals) (model.Health, []model.Reason) {
+	errorsJudged := s.RequestRate > 0 && !s.ErrorsUnknown
+	if !errorsJudged && s.LatencyP95Ms <= 0 && len(s.Measures) == 0 {
 		return model.HealthUnknown, nil
 	}
-	reasons := t.judgeMeasures(measures)
-	if requestRate > 0 {
-		if r, ok := limit(model.CauseErrors, errorRate, t.Degraded, t.Failing); ok {
-			r.Summary = model.FormatPercent(errorRate) + " errors, over " + model.FormatPercent(r.Limit)
+	reasons := t.judgeMeasures(s.Measures)
+	if errorsJudged {
+		if r, ok := limit(model.CauseErrors, s.ErrorRate, t.Degraded, t.Failing); ok {
+			r.Summary = model.FormatPercent(s.ErrorRate) + " errors, over " + model.FormatPercent(r.Limit)
 			reasons = append(reasons, r)
 		}
 	}
-	if r, ok := limit(model.CauseLatency, latencyP95Ms, t.LatencyDegradedMs, t.LatencyFailingMs); ok {
-		r.Summary = "p95 " + model.FormatMs(latencyP95Ms) + ", over " + model.FormatMs(r.Limit)
+	if r, ok := limit(model.CauseLatency, s.LatencyP95Ms, t.LatencyDegradedMs, t.LatencyFailingMs); ok {
+		r.Summary = "p95 " + model.FormatMs(s.LatencyP95Ms) + ", over " + model.FormatMs(r.Limit)
 		reasons = append(reasons, r)
 	}
 	sortReasons(reasons)
@@ -131,9 +140,10 @@ func sortReasons(reasons []model.Reason) {
 // node from the traffic it receives; a node nobody calls is judged by the
 // calls it makes.
 func ApplyHealth(g *Graph, t HealthThresholds) {
-	// timed is the traffic of the calls that measured latency, and their
-	// latencies weighted by it.
-	type sum struct{ rate, failed, timed, p50, p95 float64 }
+	// counted is the traffic of the calls whose failures were measured;
+	// timed that of the calls that measured latency, and their latencies
+	// weighted by it.
+	type sum struct{ rate, counted, failed, timed, p50, p95 float64 }
 	in, out := map[string]*sum{}, map[string]*sum{}
 	add := func(m map[string]*sum, id string, e *model.Edge) {
 		s, ok := m[id]
@@ -142,7 +152,10 @@ func ApplyHealth(g *Graph, t HealthThresholds) {
 			m[id] = s
 		}
 		s.rate += e.RequestRate
-		s.failed += e.RequestRate * e.ErrorRate
+		if !e.ErrorsUnknown {
+			s.counted += e.RequestRate
+			s.failed += e.RequestRate * e.ErrorRate
+		}
 		if e.LatencyP95Ms > 0 {
 			s.timed += e.RequestRate
 			s.p50 += e.RequestRate * e.LatencyP50Ms
@@ -150,7 +163,8 @@ func ApplyHealth(g *Graph, t HealthThresholds) {
 		}
 	}
 	for _, e := range g.Edges {
-		e.Health, e.Reasons = t.Judge(e.RequestRate, e.ErrorRate, e.LatencyP95Ms, e.Measures)
+		e.Health, e.Reasons = t.Judge(Signals{RequestRate: e.RequestRate, ErrorRate: e.ErrorRate, ErrorsUnknown: e.ErrorsUnknown,
+			LatencyP95Ms: e.LatencyP95Ms, Measures: e.Measures})
 		if e.RequestRate > 0 {
 			add(in, e.To, e)
 			add(out, e.From, e)
@@ -163,17 +177,21 @@ func ApplyHealth(g *Graph, t HealthThresholds) {
 		}
 		if s == nil || s.rate == 0 {
 			// No traffic to judge, but a measure may still say something.
-			n.Health, n.Reasons = t.Judge(0, 0, 0, n.Measures)
+			n.Health, n.Reasons = t.Judge(Signals{Measures: n.Measures})
 			continue
 		}
 		n.RequestRate = s.rate
-		n.ErrorRate = s.failed / s.rate
+		n.ErrorRate, n.ErrorsUnknown = 0, s.counted == 0
+		if s.counted > 0 {
+			n.ErrorRate = s.failed / s.counted
+		}
 		// A node's latency is how long it takes to answer, so only the calls
 		// it serves count, never the ones it makes.
 		if s := in[id]; s != nil && s.timed > 0 {
 			n.LatencyP50Ms, n.LatencyP95Ms = s.p50/s.timed, s.p95/s.timed
 		}
-		n.Health, n.Reasons = t.Judge(n.RequestRate, n.ErrorRate, n.LatencyP95Ms, n.Measures)
+		n.Health, n.Reasons = t.Judge(Signals{RequestRate: n.RequestRate, ErrorRate: n.ErrorRate, ErrorsUnknown: n.ErrorsUnknown,
+			LatencyP95Ms: n.LatencyP95Ms, Measures: n.Measures})
 	}
 	explain(g)
 }
@@ -246,7 +264,7 @@ func causeValue(e *model.Edge, c model.Cause) float64 {
 	case model.CauseLatency:
 		return e.LatencyP95Ms
 	case model.CauseErrors:
-		if e.RequestRate > 0 {
+		if e.RequestRate > 0 && !e.ErrorsUnknown {
 			return e.ErrorRate
 		}
 	}
@@ -300,7 +318,7 @@ func (m *Memory) Retain(g *Graph, now time.Time) {
 			g.Edges[key] = e
 		} else {
 			e.Observed = true
-			e.RequestRate, e.ErrorRate = r.edge.RequestRate, r.edge.ErrorRate
+			e.RequestRate, e.ErrorRate, e.ErrorsUnknown = r.edge.RequestRate, r.edge.ErrorRate, r.edge.ErrorsUnknown
 			e.LatencyP50Ms, e.LatencyP95Ms = r.edge.LatencyP50Ms, r.edge.LatencyP95Ms
 			for _, s := range r.edge.Sources {
 				e.Sources = appendUnique(e.Sources, s)

@@ -465,6 +465,8 @@ button.label { cursor: pointer; }
     locks: { label: 'Locks', icon: '<rect x="5" y="10.5" width="14" height="10" rx="2.2"/><path d="M8.2 10.5V7.8a3.8 3.8 0 017.6 0v2.7"/><path d="M12 14.6v2"/>' },
     restarts: { label: 'Restarts', icon: '<path d="M20 11.5A8 8 0 006.3 6.3L4 8.6"/><path d="M4 4v4.6h4.6"/><path d="M4 12.5a8 8 0 0013.7 5.2l2.3-2.3"/><path d="M20 20v-4.6h-4.6"/>' },
   };
+  // healthText says a node's or line's health in words.
+  const healthText = x => x.health === 'unknown' && x.errorsUnknown && x.requestRate > 0 ? 'failures not measured' : HEALTH_LABEL[x.health];
   const HEALTH_LABEL = { healthy: 'healthy', degraded: 'degraded', failing: 'failing', unknown: 'no traffic data' };
   const HEALTH_RANK = { failing: 3, degraded: 2, healthy: 1, unknown: 0 };
   const STATE_LABEL = { ok: 'declared and observed', ghost: 'observed, not declared', stale: 'declared, not observed' };
@@ -507,7 +509,7 @@ button.label { cursor: pointer; }
         kind: typeof n.kind === 'string' && n.kind ? n.kind : 'unknown',
         health: oneOf(n.health, ['healthy', 'degraded', 'failing', 'unknown'], 'unknown'),
         visibility: oneOf(n.visibility, ['full', 'partial', 'none'], 'partial'),
-        requestRate: finite(n.requestRate), errorRate: finite(n.errorRate),
+        requestRate: finite(n.requestRate), errorRate: finite(n.errorRate), errorsUnknown: n.errorsUnknown === true,
         latencyP50Ms: finite(n.latencyP50Ms), latencyP95Ms: finite(n.latencyP95Ms),
         reasons: reasons(n.reasons), measures: measures(n.measures),
         sources: strings(n.sources), addresses: strings(n.addresses),
@@ -524,7 +526,7 @@ button.label { cursor: pointer; }
         ...e,
         state: oneOf(String(e.state || '').toLowerCase(), ['ok', 'ghost', 'stale'], e.declared === false ? 'ghost' : 'ok'),
         health: oneOf(e.health, ['healthy', 'degraded', 'failing', 'unknown'], 'unknown'),
-        requestRate: finite(e.requestRate), errorRate: finite(e.errorRate),
+        requestRate: finite(e.requestRate), errorRate: finite(e.errorRate), errorsUnknown: e.errorsUnknown === true,
         latencyP50Ms: finite(e.latencyP50Ms), latencyP95Ms: finite(e.latencyP95Ms),
         reasons: reasons(e.reasons), measures: measures(e.measures),
         declared: !!e.declared, observed: e.observed !== false,
@@ -678,7 +680,8 @@ button.label { cursor: pointer; }
     const stats = [];
     if (n.requestRate > 0) stats.push(`${fmtRate(n.requestRate)}/s`);
     if (n.latencyP95Ms > 0) stats.push(fmtMs(n.latencyP95Ms));
-    if (n.errorRate > 0.0005 && !n.group) stats.push(`${pct(n.errorRate)} err`);
+    if (n.errorsUnknown && n.requestRate > 0 && !n.group) stats.push('err ?');
+    else if (n.errorRate > 0.0005 && !n.group) stats.push(`${pct(n.errorRate)} err`);
     let text = [what, ...stats].join(' · ');
     if (text.length > max && stats.length) text = stats.join(' · ');
     return text.length > max ? text.slice(0, max - 1) + '…' : text;
@@ -846,7 +849,7 @@ button.label { cursor: pointer; }
       const id = from + '->' + to;
       let ve = edges.get(id);
       if (!ve) {
-        ve = { id, from, to, members: [], requestRate: 0, failed: 0, latency: latencySum(), reasons: [], measures: [], stubEdge: true, signals: new Set(), states: new Set(), declared: false, observed: false, health: 'unknown', protocol: e.protocol, reason: e.reason, port: e.port, sources: new Set() };
+        ve = { id, from, to, members: [], requestRate: 0, failed: 0, latency: latencySum(), reasons: [], measures: [], stubEdge: true, errorsUnknown: true, signals: new Set(), states: new Set(), declared: false, observed: false, health: 'unknown', protocol: e.protocol, reason: e.reason, port: e.port, sources: new Set() };
         edges.set(id, ve);
       }
       ve.members.push(e);
@@ -860,6 +863,7 @@ button.label { cursor: pointer; }
       ve.states.add(e.state);
       ve.declared ||= e.declared; ve.observed ||= e.observed;
       ve.stubEdge &&= !!e.stubEdge; // a stub line only when every member is one
+      ve.errorsUnknown &&= !!e.errorsUnknown; // likewise for unmeasured failures
       if (HEALTH_RANK[e.health] > HEALTH_RANK[ve.health]) ve.health = e.health;
     }
     for (const ve of edges.values()) {
@@ -1280,10 +1284,10 @@ button.label { cursor: pointer; }
         p.alert.append(sv('circle', { r: 9 }));
         const t = sv('text', { y: 3.6 }); t.textContent = fs.length; p.alert.append(t);
       }
-      const traffic = n.requestRate > 0 ? `, ${fmtRate(n.requestRate)} requests per second${n.latencyP95Ms > 0 ? `, p95 ${fmtMs(n.latencyP95Ms)}` : ''}, ${pct(n.errorRate)} errors` : '';
+      const traffic = n.requestRate > 0 ? `, ${fmtRate(n.requestRate)} requests per second${n.latencyP95Ms > 0 ? `, p95 ${fmtMs(n.latencyP95Ms)}` : ''}, ${n.errorsUnknown ? 'failures not measured' : pct(n.errorRate) + ' errors'}` : '';
       drawWhy(p.why, n.reasons);
       const because = n.reasons.length ? `, because of ${n.reasons.map(r => r.summary || reasonTag(r)).join('; ')}` : '';
-      const label = `${n.title}, ${n.group ? 'group' : CATEGORY[cat]?.label || n.kind}${n.tech ? ' (' + techLabel(n) + ')' : ''}, ${HEALTH_LABEL[n.health]}${because}${traffic}, ${n.visibility} visibility${fs.length ? `, ${fs.length} next step${fs.length > 1 ? 's' : ''}` : ''}`;
+      const label = `${n.title}, ${n.group ? 'group' : CATEGORY[cat]?.label || n.kind}${n.tech ? ' (' + techLabel(n) + ')' : ''}, ${healthText(n)}${because}${traffic}, ${n.visibility} visibility${fs.length ? `, ${fs.length} next step${fs.length > 1 ? 's' : ''}` : ''}`;
       p.tip.textContent = label;
       g.setAttribute('aria-label', label);
     }
@@ -1441,6 +1445,7 @@ button.label { cursor: pointer; }
       const parts = [e.protocol || (e.signals[0] || 'tcp')];
       if (e.requestRate > 0) parts.push(`${fmtRate(e.requestRate)} req/s`);
       if (e.latencyP95Ms > 0) parts.push(`p95 ${fmtMs(e.latencyP95Ms)}`);
+      if (e.errorsUnknown && e.requestRate > 0) parts.push('failures not measured');
       if (e.errorRate > 0.0005) parts.push(`${pct(e.errorRate)} errors`);
       if (state.snap.drift && e.state !== 'ok') parts.push(STATE_LABEL[e.state]);
       const p = mid(g);
@@ -1939,7 +1944,7 @@ button.label { cursor: pointer; }
         if (!n) { pane.replaceChildren(el('p', { class: 'muted' }, 'That node is no longer in the graph.')); return; }
         const tile = el('div', { class: 'tile', style: `background:${css('--' + n.health)}` }, iconSVG(iconOf(n)));
         const parts = [el('div', { class: 'hero' }, tile, el('div', {}, el('h2', {}, n.title),
-          el('span', { class: 'pill' }, el('i', { class: 'dot', style: `background:${css('--' + n.health)}` }), HEALTH_LABEL[n.health]), ' ',
+          el('span', { class: 'pill' }, el('i', { class: 'dot', style: `background:${css('--' + n.health)}` }), healthText(n)), ' ',
           el('span', { class: 'pill' }, n.kind), ' ', el('span', { class: 'pill' }, n.visibility + ' visibility'))), ...whyBlock(n.reasons)];
         if (n.group) {
           const inside = n.internal ? `, talking to each other through ${n.internal} communication${n.internal === 1 ? '' : 's'}` : '';
@@ -1961,7 +1966,7 @@ button.label { cursor: pointer; }
           parts.push(el('p', { class: 'explain' }, VIS_EXPLAIN[n.visibility]));
           const kv = el('dl', { class: 'kv' });
           const row = (k, v) => kv.append(el('dt', {}, k), el('dd', {}, v));
-          if (n.requestRate > 0) row('traffic in', `${fmtRate(n.requestRate)} req/s · ${pct(n.errorRate)} errors`);
+          if (n.requestRate > 0) row('traffic in', `${fmtRate(n.requestRate)} req/s · ${n.errorsUnknown ? 'failures not measured' : pct(n.errorRate) + ' errors'}`);
           if (n.latencyP95Ms > 0) row('latency', `p50 ${fmtMs(n.latencyP50Ms)} · p95 ${fmtMs(n.latencyP95Ms)} (what its callers wait for)`);
           row('component', `${CATEGORY[categoryOf(n)]?.label || n.kind}${n.tech ? ' · ' + techLabel(n) : ''}`);
           for (const m of n.measures) row(m.what, measureText(m));
@@ -1993,7 +1998,7 @@ button.label { cursor: pointer; }
       const e = currentView.edges.get(sel.id);
       if (!e) { pane.replaceChildren(el('p', { class: 'muted' }, 'That communication is no longer in the graph.')); return; }
       const color = e.state === 'stale' ? 'unknown' : e.health;
-      const pills = [el('span', { class: 'pill' }, el('i', { class: 'dot', style: `background:${css('--' + color)}` }), HEALTH_LABEL[e.health])];
+      const pills = [el('span', { class: 'pill' }, el('i', { class: 'dot', style: `background:${css('--' + color)}` }), healthText(e))];
       if (state.snap.drift) pills.push(' ', el('span', { class: 'pill' }, STATE_LABEL[e.state]));
       const parts = [el('div', { class: 'hero' },
         el('div', { class: 'tile', style: `background:${css('--' + color)}` }, iconSVG('<path d="M4 12h14M13 6l6 6-6 6"/>')),
@@ -2008,7 +2013,10 @@ button.label { cursor: pointer; }
       const kv = el('dl', { class: 'kv' });
       const row = (k, v) => kv.append(el('dt', {}, k), el('dd', {}, v));
       row('protocol', [e.protocol || '—', e.port ? ':' + e.port : ''].join(''));
-      if (e.requestRate > 0) { row('traffic', `${fmtRate(e.requestRate)} req/s`); row('errors', pct(e.errorRate)); }
+      if (e.requestRate > 0) {
+        row('traffic', `${fmtRate(e.requestRate)} req/s`);
+        row('errors', e.errorsUnknown ? 'not measured: the source counts requests, not failures (see Next steps)' : pct(e.errorRate));
+      }
       if (e.latencyP95Ms > 0) row('latency', `p50 ${fmtMs(e.latencyP50Ms)} · p95 ${fmtMs(e.latencyP95Ms)}`);
       for (const m of e.measures) row(m.what, measureText(m));
       if (state.snap.drift) row('reason', e.reason || (e.declared ? '—' : 'not declared'));

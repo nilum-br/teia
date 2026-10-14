@@ -116,8 +116,14 @@ option is namespace-qualified IDs (`shop/redis`).
 
 A colour alone says something is wrong, not what. So every node and edge carries **reasons**: the golden signals
 past their limits, each with its value, the limit it crossed and a summary (`p95 900 ms, over 500 ms`). Its health
-is the worst of them: `degraded` (amber) or `failing` (red); `healthy` when it has traffic and no reason;
-`unknown` when nothing was measured.
+is the worst of them: `degraded` (amber) or `failing` (red); `healthy` when something was measured and no reason
+came up; `unknown` when nothing was measured.
+
+Traffic alone is not "healthy". A custom query that counts requests without an `errors` query, or a TCP preset that
+counts connections, measures traffic but not failures: those edges carry `errorsUnknown`, their error rate is not
+judged (it is not a measured zero), and they stay grey unless latency or a measure says otherwise. When several
+sources see one edge, the failures come from the busiest one that measured them. The advisor asks for the missing
+`errors` query.
 
 | Cause | Measured as | Limits (`health` in teia.yaml) |
 |---|---|---|

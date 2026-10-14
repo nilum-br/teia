@@ -92,7 +92,9 @@ them. A node's latency is that of the calls it serves, weighted by each caller's
 keeps the edges and says so in the source's message.
 
 Anything else becomes edges through a `queries` entry: any PromQL or LogQL that returns one series per caller and
-callee pair, plus a mapping of which label is which.
+callee pair, plus a mapping of which label is which. Give it an `errors` query too (failed requests per second,
+grouped by the same two labels) and, if you have one, a `latency` query (p95 in seconds): without `errors` teia
+knows the traffic but not whether it fails, so those lines stay grey instead of claiming to be green.
 
 ## Component health
 

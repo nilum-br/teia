@@ -402,6 +402,7 @@ func (s *Source) runPreset(ctx context.Context, p *Preset, window string, obs *s
 			LatencyP50Ms: p50[k], LatencyP95Ms: p95[k]}
 		if !p.NoRate {
 			edge.RequestRate = a.rate
+			edge.NoErrors = p.Failures == nil // connections counted, not their failures
 			if a.rate > 0 {
 				edge.ErrorRate = a.failure / a.rate
 			}

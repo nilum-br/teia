@@ -74,6 +74,9 @@ type EdgeObservation struct {
 	Window      time.Duration
 	RequestRate float64
 	ErrorRate   float64
+	// NoErrors says the signal counts requests but not their failures, so
+	// ErrorRate is not a measured zero.
+	NoErrors bool
 	// LatencyP50Ms and LatencyP95Ms are call durations in milliseconds;
 	// zero when the signal does not measure them.
 	LatencyP50Ms float64

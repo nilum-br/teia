@@ -251,6 +251,20 @@ describe('latency', () => {
   });
 });
 
+describe('unmeasured failures', () => {
+  it('survive sanitising and say so on the card', () => {
+    const s = sanitize({ nodes: [{ id: 'app-b', kind: 'service', requestRate: 10, errorsUnknown: true }], edges: [{ from: 'app-a', to: 'app-b', requestRate: 10, errorsUnknown: true }] });
+    assert.equal(s.nodes.find(n => n.id === 'app-b').errorsUnknown, true);
+    assert.equal(s.edges[0].errorsUnknown, true);
+    assert.equal(cardSubtitle({ kind: 'service', requestRate: 10, errorRate: 0, errorsUnknown: true, latencyP95Ms: 0 }), 'service · 10.0/s · err ?');
+  });
+  it('make a grouped line unknown only when every member is', () => {
+    const s = snap([node('a', { labels: { team: 'x' } }), node('b', { labels: { team: 'y' } }), node('c', { labels: { team: 'y' } })],
+      [edge('a', 'b', { errorsUnknown: true }), edge('a', 'c')]);
+    assert.equal(view(s, { groupBy: 'team' }).edges.get('group:x->group:y').errorsUnknown, false);
+  });
+});
+
 describe('cardSubtitle', () => {
   it('shows what it is and its golden signals', () => {
     assert.equal(cardSubtitle({ kind: 'database', tech: 'postgresql', requestRate: 2, latencyP95Ms: 12, errorRate: 0 }), 'PostgreSQL · 2.00/s · 12 ms');

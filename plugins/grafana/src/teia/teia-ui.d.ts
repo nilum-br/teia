@@ -30,6 +30,8 @@ export interface TeiaNode {
   health: 'healthy' | 'degraded' | 'failing' | 'unknown';
   requestRate?: number;
   errorRate?: number;
+  /** Traffic was seen but no signal measured its failures. */
+  errorsUnknown?: boolean;
   /** Call durations in milliseconds, when a signal measures them. */
   latencyP50Ms?: number;
   latencyP95Ms?: number;
@@ -52,6 +54,7 @@ export interface TeiaEdge {
   observed: boolean;
   requestRate?: number;
   errorRate?: number;
+  errorsUnknown?: boolean;
   latencyP50Ms?: number;
   latencyP95Ms?: number;
   reasons?: TeiaReason[];

@@ -129,7 +129,9 @@ second.
 | `sources.queries[].name` | | Source name suffix: `loki/access-logs`. |
 | `sources.queries[].dialect` | `prometheus` | `prometheus` (sent to `/api/v1/query`) or `loki` (`/loki/api/v1/query`, a LogQL metric query). |
 | `sources.queries[].url` | required | Base URL of the API. |
-| `sources.queries[].query` | required | The query. `$window` is replaced by `window` as a PromQL duration (`5m`, `90s`), so write `[$window]`. |
+| `sources.queries[].query` | required | The query. `$window` is replaced by `window` as a PromQL duration (`5m`, `90s`), so write `[$window]`. Its value is requests (or log lines) per second. |
+| `sources.queries[].errors` | none | Failed requests per second, with the same `from` and `to` labels (other labels may differ: series of one pair are added up). Without it, the edges' failures are **unknown**: they are not judged healthy, and the advisor asks for this query. |
+| `sources.queries[].latency` | none | The p95 of calls in **seconds**, with the same `from` and `to` labels, for example a `histogram_quantile(0.95, ...)`. |
 | `sources.queries[].window` | `5m` | Value of `$window`. Addresses seen over a window are only resolved to a workload that held them for all of it. |
 | `sources.queries[].from` | required | Label holding the caller. |
 | `sources.queries[].to` | required | Label holding the callee. |

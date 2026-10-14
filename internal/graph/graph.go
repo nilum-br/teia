@@ -208,9 +208,10 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 		return n
 	}
 
-	// latencyRate is the request rate of the observation each edge's latency
-	// came from.
+	// latencyRate and errorsRate are the request rates of the observations
+	// each edge's latency and error rate came from.
 	latencyRate := map[string]float64{}
+	errorsRate := map[string]float64{}
 	for _, r := range results {
 		if r.Err != nil {
 			continue
@@ -275,13 +276,18 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 				if o.Signal != "" {
 					e.Signals = appendUnique(e.Signals, o.Signal)
 				}
+				key := e.Key()
 				if o.RequestRate > e.RequestRate {
 					e.RequestRate = o.RequestRate
+				}
+				// Failures come from the busiest observation that measured
+				// them: a query that counts requests only says nothing.
+				if o.RequestRate > 0 && !o.NoErrors && o.RequestRate > errorsRate[key] {
 					e.ErrorRate = o.ErrorRate
+					errorsRate[key] = o.RequestRate
 				}
 				// Latency comes from the busiest observation that measured
 				// it, so histograms (with a rate) win over sampled spans.
-				key := e.Key()
 				if o.LatencyP95Ms > 0 && (e.LatencyP95Ms == 0 || o.RequestRate > latencyRate[key]) {
 					e.LatencyP50Ms, e.LatencyP95Ms = o.LatencyP50Ms, o.LatencyP95Ms
 					latencyRate[key] = o.RequestRate
@@ -290,6 +296,9 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 		}
 	}
 
+	for key, e := range g.Edges {
+		e.ErrorsUnknown = e.RequestRate > 0 && errorsRate[key] == 0
+	}
 	markOutside(g, results, canonical, selfReported)
 	attachReadings(g, results, resolve)
 

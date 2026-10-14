@@ -35,6 +35,7 @@ type snapshot struct {
 		Observed bool      `json:"observed"`
 		Sources  []string  `json:"sources"`
 		P95      float64   `json:"latencyP95Ms"`
+		NoErrors bool      `json:"errorsUnknown"`
 		Reasons  []reason  `json:"reasons"`
 		Measures []measure `json:"measures"`
 	} `json:"edges"`
@@ -259,6 +260,14 @@ func e2e(ctx context.Context) error {
 		}},
 		{"traces + mesh: web -> recommendations", func(s *snapshot) bool { return s.edge("web", "recommendations") }},
 		{"logs: partner-sync -> catalog, named from catalog's access log", func(s *snapshot) bool { return s.edge("partner-sync", "catalog", "loki/access-logs") }},
+		{"logs: its failures are measured too (errors query), so the line has a health", func(s *snapshot) bool {
+			for _, e := range s.Edges {
+				if e.From == "partner-sync" && e.To == "catalog" {
+					return !e.NoErrors
+				}
+			}
+			return false
+		}},
 		{"inventory: legacy-reports exists although it emits nothing", func(s *snapshot) bool { return s.node("legacy-reports") }},
 		{"advisor: asks for pg_monitor on orders-db", func(s *snapshot) bool { return s.finding("postgres-privilege", "orders-db") }},
 		{"no unexplained unknown callers", func(s *snapshot) bool { return !s.finding("unknown-callers", "") }},

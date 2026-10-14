@@ -197,6 +197,8 @@ type Query struct {
 	Dialect       string            `yaml:"dialect"` // prometheus or loki
 	URL           string            `yaml:"url"`
 	Query         string            `yaml:"query"`
+	Errors        string            `yaml:"errors"`  // optional: failed requests/s, same from/to labels
+	Latency       string            `yaml:"latency"` // optional: p95 in seconds, same from/to labels
 	Window        time.Duration     `yaml:"window"`
 	From          string            `yaml:"from"`
 	To            string            `yaml:"to"`
@@ -549,7 +551,7 @@ func (c *Config) plan() []planned {
 		}
 		add(named(string(dialect), q.Name, i, len(s.Queries)), func(n string) source.Source {
 			return query.New(n, query.Config{
-				Dialect: dialect, URL: q.URL, Query: q.Query, Window: q.Window, Headers: q.Headers,
+				Dialect: dialect, URL: q.URL, Query: q.Query, Errors: q.Errors, Latency: q.Latency, Window: q.Window, Headers: q.Headers,
 				From: q.From, To: q.To, FromAddress: q.FromAddress, ToAddress: q.ToAddress,
 				Protocol: q.Protocol, ProtocolLabel: q.ProtocolLabel, ToKind: model.NodeKind(q.ToKind),
 			})

@@ -46,6 +46,7 @@ type grafanaNode struct {
 	Visibility    string  `json:"visibility"`
 	RequestRate   float64 `json:"requestRate"`
 	ErrorRate     float64 `json:"errorRate"`
+	ErrorsUnknown bool    `json:"errorsUnknown"`
 	LatencyP50Ms  float64 `json:"latencyP50Ms"`
 	LatencyP95Ms  float64 `json:"latencyP95Ms"`
 	Reasons       string  `json:"reasons"`  // JSON array of model.Reason
@@ -76,6 +77,7 @@ type grafanaEdge struct {
 	Observed        bool    `json:"observed"`
 	RequestRate     float64 `json:"requestRate"`
 	ErrorRate       float64 `json:"errorRate"`
+	ErrorsUnknown   bool    `json:"errorsUnknown"`
 	LatencyP50Ms    float64 `json:"latencyP50Ms"`
 	LatencyP95Ms    float64 `json:"latencyP95Ms"`
 	Reasons         string  `json:"reasons"`  // JSON array of model.Reason
@@ -109,7 +111,7 @@ func grafanaNodes(s model.Snapshot) []grafanaNode {
 		out = append(out, grafanaNode{
 			ID: n.ID, Title: n.ID, Subtitle: subtitle(n), MainStat: main, SecondaryStat: secondary,
 			Color: healthColor[n.Health], Kind: string(n.Kind), Tech: n.Tech, Health: string(n.Health), Visibility: string(n.Visibility),
-			RequestRate: n.RequestRate, ErrorRate: n.ErrorRate, LatencyP50Ms: n.LatencyP50Ms, LatencyP95Ms: n.LatencyP95Ms,
+			RequestRate: n.RequestRate, ErrorRate: n.ErrorRate, ErrorsUnknown: n.ErrorsUnknown, LatencyP50Ms: n.LatencyP50Ms, LatencyP95Ms: n.LatencyP95Ms,
 			Reasons: jsonList(n.Reasons), Measures: jsonList(n.Measures), DetailWhy: whyText(n.Reasons),
 			Sources: strings.Join(n.Sources, ","), Addresses: strings.Join(n.Addresses, ","), Labels: string(labels),
 			Findings: findings[n.ID], DetailSources: strings.Join(n.Sources, ", "),
@@ -125,7 +127,7 @@ func grafanaEdges(s model.Snapshot) []grafanaEdge {
 			ID: e.Key(), Source: e.From, Target: e.To, MainStat: string(e.State),
 			Color: healthColor[e.Health], StrokeDasharray: stateDash[e.State], Thickness: 1,
 			State: string(e.State), Health: string(e.Health), Protocol: e.Protocol, Port: e.Port, Reason: e.Reason,
-			Declared: e.Declared, Observed: e.Observed, RequestRate: e.RequestRate, ErrorRate: e.ErrorRate,
+			Declared: e.Declared, Observed: e.Observed, RequestRate: e.RequestRate, ErrorRate: e.ErrorRate, ErrorsUnknown: e.ErrorsUnknown,
 			LatencyP50Ms: e.LatencyP50Ms, LatencyP95Ms: e.LatencyP95Ms,
 			Reasons: jsonList(e.Reasons), Measures: jsonList(e.Measures), DetailWhy: whyText(e.Reasons),
 			Signals: strings.Join(e.Signals, ","), Sources: strings.Join(e.Sources, ","),
@@ -134,6 +136,9 @@ func grafanaEdges(s model.Snapshot) []grafanaEdge {
 		if e.RequestRate > 0 {
 			ge.MainStat = fmt.Sprintf("%.2f req/s", e.RequestRate)
 			ge.SecondaryStat = fmt.Sprintf("%.1f%% errors", e.ErrorRate*100)
+			if e.ErrorsUnknown {
+				ge.SecondaryStat = "failures not measured"
+			}
 			ge.Thickness = 2
 		}
 		if e.LatencyP95Ms > 0 {

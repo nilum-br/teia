@@ -82,3 +82,78 @@ func TestURLPasswordStaysOutOfMessages(t *testing.T) {
 		}
 	}
 }
+
+// fakeQueries answers each query by the first fragment it contains.
+func fakeQueries(t *testing.T, answers map[string]string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("query")
+		for fragment, body := range answers {
+			if strings.Contains(q, fragment) {
+				fmt.Fprintf(w, `{"status":"success","data":{"resultType":"vector","result":[%s]}}`, body)
+				return
+			}
+		}
+		fmt.Fprint(w, `{"status":"success","data":{"resultType":"vector","result":[]}}`)
+	}))
+}
+
+// The case that came from a real lab: app-b answers 503, app-a 502, more
+// than half the calls fail, and the map must say so.
+func TestErrorsAndLatencyQueries(t *testing.T) {
+	srv := fakeQueries(t, map[string]string{
+		`code=~"5.."`:        `{"metric":{"src":"app-a","dst":"app-b","code":"503"},"value":[0,"6"]}`,
+		"histogram_quantile": `{"metric":{"src":"app-a","dst":"app-b"},"value":[0,"0.25"]}`,
+		"http_requests_total[": `{"metric":{"src":"app-a","dst":"app-b","method":"GET"},"value":[0,"8"]},
+			{"metric":{"src":"app-a","dst":"app-b","method":"POST"},"value":[0,"2"]}`,
+	})
+	defer srv.Close()
+	obs, err := New("http", Config{
+		Dialect: Prometheus, URL: srv.URL, From: "src", To: "dst",
+		Query:   `sum by (src, dst, method) (rate(http_requests_total[$window]))`,
+		Errors:  `sum by (src, dst, code) (rate(http_requests_total{code=~"5.."}[$window]))`,
+		Latency: `histogram_quantile(0.95, sum by (src, dst, le) (rate(http_request_duration_seconds_bucket[$window])))`,
+	}).Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(obs.Edges) != 1 {
+		t.Fatalf("series of one pair make one edge: %+v", obs.Edges)
+	}
+	e := obs.Edges[0]
+	if e.RequestRate != 10 || e.ErrorRate != 0.6 || e.NoErrors || e.LatencyP95Ms != 250 {
+		t.Errorf("want 10 req/s, 60%% errors, p95 250 ms: %+v", e)
+	}
+}
+
+func TestWithoutAnErrorsQueryFailuresAreUnknown(t *testing.T) {
+	srv := fakeQueries(t, map[string]string{"rate(": `{"metric":{"src":"app-a","dst":"app-b"},"value":[0,"10"]}`})
+	defer srv.Close()
+	obs, err := New("http", Config{Dialect: Prometheus, URL: srv.URL, From: "src", To: "dst",
+		Query: `sum by (src, dst) (rate(http_requests_total[$window]))`}).Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := obs.Edges[0]; !e.NoErrors || e.ErrorRate != 0 {
+		t.Errorf("no errors query means failures are not measured, not zero: %+v", e)
+	}
+}
+
+func TestFailingErrorsQueryKeepsTheEdges(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Query().Get("query"), "5..") {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		fmt.Fprint(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"src":"a","dst":"b"},"value":[0,"3"]}]}}`)
+	}))
+	defer srv.Close()
+	obs, err := New("http", Config{Dialect: Prometheus, URL: srv.URL, From: "src", To: "dst", Query: "rate(x[$window])",
+		Errors: `rate(x{code=~"5.."}[$window])`}).Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(obs.Edges) != 1 || !obs.Edges[0].NoErrors || !obs.Degraded || !strings.Contains(obs.Message, "errors query failed") {
+		t.Errorf("edges kept, failures unknown, the source says why: %+v %q", obs.Edges, obs.Message)
+	}
+}

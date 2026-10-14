@@ -350,7 +350,7 @@ func TestJudgeSaysWhy(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			h, reasons := DefaultHealth.Judge(c.rate, c.errs, c.p95, nil)
+			h, reasons := DefaultHealth.Judge(Signals{RequestRate: c.rate, ErrorRate: c.errs, LatencyP95Ms: c.p95})
 			if h != c.health {
 				t.Errorf("health %s, want %s", h, c.health)
 			}
@@ -496,16 +496,41 @@ func TestReadingsGoToTheNodeTheyMeasure(t *testing.T) {
 }
 
 func TestSaturationSummariesSpeakTheirUnit(t *testing.T) {
-	_, memory := DefaultHealth.Judge(0, 0, 0, []model.Measure{{Cause: model.CauseSaturation, What: "memory", Value: 60 << 20, Max: 64 << 20, Unit: model.UnitBytes}})
+	_, memory := DefaultHealth.Judge(Signals{Measures: []model.Measure{{Cause: model.CauseSaturation, What: "memory", Value: 60 << 20, Max: 64 << 20, Unit: model.UnitBytes}}})
 	if len(memory) != 1 || memory[0].Summary != "93.8% of memory used (60.0 MiB of 64.0 MiB), over 80.0%" {
 		t.Errorf("memory: %+v", memory)
 	}
-	_, cpu := DefaultHealth.Judge(0, 0, 0, []model.Measure{{Cause: model.CauseSaturation, What: "CPU time throttled", Value: 0.97, Max: 1, Unit: model.UnitShare}})
+	_, cpu := DefaultHealth.Judge(Signals{Measures: []model.Measure{{Cause: model.CauseSaturation, What: "CPU time throttled", Value: 0.97, Max: 1, Unit: model.UnitShare}}})
 	if len(cpu) != 1 || cpu[0].Summary != "97.0% CPU time throttled, over 95.0%" || cpu[0].Health != model.HealthFailing {
 		t.Errorf("cpu: %+v", cpu)
 	}
-	_, lag := DefaultHealth.Judge(0, 0, 0, []model.Measure{{Cause: model.CauseLag, What: "behind", Value: 720, Unit: model.UnitSeconds}})
+	_, lag := DefaultHealth.Judge(Signals{Measures: []model.Measure{{Cause: model.CauseLag, What: "behind", Value: 720, Unit: model.UnitSeconds}}})
 	if len(lag) != 1 || lag[0].Summary != "12 min behind, over 5 min" || lag[0].Health != model.HealthFailing {
 		t.Errorf("lag: %+v", lag)
+	}
+}
+
+func TestUnmeasuredFailuresAreNotHealthy(t *testing.T) {
+	g := Build([]Result{
+		result("custom", "prometheus-query", source.Observation{Edges: []source.EdgeObservation{
+			{From: "app-a", To: "app-b", RequestRate: 10, NoErrors: true},
+			{From: "web", To: "orders", RequestRate: 4, NoErrors: true},
+		}}),
+		result("traces", "prometheus", source.Observation{Edges: []source.EdgeObservation{
+			{From: "web", To: "orders", RequestRate: 2, ErrorRate: 0.5},
+		}}),
+	}, nil, nil)
+	ApplyHealth(g, DefaultHealth)
+
+	ab := g.Edges["app-a->app-b"]
+	if !ab.ErrorsUnknown || ab.Health != model.HealthUnknown {
+		t.Errorf("traffic without failures measured is unknown, not healthy: %+v", ab)
+	}
+	if b := g.Nodes["app-b"]; !b.ErrorsUnknown || b.Health != model.HealthUnknown {
+		t.Errorf("app-b: %s errorsUnknown=%v", b.Health, b.ErrorsUnknown)
+	}
+	wo := g.Edges["web->orders"]
+	if wo.ErrorsUnknown || wo.RequestRate != 4 || wo.ErrorRate != 0.5 || wo.Health != model.HealthFailing {
+		t.Errorf("the busiest rate, and failures from the source that measured them: %+v", wo)
 	}
 }

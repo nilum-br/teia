@@ -32,6 +32,8 @@ sources:
       url: http://localhost:${LOKI_PORT:-3180}
       window: 2m
       query: sum by (service, remote_addr) (rate({project="${LAB_PROJECT:-teia-lab}"} | json | __error__="" | msg="access" [$window]))
+      # The same access lines that failed, so these edges have a health too.
+      errors: sum by (service, remote_addr) (rate({project="${LAB_PROJECT:-teia-lab}"} | json | __error__="" | msg="access" | status >= 500 [$window]))
       from: remote_addr
       fromAddress: true
       to: service

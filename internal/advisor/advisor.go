@@ -60,6 +60,7 @@ var Rules = []Rule{
 	{"no-inventory", noInventory},
 	{"unknown-callers", unknownCallers},
 	{"unmatched-reading", unmatchedReadings},
+	{"errors-unmeasured", errorsUnmeasured},
 }
 
 // Advise runs every rule, adds the findings sources raised themselves,
@@ -466,6 +467,61 @@ func unmatchedReadings(in Input) []model.Finding {
 				Summary:  "Tell teia which node they measure with an alias.",
 				Language: "yaml",
 				Snippet:  fmt.Sprintf("aliases:\n  %q: the-node-it-measures", u.Candidates[0]),
+			},
+		})
+	}
+	return out
+}
+
+// errorsUnmeasured explains grey lines with traffic: the source that counted
+// their requests did not count their failures, so teia cannot say whether
+// they fail. One finding per source, with the query to add.
+func errorsUnmeasured(in Input) []model.Finding {
+	bySource := map[string][]string{}
+	for _, e := range in.Graph.SortedEdges() {
+		if !e.ErrorsUnknown {
+			continue
+		}
+		for _, s := range e.Sources {
+			bySource[s] = append(bySource[s], e.From+" → "+e.To)
+		}
+	}
+	queries := map[string]bool{}
+	for _, st := range in.Statuses {
+		if strings.HasSuffix(st.Type, "-query") {
+			queries[st.Name] = true
+		}
+	}
+	names := make([]string, 0, len(bySource))
+	for name := range bySource {
+		if queries[name] {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	var out []model.Finding
+	for _, name := range names {
+		edges := bySource[name]
+		shown := edges
+		if len(shown) > 5 {
+			shown = append(shown[:5:5], fmt.Sprintf("%d more", len(edges)-5))
+		}
+		out = append(out, model.Finding{
+			Kind:     model.FindingBlindSpot,
+			Severity: model.SeverityWarning,
+			Subject:  name,
+			Title:    fmt.Sprintf("%s counts requests but not failures, so %d communication(s) have no health", name, len(edges)),
+			Detail: fmt.Sprintf("teia sees their traffic but cannot tell whether it fails, so they stay grey instead of green: %s.",
+				strings.Join(shown, ", ")),
+			Fix: &model.Fix{
+				Summary:  "Add an errors query to the source: failed requests per second, grouped by the same from and to labels. A latency query (p95 in seconds) is welcome too.",
+				Language: "yaml",
+				Snippet: fmt.Sprintf(`sources:
+  queries:
+    - name: %s
+      # ...as today, plus:
+      errors: sum by (<from>, <to>) (rate(<your requests metric>{code=~"5.."}[$window]))
+      latency: histogram_quantile(0.95, sum by (<from>, <to>, le) (rate(<your duration histogram>_bucket[$window])))`, name),
 			},
 		})
 	}

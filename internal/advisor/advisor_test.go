@@ -192,3 +192,15 @@ func TestUnmatchedReadingsAskForAnAlias(t *testing.T) {
 		t.Errorf("finding %+v", f)
 	}
 }
+
+func TestErrorsUnmeasuredAsksForTheQuery(t *testing.T) {
+	g := &graph.Graph{Nodes: map[string]*model.Node{}, Edges: map[string]*model.Edge{
+		"app-a->app-b": {From: "app-a", To: "app-b", RequestRate: 10, ErrorsUnknown: true, Sources: []string{"http"}},
+		"web->orders":  {From: "web", To: "orders", RequestRate: 2, Sources: []string{"http", "prometheus"}},
+		"x->y":         {From: "x", To: "y", RequestRate: 1, ErrorsUnknown: true, Sources: []string{"prometheus"}},
+	}}
+	fs := errorsUnmeasured(Input{Graph: g, Statuses: []model.SourceStatus{{Name: "http", Type: "prometheus-query"}, {Name: "prometheus", Type: "prometheus"}}})
+	if len(fs) != 1 || fs[0].Subject != "http" || !strings.Contains(fs[0].Detail, "app-a → app-b") || !strings.Contains(fs[0].Fix.Snippet, "errors:") {
+		t.Fatalf("want one finding for the query source: %+v", fs)
+	}
+}

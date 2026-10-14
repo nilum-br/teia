@@ -120,6 +120,10 @@ sources:
       url: http://loki:3100
       window: 5m
       query: sum by (service, remote_addr, protocol) (rate({namespace="shop"} | json | __error__="" [$window]))
+      # The same lines that failed: without it, failures are unknown, not zero.
+      errors: sum by (service, remote_addr) (rate({namespace="shop"} | json | __error__="" | status >= 500 [$window]))
+      # p95 in seconds, if the log has a duration field.
+      latency: quantile_over_time(0.95, {namespace="shop"} | json | __error__="" | unwrap duration_seconds [$window]) by (service, remote_addr)
       from: remote_addr
       fromAddress: true # an IP, resolved through the inventory
       to: service

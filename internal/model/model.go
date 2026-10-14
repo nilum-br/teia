@@ -201,6 +201,9 @@ type Node struct {
 	// RequestRate and ErrorRate summarise traffic into the node.
 	RequestRate float64 `json:"requestRate,omitempty"`
 	ErrorRate   float64 `json:"errorRate,omitempty"`
+	// ErrorsUnknown: traffic was seen, but no signal measured its failures,
+	// so ErrorRate says nothing and the node is not judged healthy for it.
+	ErrorsUnknown bool `json:"errorsUnknown,omitempty"`
 	// LatencyP50Ms and LatencyP95Ms summarise how long the calls it serves
 	// take, in milliseconds: its callers' percentiles weighted by their
 	// traffic, an approximation (percentiles do not add up exactly).
@@ -244,6 +247,9 @@ type Edge struct {
 	Reason      string   `json:"reason,omitempty"`
 	RequestRate float64  `json:"requestRate,omitempty"` // requests per second
 	ErrorRate   float64  `json:"errorRate,omitempty"`   // failed share, 0..1
+	// ErrorsUnknown: traffic was seen, but no signal measured its failures
+	// (a custom query without an errors query), so ErrorRate says nothing.
+	ErrorsUnknown bool `json:"errorsUnknown,omitempty"`
 	// LatencyP50Ms and LatencyP95Ms are how long calls take as the caller
 	// sees them, in milliseconds, when a signal measures durations (the
 	// histograms of the service graph, a mesh or Hubble; sampled spans).
