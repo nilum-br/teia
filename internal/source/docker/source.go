@@ -109,6 +109,14 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		return obs, fmt.Errorf("listing containers at %s: %w", s.endpoint, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusForbidden {
+		// A socket proxy in front of the engine that does not allow listing
+		// containers.
+		obs.Degraded = true
+		obs.Message = "the Docker API refused to list containers (HTTP 403)"
+		obs.Findings = append(obs.Findings, s.socketFinding(true))
+		return obs, nil
+	}
 	if resp.StatusCode != http.StatusOK {
 		return obs, fmt.Errorf("docker answered HTTP %d", resp.StatusCode)
 	}
@@ -192,18 +200,24 @@ func (s *Source) socketFinding(denied bool) model.Finding {
 		Severity: model.SeverityWarning,
 		Subject:  s.name,
 		Fix: &model.Fix{
-			Summary:  "Mount the Docker socket read-only into the teia container and run it with access to it.",
+			Summary: "Give teia the Docker API through a socket proxy that only allows listing containers. " +
+				"Mounting the socket itself, even read-only (:ro), gives full control of the Docker host.",
 			Language: "yaml",
 			Snippet: `services:
-  teia:
-    user: "0:0" # or the GID that owns the socket
+  docker-proxy:
+    image: lscr.io/linuxserver/socket-proxy
+    environment:
+      CONTAINERS: 1   # GET /containers/json is all teia uses; POST stays off
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro`,
+      - /var/run/docker.sock:/var/run/docker.sock
+  teia:
+    environment:
+      DOCKER_HOST: tcp://docker-proxy:2375`,
 		},
 	}
 	if denied {
-		f.Title = "teia cannot read the Docker socket"
-		f.Detail = fmt.Sprintf("Permission denied on %s, so containers without traffic stay invisible and IP addresses cannot be resolved to workloads.", s.endpoint)
+		f.Title = "teia cannot read the Docker API"
+		f.Detail = fmt.Sprintf("Access denied on %s, so containers without traffic stay invisible and IP addresses cannot be resolved to workloads.", s.endpoint)
 	} else {
 		f.Title = "Docker socket not found"
 		f.Detail = fmt.Sprintf("%s does not exist. Set sources.docker.host or DOCKER_HOST if your runtime (Podman, Colima, OrbStack, rootless Docker) listens elsewhere.", s.endpoint)

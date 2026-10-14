@@ -71,3 +71,24 @@ func TestDiscoverKindsAndLabels(t *testing.T) {
 		t.Errorf("user and teia labels missing: %v / %v", gw.Labels, db.Labels)
 	}
 }
+
+// A socket proxy that does not allow GET /containers answers 403: that is a
+// missing grant, not a broken source.
+func TestProxyRefusalIsAPermissionFinding(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Request forbidden by administrative rules.", http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	obs, err := New("docker", Config{Host: "tcp://" + strings.TrimPrefix(srv.URL, "http://")}).Discover(context.Background())
+	if err != nil {
+		t.Fatalf("a refusal should be a finding, not an error: %v", err)
+	}
+	if !obs.Degraded || len(obs.Findings) != 1 {
+		t.Fatalf("want a degraded round with one finding, got %+v", obs)
+	}
+	f := obs.Findings[0]
+	if f.Rule != "docker-socket" || f.Kind != model.FindingPermission || f.Fix == nil || !strings.Contains(f.Fix.Snippet, "CONTAINERS: 1") {
+		t.Errorf("finding = %+v, fix = %+v", f, f.Fix)
+	}
+}
