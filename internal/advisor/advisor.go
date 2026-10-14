@@ -58,6 +58,7 @@ var Rules = []Rule{
 	{"undeclared-flow", undeclaredFlows},
 	{"stale-flow", staleFlows},
 	{"no-inventory", noInventory},
+	{"unknown-callers", unknownCallers},
 }
 
 // Advise runs every rule, adds the findings sources raised themselves,
@@ -254,9 +255,9 @@ func unresolvedAddress(in Input) []model.Finding {
 		} else {
 			f.Detail = "teia has no inventory source, so it cannot map addresses back to workloads."
 			f.Fix = &model.Fix{
-				Summary:  "Enable an inventory source.",
+				Summary:  "Enable an inventory source, so addresses map back to workloads.",
 				Language: "yaml",
-				Snippet:  "sources:\n  docker:\n    socket: /var/run/docker.sock",
+				Snippet:  "sources:\n  kubernetes: {}   # or docker: {}",
 			}
 		}
 		out = append(out, f)
@@ -353,9 +354,81 @@ func noInventory(in Input) []model.Finding {
 		Title:    "No inventory source configured",
 		Detail:   "Without an inventory teia only knows workloads that produce traffic data, and cannot turn IP addresses into names.",
 		Fix: &model.Fix{
-			Summary:  "Enable the Docker inventory (Kubernetes is on the roadmap).",
+			Summary:  "Enable an inventory: Kubernetes (read-only list of pods and services) or Docker.",
 			Language: "yaml",
-			Snippet:  "sources:\n  docker:\n    socket: /var/run/docker.sock",
+			Snippet:  "sources:\n  kubernetes: {}   # in-cluster or current kubeconfig context\n  # docker: {}     # DOCKER_HOST or the OS default",
 		},
 	}}
+}
+
+var signalWording = map[string]string{
+	source.SignalTraces:  "callers that emit no traces",
+	source.SignalMesh:    "callers without a mesh proxy",
+	source.SignalNetwork: "callers the network telemetry cannot name",
+}
+
+func unknownCallers(in Input) []model.Finding {
+	var ids []string
+	for id := range in.Graph.UnknownCallers {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	var out []model.Finding
+	for _, id := range ids {
+		var signals []string
+		for sig := range in.Graph.UnknownCallers[id] {
+			signals = append(signals, sig)
+		}
+		sort.Strings(signals)
+		for _, sig := range signals {
+			u := in.Graph.UnknownCallers[id][sig]
+			if explainedBy(in.Graph, id, sig) {
+				continue
+			}
+			wording := signalWording[sig]
+			if wording == "" {
+				wording = "callers it cannot identify"
+			}
+			out = append(out, model.Finding{
+				Kind:     model.FindingBlindSpot,
+				Severity: model.SeverityWarning,
+				Subject:  id,
+				Title:    fmt.Sprintf("%s receives calls from callers teia cannot identify", id),
+				Detail: fmt.Sprintf("%.2f req/s reach %s from %s (seen by %s), and no other source names them. "+
+					"They could be another team's job, a partner integration or a person with curl.", u.Rate, id, wording, strings.Join(u.Sources, ", ")),
+				Fix: &model.Fix{
+					Summary: "Name the callers from what " + id + " already records: its access logs (in Loki, via a query source), " +
+						"a mesh proxy, or Beyla (eBPF) on its host. Any of them is enough.",
+					Language: "yaml",
+					Snippet: `sources:
+  queries:
+    - name: access-logs
+      dialect: loki
+      url: http://loki:3100
+      query: sum by (service, remote_addr) (rate({service="` + id + `"} | json [$window]))
+      from: remote_addr
+      fromAddress: true
+      to: service
+      protocol: http`,
+				},
+			})
+		}
+	}
+	return out
+}
+
+// explainedBy reports whether some observed caller of id is invisible to
+// signal, and so may be the one that signal reported as unknown. A caller
+// with an SDK explains the mesh's "unknown"; it does not explain the
+// "user" of the service graph.
+func explainedBy(g *graph.Graph, id, signal string) bool {
+	for _, e := range g.Edges {
+		if e.To != id || !e.Observed || e.From == id {
+			continue
+		}
+		if from := g.Nodes[e.From]; from != nil && from.Labels[source.SignalLabel(signal)] != "true" {
+			return true
+		}
+	}
+	return false
 }

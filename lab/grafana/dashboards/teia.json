@@ -1,272 +1,33 @@
 {
   "uid": "teia-overview",
-  "title": "teia - service communication",
+  "title": "teia \u00b7 service communication",
   "tags": [
     "teia"
   ],
   "timezone": "browser",
   "schemaVersion": 41,
-  "version": 1,
+  "version": 2,
   "editable": true,
+  "graphTooltip": 0,
   "time": {
     "from": "now-15m",
     "to": "now"
   },
-  "refresh": "",
+  "refresh": "5s",
   "panels": [
     {
       "id": 1,
-      "type": "stat",
-      "title": "Visibility",
-      "description": "Share of internal nodes that report their own telemetry",
+      "type": "nilum-teia-panel",
+      "title": "",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "teia"
       },
       "gridPos": {
-        "h": 4,
-        "w": 8,
-        "x": 0,
-        "y": 0
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "teia"
-          },
-          "type": "json",
-          "source": "url",
-          "parser": "backend",
-          "format": "table",
-          "url": "http://teia:8080/api/v1/coverage",
-          "url_options": {
-            "method": "GET",
-            "data": ""
-          },
-          "root_selector": "",
-          "columns": [
-            {
-              "selector": "visibility",
-              "text": "Visibility",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "min": 0,
-          "max": 1,
-          "decimals": 0,
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#d39b2a",
-                "value": null
-              },
-              {
-                "color": "#3f9e6e",
-                "value": 0.8
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center"
-      }
-    },
-    {
-      "id": 2,
-      "type": "stat",
-      "title": "Declared",
-      "description": "Share of observed communication that is declared in flows files",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "teia"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 8,
-        "x": 8,
-        "y": 0
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "teia"
-          },
-          "type": "json",
-          "source": "url",
-          "parser": "backend",
-          "format": "table",
-          "url": "http://teia:8080/api/v1/coverage",
-          "url_options": {
-            "method": "GET",
-            "data": ""
-          },
-          "root_selector": "",
-          "columns": [
-            {
-              "selector": "declared",
-              "text": "Declared",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "min": 0,
-          "max": 1,
-          "decimals": 0,
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#d39b2a",
-                "value": null
-              },
-              {
-                "color": "#3f9e6e",
-                "value": 0.8
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center"
-      }
-    },
-    {
-      "id": 3,
-      "type": "stat",
-      "title": "Observed",
-      "description": "Share of declared communication that was actually observed",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "teia"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 8,
-        "x": 16,
-        "y": 0
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "teia"
-          },
-          "type": "json",
-          "source": "url",
-          "parser": "backend",
-          "format": "table",
-          "url": "http://teia:8080/api/v1/coverage",
-          "url_options": {
-            "method": "GET",
-            "data": ""
-          },
-          "root_selector": "",
-          "columns": [
-            {
-              "selector": "observed",
-              "text": "Observed",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "min": 0,
-          "max": 1,
-          "decimals": 0,
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#d39b2a",
-                "value": null
-              },
-              {
-                "color": "#3f9e6e",
-                "value": 0.8
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "center"
-      }
-    },
-    {
-      "id": 4,
-      "type": "nodeGraph",
-      "title": "Who talks to whom (dashed = observed but undeclared, dotted = declared but not observed)",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "teia"
-      },
-      "gridPos": {
-        "h": 16,
+        "h": 30,
         "w": 24,
         "x": 0,
-        "y": 4
+        "y": 0
       },
       "targets": [
         {
@@ -278,7 +39,7 @@
           "type": "json",
           "source": "url",
           "parser": "backend",
-          "format": "node-graph-nodes",
+          "format": "table",
           "url": "http://teia:8080/api/v1/grafana/nodes",
           "url_options": {
             "method": "GET",
@@ -296,7 +57,7 @@
           "type": "json",
           "source": "url",
           "parser": "backend",
-          "format": "node-graph-edges",
+          "format": "table",
           "url": "http://teia:8080/api/v1/grafana/edges",
           "url_options": {
             "method": "GET",
@@ -304,30 +65,9 @@
           },
           "root_selector": "",
           "columns": []
-        }
-      ],
-      "options": {
-        "nodes": {},
-        "edges": {}
-      }
-    },
-    {
-      "id": 5,
-      "type": "table",
-      "title": "Next steps",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "teia"
-      },
-      "gridPos": {
-        "h": 10,
-        "w": 24,
-        "x": 0,
-        "y": 20
-      },
-      "targets": [
+        },
         {
-          "refId": "A",
+          "refId": "findings",
           "datasource": {
             "type": "yesoreyeram-infinity-datasource",
             "uid": "teia"
@@ -342,87 +82,215 @@
             "data": ""
           },
           "root_selector": "",
-          "columns": [
-            {
-              "selector": "severity",
-              "text": "Severity",
-              "type": "string"
-            },
-            {
-              "selector": "kind",
-              "text": "Kind",
-              "type": "string"
-            },
-            {
-              "selector": "subject",
-              "text": "Subject",
-              "type": "string"
-            },
-            {
-              "selector": "title",
-              "text": "Finding",
-              "type": "string"
-            },
-            {
-              "selector": "nextStep",
-              "text": "Next step",
-              "type": "string"
-            }
-          ]
+          "columns": []
+        },
+        {
+          "refId": "sources",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "teia"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "http://teia:8080/api/v1/grafana/sources",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": []
+        },
+        {
+          "refId": "coverage",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "teia"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "http://teia:8080/api/v1/coverage",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": []
+        },
+        {
+          "refId": "changes",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "teia"
+          },
+          "type": "json",
+          "source": "url",
+          "parser": "backend",
+          "format": "table",
+          "url": "http://teia:8080/api/v1/grafana/changes",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
+          "root_selector": "",
+          "columns": []
         }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "cellOptions": {
-              "type": "auto",
-              "wrapText": true
+      "options": {
+        "groupBy": "",
+        "flow": true,
+        "teiaUrl": ""
+      }
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Grafana native panels (for comparison)",
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "panels": [
+        {
+          "id": 4,
+          "type": "nodeGraph",
+          "title": "Node Graph (built-in)",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "teia"
+          },
+          "gridPos": {
+            "h": 16,
+            "w": 24,
+            "x": 0,
+            "y": 31
+          },
+          "targets": [
+            {
+              "refId": "nodes",
+              "datasource": {
+                "type": "yesoreyeram-infinity-datasource",
+                "uid": "teia"
+              },
+              "type": "json",
+              "source": "url",
+              "parser": "backend",
+              "format": "node-graph-nodes",
+              "url": "http://teia:8080/api/v1/grafana/nodes",
+              "url_options": {
+                "method": "GET",
+                "data": ""
+              },
+              "root_selector": "",
+              "columns": []
+            },
+            {
+              "refId": "edges",
+              "datasource": {
+                "type": "yesoreyeram-infinity-datasource",
+                "uid": "teia"
+              },
+              "type": "json",
+              "source": "url",
+              "parser": "backend",
+              "format": "node-graph-edges",
+              "url": "http://teia:8080/api/v1/grafana/edges",
+              "url_options": {
+                "method": "GET",
+                "data": ""
+              },
+              "root_selector": "",
+              "columns": []
             }
+          ],
+          "options": {
+            "nodes": {},
+            "edges": {}
           }
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Severity"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 90
-              }
-            ]
+        {
+          "id": 5,
+          "type": "table",
+          "title": "Next steps",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "teia"
           },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Kind"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 100
-              }
-            ]
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 47
           },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Subject"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 200
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "yesoreyeram-infinity-datasource",
+                "uid": "teia"
+              },
+              "type": "json",
+              "source": "url",
+              "parser": "backend",
+              "format": "table",
+              "url": "http://teia:8080/api/v1/grafana/findings",
+              "url_options": {
+                "method": "GET",
+                "data": ""
+              },
+              "root_selector": "",
+              "columns": [
+                {
+                  "selector": "severity",
+                  "text": "Severity",
+                  "type": "string"
+                },
+                {
+                  "selector": "kind",
+                  "text": "Kind",
+                  "type": "string"
+                },
+                {
+                  "selector": "subject",
+                  "text": "Subject",
+                  "type": "string"
+                },
+                {
+                  "selector": "title",
+                  "text": "Finding",
+                  "type": "string"
+                },
+                {
+                  "selector": "nextStep",
+                  "text": "Next step",
+                  "type": "string"
+                }
+              ]
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "auto",
+                  "wrapText": true
+                }
               }
-            ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "md"
           }
-        ]
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "md"
-      }
+        }
+      ]
     }
   ]
 }

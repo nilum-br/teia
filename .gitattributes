@@ -1,3 +1,2 @@
 * text=auto eol=lf
 *.png binary
-internal/api/ui/vendor/** linguist-vendored

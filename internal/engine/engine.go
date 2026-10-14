@@ -1,5 +1,6 @@
 // Package engine runs discovery rounds: it asks every source what it sees,
-// merges the answers into one graph and lets the advisor comment on it.
+// merges the answers into one graph, lets the advisor comment on it, and
+// tells subscribers and notifiers what changed.
 package engine
 
 import (
@@ -20,15 +21,32 @@ type Options struct {
 	Timeout time.Duration
 	Aliases map[string]string
 	Ignore  []string
+	Health  graph.HealthThresholds
+	// Retention keeps an observed edge alive this long after its last
+	// sighting; zero means three intervals.
+	Retention time.Duration
+	Notifiers []Notifier
 }
+
+// Notifier receives the changes of every round that has some.
+type Notifier interface {
+	Notify(ctx context.Context, changes []model.Change) error
+}
+
+// recentChanges bounds the activity feed kept in memory.
+const recentChanges = 300
 
 type Engine struct {
 	sources []source.Source
 	opts    Options
 	log     *slog.Logger
+	memory  graph.Memory
 
-	mu   sync.RWMutex
-	snap model.Snapshot
+	mu      sync.RWMutex
+	snap    model.Snapshot
+	recent  []model.Change
+	subs    map[chan model.Snapshot]struct{}
+	running sync.Mutex // one round at a time
 }
 
 func New(sources []source.Source, opts Options, log *slog.Logger) *Engine {
@@ -38,7 +56,17 @@ func New(sources []source.Source, opts Options, log *slog.Logger) *Engine {
 	if opts.Timeout == 0 {
 		opts.Timeout = 20 * time.Second
 	}
-	return &Engine{sources: sources, opts: opts, log: log}
+	if opts.Health == (graph.HealthThresholds{}) {
+		opts.Health = graph.DefaultHealth
+	}
+	if opts.Retention == 0 {
+		opts.Retention = 3 * opts.Interval
+	}
+	return &Engine{
+		sources: sources, opts: opts, log: log,
+		memory: graph.Memory{Retention: opts.Retention},
+		subs:   map[chan model.Snapshot]struct{}{},
+	}
 }
 
 // Snapshot returns the result of the last round.
@@ -46,6 +74,27 @@ func (e *Engine) Snapshot() model.Snapshot {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.snap
+}
+
+// Changes returns the most recent changes, oldest first.
+func (e *Engine) Changes() []model.Change {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return append([]model.Change(nil), e.recent...)
+}
+
+// Subscribe returns a channel that receives every new snapshot, and a
+// function to stop. Slow subscribers only get the latest snapshot.
+func (e *Engine) Subscribe() (<-chan model.Snapshot, func()) {
+	ch := make(chan model.Snapshot, 1)
+	e.mu.Lock()
+	e.subs[ch] = struct{}{}
+	e.mu.Unlock()
+	return ch, func() {
+		e.mu.Lock()
+		delete(e.subs, ch)
+		e.mu.Unlock()
+	}
 }
 
 // Run refreshes immediately and then on every interval until ctx ends.
@@ -64,9 +113,11 @@ func (e *Engine) Run(ctx context.Context) {
 
 // Refresh runs one discovery round and stores its snapshot.
 func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
+	e.running.Lock()
+	defer e.running.Unlock()
+
 	results := make([]graph.Result, len(e.sources))
 	statuses := make([]model.SourceStatus, len(e.sources))
-
 	var wg sync.WaitGroup
 	for i, src := range e.sources {
 		wg.Add(1)
@@ -82,7 +133,11 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 	}
 	wg.Wait()
 
+	now := time.Now().UTC()
 	g := graph.Build(results, e.opts.Aliases, e.opts.Ignore)
+	e.memory.Retain(g, now)
+	graph.ApplyTech(g)
+	graph.ApplyHealth(g, e.opts.Health)
 
 	var fromSources []model.Finding
 	for _, r := range results {
@@ -93,20 +148,50 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 		}
 	}
 
+	e.mu.RLock()
+	prev := e.snap
+	e.mu.RUnlock()
+
 	snap := model.Snapshot{
-		GeneratedAt: time.Now().UTC(),
+		Round:       prev.Round + 1,
+		GeneratedAt: now,
 		Nodes:       g.SortedNodes(),
 		Edges:       g.SortedEdges(),
 		Findings:    advisor.Advise(advisor.Input{Graph: g, Statuses: statuses}, fromSources),
 		Sources:     statuses,
 		Coverage:    graph.ComputeCoverage(g),
 	}
+	snap.Changes = Diff(prev, snap, now)
+
 	e.mu.Lock()
 	e.snap = snap
+	e.recent = append(e.recent, snap.Changes...)
+	if len(e.recent) > recentChanges {
+		e.recent = e.recent[len(e.recent)-recentChanges:]
+	}
+	for ch := range e.subs {
+		select {
+		case <-ch: // drop the stale snapshot a slow reader has not taken
+		default:
+		}
+		ch <- snap
+	}
 	e.mu.Unlock()
 
-	e.log.Info("discovery round",
-		"nodes", len(snap.Nodes), "edges", len(snap.Edges), "findings", len(snap.Findings),
+	if len(snap.Changes) > 0 {
+		for _, n := range e.opts.Notifiers {
+			go func() {
+				nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+				defer cancel()
+				if err := n.Notify(nctx, snap.Changes); err != nil {
+					e.log.Warn("notification failed", "err", err)
+				}
+			}()
+		}
+	}
+
+	e.log.Info("discovery round", "round", snap.Round,
+		"nodes", len(snap.Nodes), "edges", len(snap.Edges), "findings", len(snap.Findings), "changes", len(snap.Changes),
 		"visibility", snap.Coverage.Visibility, "declared", snap.Coverage.Declared)
 	for _, s := range statuses {
 		if s.State != model.SourceOK {

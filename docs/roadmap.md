@@ -12,8 +12,14 @@ competing. See [landscape.md](landscape.md).
 - [x] CLI: `serve`, `discover --fail-on`, `export matrix`, `validate`
 - [x] Built-in UI, Grafana Node Graph via the Infinity data source
 - [x] Lab with staged blind spots
-- [ ] **Kubernetes inventory**: pods, services, owners, IP → workload with history; RBAC finding when forbidden
-- [ ] Identity resolution with confidence and provenance; annotation `teia.nilum.io/node-id`
+- [x] **Kubernetes inventory**: pods, services, owners, IP → workload; RBAC finding when forbidden
+- [x] Agnostic Prometheus source with 10 auto-detected presets (service graph, Istio, Linkerd, Beyla/OBI, Hubble, Retina)
+- [x] Tempo (traces without the metrics-generator) and generic PromQL/LogQL query sources (access logs in Loki)
+- [x] Health per node and edge, live stream (SSE), change events, webhooks (JSON, Slack), `/metrics`
+- [x] Grafana panel plugin `nilum-teia-panel` sharing the map component; icon library with technology detection
+- [x] Recycled IPs are never attributed to the wrong workload; annotation `teia.nilum.io/node-id`
+- [x] Binaries for Linux, macOS, Windows (amd64, arm64); multi-arch image; CI on all three OSes; lab end-to-end check in CI
+- [ ] Identity confidence and provenance per resolution; IP history in the Kubernetes inventory
 - [ ] `teia diff` for pull requests: drift introduced by a change, as a PR comment
 - [ ] Persist aggregated edges (first seen, last seen, sources) so short windows do not erase history
 - [ ] Container image and Helm chart
@@ -33,7 +39,7 @@ competing. See [landscape.md](landscape.md).
 - [ ] Generate NetworkPolicy, CiliumNetworkPolicy and Istio AuthorizationPolicy from **declared** flows,
       with a "what would break" report based on observed traffic
 - [ ] Flow matrix as XLSX, with templates for firewall change requests
-- [ ] Grafana app plugin (Go backend, signed)
+- [ ] teia data source for Grafana (Go backend), signing and catalog listing
 - [ ] Explorers: MySQL, Redis (`CLIENT LIST`), Kafka consumer groups
 
 ## Not planned

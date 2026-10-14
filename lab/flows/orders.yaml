@@ -14,6 +14,10 @@ spec:
       protocol: postgresql
       port: 5432
       reason: persist orders
+    - to: resource:default/order-events
+      kind: queue
+      protocol: kafka
+      reason: publish order events (managed Kafka)
     # Declared but never deployed in the lab: teia reports it as stale.
     - to: component:default/notifications
       protocol: http

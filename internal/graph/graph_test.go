@@ -3,6 +3,7 @@ package graph
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/nilum-br/teia/internal/model"
 	"github.com/nilum-br/teia/internal/source"
@@ -136,5 +137,32 @@ func TestCoverage(t *testing.T) {
 	}
 	if c.Declared != 0.5 || c.Observed != 0.5 {
 		t.Errorf("declared %v observed %v, want 0.5 and 0.5", c.Declared, c.Observed)
+	}
+}
+
+func TestRecycledAddressesAreNotMisattributed(t *testing.T) {
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	results := []Result{
+		result("docker", "docker", source.Observation{Nodes: []source.NodeObservation{
+			{ID: "old-timer", Addresses: []string{"10.0.0.7"}, Since: now.Add(-time.Hour)},
+			{ID: "newcomer", Addresses: []string{"10.0.0.8"}, Since: now.Add(-30 * time.Second)},
+		}}),
+		result("loki/access-logs", "loki-query", source.Observation{Edges: []source.EdgeObservation{
+			{From: source.AddressID("10.0.0.7"), To: "catalog", Window: 2 * time.Minute},
+			{From: source.AddressID("10.0.0.8"), To: "catalog", Window: 2 * time.Minute},
+		}}),
+		result("postgres/db", "postgres", source.Observation{Edges: []source.EdgeObservation{
+			{From: source.AddressID("10.0.0.8"), To: "db"}, // current sessions: no window
+		}}),
+	}
+	g := BuildAt(results, nil, nil, now)
+	if _, ok := g.Edges["old-timer->catalog"]; !ok {
+		t.Error("an address held for the whole window should resolve")
+	}
+	if _, ok := g.Edges["newcomer->catalog"]; ok {
+		t.Error("an address that changed hands inside the window must not be attributed")
+	}
+	if _, ok := g.Edges["newcomer->db"]; !ok {
+		t.Error("a point-in-time observation resolves to the current owner")
 	}
 }

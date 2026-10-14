@@ -3,7 +3,10 @@
 // handle: instrumented services, an uninstrumented third party, a datastore
 // seen only from its callers and a legacy job that emits no telemetry.
 //
-//	ROLE           service (default) | loadgen | legacy
+//	ROLE           service (default) | loadgen | legacy | consumer | e2e
+//	PUBLISH        produce to a managed broker on every request: "order-events=kafka"
+//	DOCDB          query a managed document database: "catalog-db=mongodb"
+//	CONSUME/NOTIFY consumer role: broker to poll, external API to call per message
 //	SERVICE_NAME   name reported in telemetry
 //	TELEMETRY      on (default) | off
 //	CALLS          downstream HTTP calls: "name=url,name=url"
@@ -14,6 +17,9 @@
 //	ERROR_RATE     share of requests answered with HTTP 500
 //	TARGET         URL the loadgen calls
 //	INTERVAL       loadgen and legacy tick, e.g. 500ms
+//	ACCESS_LOG     on (default) | off: one JSON line per request on stdout
+//	MESH           istio: simulate an Istio sidecar (see sidecar.go)
+//	MESH_NAMESPACE namespace reported by the simulated sidecar
 package main
 
 import (
@@ -75,6 +81,10 @@ func main() {
 		err = loadgen(ctx)
 	case "legacy":
 		err = legacy(ctx)
+	case "e2e":
+		err = e2e(ctx)
+	case "consumer":
+		err = consume(ctx)
 	default:
 		err = serve(ctx)
 	}
@@ -144,13 +154,14 @@ func serve(ctx context.Context) error {
 	}
 	dbPeer := env("POSTGRES_PEER", "postgres")
 	redisAddr, redisPeer := os.Getenv("REDIS_ADDR"), env("REDIS_PEER", "redis")
+	mesh := newSidecar()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		for _, d := range calls {
 			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, d.url, nil)
-			resp, err := d.client.Do(req)
+			resp, err := mesh.outbound(req, d.name, d.client.Do)
 			if err != nil {
 				log.Warn("call failed", "to", d.name, "err", err)
 				continue
@@ -164,6 +175,12 @@ func serve(ctx context.Context) error {
 		if redisAddr != "" {
 			pingRedis(ctx, redisAddr, redisPeer)
 		}
+		if spec := os.Getenv("DOCDB"); spec != "" {
+			docQuery(ctx, spec)
+		}
+		if spec := os.Getenv("PUBLISH"); spec != "" {
+			publish(ctx, spec)
+		}
 		if rand.Float64() < errorRate {
 			http.Error(w, "injected failure", http.StatusInternalServerError)
 			return
@@ -171,7 +188,8 @@ func serve(ctx context.Context) error {
 		fmt.Fprintln(w, "ok")
 	})
 
-	srv := &http.Server{Addr: ":" + env("PORT", "8080"), Handler: otelhttp.NewHandler(mux, "request"), ReadHeaderTimeout: 5 * time.Second}
+	handler := accessLog(mesh.inbound(otelhttp.NewHandler(mux, "request")))
+	srv := &http.Server{Addr: ":" + env("PORT", "8080"), Handler: handler, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
 		_ = srv.Shutdown(context.Background())

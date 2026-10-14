@@ -1,6 +1,6 @@
 # Turns traces into service graph metrics (traces_service_graph_request_total)
-# and exposes them for Prometheus. This is the same pipeline teia expects in
-# production; Tempo's metrics-generator produces the same metrics.
+# for Prometheus, and forwards the raw traces to Tempo. Tempo's
+# metrics-generator can produce the same metrics instead.
 receivers:
   otlp:
     protocols:
@@ -10,11 +10,12 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 connectors:
-  servicegraph:
+  # "servicegraph" in Collector releases before the rename
+  service_graph:
     latency_histogram_buckets: [10ms, 50ms, 100ms, 250ms, 500ms, 1s, 2s]
-    # Adds client_db_system / server_db_system labels so teia can tell
-    # databases and caches apart from services.
-    dimensions: [db.system]
+    # Adds client_db_system / client_messaging_system labels so teia can
+    # tell databases, caches and brokers apart from services, and which ones.
+    dimensions: [db.system, messaging.system]
     # Draws an edge to things that never report spans themselves.
     virtual_node_peer_attributes: [peer.service, db.name, db.system]
     # SDKs batch spans for a few seconds; a short ttl turns late server
@@ -27,12 +28,17 @@ connectors:
 exporters:
   prometheus:
     endpoint: 0.0.0.0:8889
+  # raw traces, for the tempo source and for people
+  otlp_grpc/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
-      exporters: [servicegraph]
+      exporters: [service_graph, otlp_grpc/tempo]
     metrics:
-      receivers: [servicegraph]
+      receivers: [service_graph]
       exporters: [prometheus]

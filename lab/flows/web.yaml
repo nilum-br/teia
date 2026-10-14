@@ -13,3 +13,7 @@ spec:
       protocol: http
       port: 8080
       reason: show products
+    - to: component:default/recommendations
+      protocol: http
+      port: 8080
+      reason: suggest products

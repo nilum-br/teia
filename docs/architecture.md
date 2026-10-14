@@ -16,15 +16,21 @@ return into one graph, and runs the advisor on that graph.
 | `internal/model` | Shared types: `Node`, `Edge`, `Finding`, `Fix`, `SourceStatus`, `Coverage`, `Snapshot` |
 | `internal/source` | The `Source` interface and raw observation types |
 | `internal/source/declared` | Reads `Flows` documents (intent) |
-| `internal/source/servicegraph` | Queries `traces_service_graph_*` in Prometheus (traffic) |
-| `internal/source/docker` | Lists containers (inventory: names, kinds, addresses) |
+| `internal/source/prometheus` | Prometheus-compatible metrics with auto-detected presets (service graph, Istio, Linkerd, Beyla/OBI, Hubble, Retina) |
+| `internal/source/tempo` | Samples traces from Tempo and pairs spans into edges |
+| `internal/source/query` | Any PromQL or LogQL query mapped to edges (access logs in Loki, custom exporters) |
+| `internal/source/promapi` | Instant-query client shared by Prometheus and Loki sources |
+| `internal/source/kubernetes` | Inventory: workloads, pod and service IPs, labels, images |
+| `internal/source/docker` | Inventory: containers over unix sockets, TCP or Windows named pipes |
 | `internal/source/postgres` | Reads `pg_stat_activity` from inside a database (who connects) |
-| `internal/graph` | Merge, identity resolution, drift states, visibility, coverage |
+| `internal/graph` | Merge, identity (time-aware address resolution), drift, visibility, coverage, health, technology, retention |
 | `internal/advisor` | Rules that turn the graph into findings with a next step |
-| `internal/engine` | The discovery loop and the current snapshot |
-| `internal/api` | JSON API, Grafana Node Graph endpoints, built-in UI |
+| `internal/engine` | The discovery loop, snapshots, change events, subscribers and notifiers |
+| `internal/notify` | Webhooks (JSON, Slack) |
+| `internal/api` | JSON API, SSE stream, `/metrics`, Grafana frames, built-in UI (`ui/teia-ui.js`, shared with the Grafana panel) |
 | `internal/export` | Flow matrix (CSV) |
-| `cmd/teia` | `serve`, `discover`, `export matrix`, `validate` |
+| `cmd/teia` | `serve`, `discover`, `detect`, `export matrix`, `validate` |
+| `plugins/grafana` | `nilum-teia-panel`, the Grafana panel plugin |
 
 ## Sources
 
@@ -108,7 +114,10 @@ has full visibility. Otherwise teia cannot tell "not happening" from "not visibl
 | `GET /api/v1/coverage` | coverage scores |
 | `GET /api/v1/sources` | per-source status of the last round |
 | `GET /api/v1/export/matrix.csv?lang=pt-BR&declared=true` | flow matrix |
-| `GET /api/v1/grafana/{nodes,edges,findings}` | Grafana Node Graph / table shaped data |
+| `GET /api/v1/changes` | recent changes between rounds |
+| `GET /api/v1/stream` | Server-Sent Events: one snapshot per round |
+| `GET /api/v1/grafana/{nodes,edges,findings,sources,changes}` | flat frames for Grafana (teia panel, Node Graph, tables) |
+| `GET /metrics` | Prometheus metrics: edges, nodes, coverage, findings, sources |
 | `GET /healthz` | liveness |
 | `GET /` | built-in UI |
 

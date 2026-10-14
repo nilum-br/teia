@@ -12,8 +12,6 @@ Rule IDs are stable. You can filter on them, and they will not be renamed betwee
 | Rule | Kind | Severity | Fires when | Next step |
 |---|---|---|---|---|
 | `source-error` | source | critical | a source failed this round | check reachability and config |
-| `servicegraph-no-metrics` | source | warning | Prometheus has no `traces_service_graph_request_total` | enable the OTel Collector `servicegraph` connector or the Tempo metrics-generator |
-| `servicegraph-denied` | permission | critical | Prometheus answered 401/403 | read-only credential via `headers` |
 | `servicegraph-unnamed-target` | blind-spot | info | client spans with no matching server span and no `peer.service` / `db.*` | set `peer.service`, raise `store.ttl` |
 | `invalid-flows-file` | source | warning | a flows file does not parse or validate | `teia validate` |
 | `docker-socket` | permission | warning | the Docker socket is missing or not readable | mount it read-only |
@@ -22,9 +20,13 @@ Rule IDs are stable. You can filter on them, and they will not be renamed betwee
 | `no-telemetry` | blind-spot | warning | a workload has no telemetry of its own (seen only via peers, or not at all) | OTel SDK env vars, or Beyla (eBPF) |
 | `datastore-unexplored` | blind-spot | info | a database, cache or queue is reached but no explorer looks inside it | postgres explorer config + SQL; other systems: declare clients meanwhile |
 | `unresolved-address` | blind-spot | warning | an address talks to something and no inventory knows it | enable an inventory, or alias it |
-| `no-inventory` | blind-spot | info | no inventory source is configured | enable Docker (Kubernetes soon) |
+| `no-inventory` | blind-spot | info | no inventory source is configured | enable the Kubernetes or Docker inventory |
 | `undeclared-flow` | drift | warning | observed communication is not declared | a generated flows file for owners without one, an `egress` entry otherwise |
 | `stale-flow` | drift | info | a declared call was not observed **and the caller has full visibility** | remove it, or keep it if it is rare |
+| `unknown-callers` | blind-spot | warning | a signal reports calls from callers it cannot name (service graph `user`, Istio `unknown`) and no other source names a caller that signal cannot see | access logs via a Loki query, a mesh proxy, or Beyla |
+| `prometheus-no-signals` | source | warning | none of the known metric families exists in Prometheus | the cheapest signal: service graph metrics from existing traces, or Beyla |
+| `prometheus-denied`, `query-denied`, `tempo-denied` | permission | critical | the API refused teia's credentials | read-only credential as a header |
+| `kubernetes-rbac` | permission | warning | teia cannot list pods and services | a read-only ClusterRole (pods, services, namespaces) |
 
 ## Why least privilege matters here
 

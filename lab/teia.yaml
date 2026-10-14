@@ -1,14 +1,51 @@
+# The lab's teia config: every signal the shop has, nothing installed for teia.
 listen: :8080
-interval: 15s
+interval: 10s
+
+# yellow from 1% errors, red from 5%
+health:
+  degraded: 0.01
+  failing: 0.05
+
+# changes between rounds can be pushed anywhere:
+# notify:
+#   webhooks:
+#     - url: https://hooks.slack.com/services/...
+#       format: slack
+#       events: [edge.added, edge.health, node.health, finding.opened]
 sources:
+  # intent: flows files from the service repositories
   declared:
     paths: [/etc/teia/flows]
-  servicegraph:
-    prometheusURL: http://prometheus:9090
-    window: 2m
+
+  # metrics: auto-detects service graph metrics (from traces) and Istio
+  prometheus:
+    - url: http://prometheus:9090
+      window: 2m
+      presets: [auto]
+
+  # traces: a second, independent view straight from Tempo
+  tempo:
+    - url: http://tempo:3200
+      window: 10m
+
+  # logs: access logs name callers that have no telemetry of their own
+  queries:
+    - name: access-logs
+      dialect: loki
+      url: http://loki:3100
+      window: 2m
+      query: sum by (service, remote_addr) (rate({project="teia-lab"} | json | __error__="" | msg="access" [$window]))
+      from: remote_addr
+      fromAddress: true
+      to: service
+      protocol: http
+
+  # inventory: names, kinds and addresses of everything running
   docker:
-    socket: /var/run/docker.sock
     project: teia-lab
+
+  # inside the database: who is connected
   postgres:
     - node: orders-db
       dsn: postgres://teia:${TEIA_PG_PASSWORD}@orders-db:5432/orders?sslmode=disable

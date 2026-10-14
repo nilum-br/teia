@@ -28,14 +28,30 @@ const (
 	VisibilityNone Visibility = "none"
 )
 
+// Health is how a node or edge is behaving, from its error rate.
+type Health string
+
+const (
+	HealthHealthy  Health = "healthy"  // errors below the degraded threshold
+	HealthDegraded Health = "degraded" // errors between the thresholds
+	HealthFailing  Health = "failing"  // errors at or above the failing threshold
+	HealthUnknown  Health = "unknown"  // no rate known (declared only, or a signal without rates)
+)
+
 // Node is a workload, datastore or external endpoint.
 type Node struct {
-	ID         string            `json:"id"`
-	Kind       NodeKind          `json:"kind"`
-	Visibility Visibility        `json:"visibility"`
-	Sources    []string          `json:"sources"`
-	Addresses  []string          `json:"addresses,omitempty"`
-	Labels     map[string]string `json:"labels,omitempty"`
+	ID   string   `json:"id"`
+	Kind NodeKind `json:"kind"`
+	// Tech is the recognised technology (postgresql, redis, kafka...).
+	Tech       string     `json:"tech,omitempty"`
+	Visibility Visibility `json:"visibility"`
+	Health     Health     `json:"health"`
+	// RequestRate and ErrorRate summarise traffic into the node.
+	RequestRate float64           `json:"requestRate,omitempty"`
+	ErrorRate   float64           `json:"errorRate,omitempty"`
+	Sources     []string          `json:"sources"`
+	Addresses   []string          `json:"addresses,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
 }
 
 // EdgeState is the result of comparing declared and observed communication.
@@ -52,17 +68,21 @@ const (
 
 // Edge is a directed communication from a caller to a callee.
 type Edge struct {
-	From        string    `json:"from"`
-	To          string    `json:"to"`
-	Protocol    string    `json:"protocol,omitempty"`
-	Port        int       `json:"port,omitempty"`
-	Declared    bool      `json:"declared"`
-	Observed    bool      `json:"observed"`
-	State       EdgeState `json:"state"`
-	Sources     []string  `json:"sources"`
-	Reason      string    `json:"reason,omitempty"`
-	RequestRate float64   `json:"requestRate,omitempty"` // requests per second
-	ErrorRate   float64   `json:"errorRate,omitempty"`   // failed share, 0..1
+	From     string    `json:"from"`
+	To       string    `json:"to"`
+	Protocol string    `json:"protocol,omitempty"`
+	Port     int       `json:"port,omitempty"`
+	Declared bool      `json:"declared"`
+	Observed bool      `json:"observed"`
+	State    EdgeState `json:"state"`
+	Health   Health    `json:"health"`
+	Sources  []string  `json:"sources"`
+	// Signals are the kinds of telemetry that observed the edge: traces,
+	// mesh, network, logs, metrics, database.
+	Signals     []string `json:"signals,omitempty"`
+	Reason      string   `json:"reason,omitempty"`
+	RequestRate float64  `json:"requestRate,omitempty"` // requests per second
+	ErrorRate   float64  `json:"errorRate,omitempty"`   // failed share, 0..1
 }
 
 // Key identifies an edge inside a graph.
@@ -155,12 +175,41 @@ type Coverage struct {
 	Observed float64 `json:"observed"`
 }
 
+// ChangeType names what changed between two discovery rounds.
+type ChangeType string
+
+const (
+	ChangeEdgeAdded       ChangeType = "edge.added"
+	ChangeEdgeRemoved     ChangeType = "edge.removed"
+	ChangeEdgeState       ChangeType = "edge.state"
+	ChangeEdgeHealth      ChangeType = "edge.health"
+	ChangeNodeAdded       ChangeType = "node.added"
+	ChangeNodeRemoved     ChangeType = "node.removed"
+	ChangeNodeHealth      ChangeType = "node.health"
+	ChangeNodeVisibility  ChangeType = "node.visibility"
+	ChangeFindingOpened   ChangeType = "finding.opened"
+	ChangeFindingResolved ChangeType = "finding.resolved"
+)
+
+// Change is one difference between two rounds, ready to show or send.
+type Change struct {
+	At      time.Time  `json:"at"`
+	Type    ChangeType `json:"type"`
+	Subject string     `json:"subject"`
+	From    string     `json:"from,omitempty"` // previous value
+	To      string     `json:"to,omitempty"`   // new value
+	Message string     `json:"message"`
+}
+
 // Snapshot is the result of one discovery round.
 type Snapshot struct {
+	Round       int64          `json:"round"`
 	GeneratedAt time.Time      `json:"generatedAt"`
 	Nodes       []Node         `json:"nodes"`
 	Edges       []Edge         `json:"edges"`
 	Findings    []Finding      `json:"findings"`
 	Sources     []SourceStatus `json:"sources"`
 	Coverage    Coverage       `json:"coverage"`
+	// Changes since the previous round.
+	Changes []Change `json:"changes,omitempty"`
 }

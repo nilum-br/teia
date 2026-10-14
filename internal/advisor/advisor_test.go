@@ -139,3 +139,41 @@ func TestAdviseExploredAndSorted(t *testing.T) {
 		t.Errorf("source findings should get IDs, got %q", fs[1].ID)
 	}
 }
+
+func TestUnknownCallersAreExplainedPerSignal(t *testing.T) {
+	traces := map[string]string{"teia.signal.traces": "true"}
+	mesh := map[string]string{"teia.signal.mesh": "true"}
+	g := &graph.Graph{
+		Nodes: map[string]*model.Node{
+			"web":             node("web", model.KindService, model.VisibilityFull, traces),
+			"catalog":         node("catalog", model.KindService, model.VisibilityFull, traces),
+			"recommendations": node("recommendations", model.KindService, model.VisibilityFull, mesh),
+			"partner-sync":    node("partner-sync", model.KindService, model.VisibilityPartial, nil),
+		},
+		Edges: map[string]*model.Edge{
+			"web->catalog":         edge("web", "catalog", model.EdgeOK, "http"),
+			"web->recommendations": edge("web", "recommendations", model.EdgeOK, "http"),
+		},
+		UnknownCallers: map[string]map[string]graph.UnknownCallers{
+			"catalog":         {"traces": {Rate: 0.3, Sources: []string{"prometheus"}}},
+			"recommendations": {"mesh": {Rate: 2, Sources: []string{"prometheus"}}},
+		},
+	}
+	subjects := func() map[string]bool {
+		out := map[string]bool{}
+		for _, f := range unknownCallers(Input{Graph: g}) {
+			out[f.Subject] = true
+		}
+		return out
+	}
+	// web has an SDK but no sidecar: it explains the mesh's unknown caller,
+	// not the traces' one.
+	if got := subjects(); !got["catalog"] || got["recommendations"] {
+		t.Fatalf("before logs: %v", got)
+	}
+	// Access logs name partner-sync, which emits no traces: explained.
+	g.Edges["partner-sync->catalog"] = edge("partner-sync", "catalog", model.EdgeGhost, "http")
+	if got := subjects(); len(got) != 0 {
+		t.Fatalf("after logs: %v", got)
+	}
+}

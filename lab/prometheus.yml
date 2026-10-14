@@ -1,6 +1,11 @@
 global:
   scrape_interval: 10s
 scrape_configs:
+  # service graph metrics generated from traces
   - job_name: otel-collector
     static_configs:
       - targets: [otel-collector:8889]
+  # Istio-style sidecar metrics of the mesh part of the shop
+  - job_name: mesh-sidecars
+    static_configs:
+      - targets: [recommendations:8080, inventory:8080]

@@ -6,6 +6,16 @@ datasources:
     access: proxy
     url: http://prometheus:9090
     isDefault: true
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
   # Until the teia Grafana plugin exists, the Infinity data source reads the
   # teia API directly.
   - name: teia

@@ -11,7 +11,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -25,7 +24,7 @@ import (
 type Config struct {
 	// Node is the node ID of this database in the graph, e.g. "orders-db".
 	Node string
-	// DSN may reference environment variables, e.g. ${TEIA_ORDERS_DB_PASSWORD}.
+	// DSN; ${NAME} references are expanded when the config is loaded.
 	DSN string
 }
 
@@ -55,7 +54,7 @@ GROUP BY 1, 2`
 func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	obs := source.Observation{Explores: []string{s.cfg.Node}}
 
-	conn, err := pgx.Connect(ctx, os.ExpandEnv(s.cfg.DSN))
+	conn, err := pgx.Connect(ctx, s.cfg.DSN)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && (pgErr.Code == "28P01" || pgErr.Code == "28000") {
@@ -99,6 +98,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 			From:     source.AddressID(*addr),
 			To:       s.cfg.Node,
 			Protocol: "postgresql",
+			Signal:   source.SignalDatabase,
 		})
 		obs.Nodes = append(obs.Nodes, source.NodeObservation{ID: source.AddressID(*addr), Kind: model.KindUnknown})
 	}

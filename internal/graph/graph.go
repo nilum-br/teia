@@ -5,6 +5,7 @@ package graph
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/nilum-br/teia/internal/model"
 	"github.com/nilum-br/teia/internal/source"
@@ -23,6 +24,15 @@ type Graph struct {
 	Edges map[string]*model.Edge
 	// Ignored holds IDs dropped by config or by a teia.ignore label.
 	Ignored map[string]bool
+	// UnknownCallers maps a node, then a signal, to the traffic it receives
+	// from callers that signal could not identify.
+	UnknownCallers map[string]map[string]UnknownCallers
+}
+
+// UnknownCallers is traffic into a node from callers one signal cannot name.
+type UnknownCallers struct {
+	Rate    float64
+	Sources []string
 }
 
 // SortedNodes returns nodes ordered by ID.
@@ -60,14 +70,28 @@ func (g *Graph) Callers(id string) []string {
 // kindPriority decides whose opinion about a node's kind wins: an operator
 // label on a container beats a declaration, which beats a guess from traffic.
 var kindPriority = map[string]int{
-	"docker":       3,
-	"declared":     2,
-	"postgres":     2,
-	"servicegraph": 1,
+	"docker":     3,
+	"kubernetes": 3,
+	"declared":   2,
+	"postgres":   2,
+}
+
+// priorityOf returns how much a source type is trusted about kinds; traffic
+// sources default to the lowest rank.
+func priorityOf(sourceType string) int {
+	if p, ok := kindPriority[sourceType]; ok {
+		return p
+	}
+	return 1
 }
 
 // Build merges every source's observations into one graph.
 func Build(results []Result, aliases map[string]string, ignore []string) *Graph {
+	return BuildAt(results, aliases, ignore, time.Now())
+}
+
+// BuildAt is Build with an explicit clock, for tests.
+func BuildAt(results []Result, aliases map[string]string, ignore []string, now time.Time) *Graph {
 	ignored := map[string]bool{}
 	for _, id := range ignore {
 		ignored[id] = true
@@ -81,7 +105,11 @@ func Build(results []Result, aliases map[string]string, ignore []string) *Graph 
 	}
 
 	// Inventory first: addresses and explicit ignores.
-	byAddress := map[string]string{}
+	type owner struct {
+		id    string
+		since time.Time
+	}
+	byAddress := map[string]owner{}
 	for _, r := range results {
 		for _, n := range r.Observation.Nodes {
 			id := canonical(n.ID)
@@ -89,21 +117,30 @@ func Build(results []Result, aliases map[string]string, ignore []string) *Graph 
 				ignored[id] = true
 			}
 			for _, addr := range n.Addresses {
-				byAddress[addr] = id
+				byAddress[addr] = owner{id: id, since: n.Since}
 			}
 		}
 	}
 	resolve := func(id string) string {
 		id = canonical(id)
 		if source.IsAddressID(id) {
-			if name, ok := byAddress[strings.TrimPrefix(id, source.AddressPrefix)]; ok {
-				return name
+			if o, ok := byAddress[strings.TrimPrefix(id, source.AddressPrefix)]; ok {
+				return o.id
 			}
 		}
 		return id
 	}
+	// ambiguous reports whether an address seen over window may have belonged
+	// to someone else: its current owner got it after the window started.
+	ambiguous := func(id string, window time.Duration) bool {
+		if window <= 0 || !source.IsAddressID(canonical(id)) {
+			return false
+		}
+		o, ok := byAddress[strings.TrimPrefix(canonical(id), source.AddressPrefix)]
+		return ok && !o.since.IsZero() && o.since.After(now.Add(-window))
+	}
 
-	g := &Graph{Nodes: map[string]*model.Node{}, Edges: map[string]*model.Edge{}, Ignored: ignored}
+	g := &Graph{Nodes: map[string]*model.Node{}, Edges: map[string]*model.Edge{}, Ignored: ignored, UnknownCallers: map[string]map[string]UnknownCallers{}}
 	kindRank := map[string]int{}
 	selfReported := map[string]bool{}
 
@@ -113,9 +150,9 @@ func Build(results []Result, aliases map[string]string, ignore []string) *Graph 
 			n = &model.Node{ID: id, Kind: model.KindUnknown}
 			g.Nodes[id] = n
 		}
-		if kind != "" && kind != model.KindUnknown && kindPriority[srcType] > kindRank[id] {
+		if kind != "" && kind != model.KindUnknown && priorityOf(srcType) > kindRank[id] {
 			n.Kind = kind
-			kindRank[id] = kindPriority[srcType]
+			kindRank[id] = priorityOf(srcType)
 		}
 		n.Sources = appendUnique(n.Sources, srcName)
 		for k, v := range labels {
@@ -147,7 +184,26 @@ func Build(results []Result, aliases map[string]string, ignore []string) *Graph 
 				selfReported[id] = true
 			}
 		}
+		for _, uc := range r.Observation.UnknownCallers {
+			id := resolve(uc.Callee)
+			if ignored[id] {
+				continue
+			}
+			addNode(id, "", srcName, srcType, nil)
+			if g.UnknownCallers[id] == nil {
+				g.UnknownCallers[id] = map[string]UnknownCallers{}
+			}
+			u := g.UnknownCallers[id][uc.Signal]
+			if uc.Rate > u.Rate {
+				u.Rate = uc.Rate
+			}
+			u.Sources = appendUnique(u.Sources, srcName)
+			g.UnknownCallers[id][uc.Signal] = u
+		}
 		for _, o := range r.Observation.Edges {
+			if ambiguous(o.From, o.Window) || ambiguous(o.To, o.Window) {
+				continue // attribute it once the window no longer straddles the change
+			}
 			from, to := resolve(o.From), resolve(o.To)
 			if from == to || ignored[from] || ignored[to] {
 				continue
@@ -169,6 +225,9 @@ func Build(results []Result, aliases map[string]string, ignore []string) *Graph 
 				}
 			} else {
 				e.Observed = true
+				if o.Signal != "" {
+					e.Signals = appendUnique(e.Signals, o.Signal)
+				}
 				if o.RequestRate > e.RequestRate {
 					e.RequestRate = o.RequestRate
 					e.ErrorRate = o.ErrorRate
@@ -176,6 +235,8 @@ func Build(results []Result, aliases map[string]string, ignore []string) *Graph 
 			}
 		}
 	}
+
+	markOutside(g, results, selfReported)
 
 	seen := map[string]bool{}
 	for _, e := range g.Edges {
@@ -262,4 +323,30 @@ func appendUnique(s []string, v string) []string {
 		}
 	}
 	return append(s, v)
+}
+
+// markOutside: when an inventory lists what runs on the platform, a node of
+// unknown kind that no inventory lists and that only its callers report is
+// outside the platform (a SaaS, a partner API): external.
+func markOutside(g *Graph, results []Result, selfReported map[string]bool) {
+	inventoried := map[string]bool{}
+	hasInventory := false
+	for _, r := range results {
+		t := r.Source.Type()
+		if r.Err != nil || (t != "docker" && t != "kubernetes") {
+			continue
+		}
+		hasInventory = true
+		for _, n := range r.Observation.Nodes {
+			inventoried[n.ID] = true
+		}
+	}
+	if !hasInventory {
+		return
+	}
+	for id, n := range g.Nodes {
+		if n.Kind == model.KindUnknown && !inventoried[id] && !selfReported[id] && !source.IsAddressID(id) {
+			n.Kind = model.KindExternal
+		}
+	}
 }

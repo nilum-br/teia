@@ -1,8 +1,16 @@
-# teia lab: a small shop with the blind spots real platforms have.
+# teia lab: a small shop with the mix real platforms have. Part of it runs
+# OpenTelemetry, part runs in an Istio mesh without OpenTelemetry, and some
+# workloads emit nothing at all.
 #
-#   loadgen -> web -> orders -> payments -> payment-gateway (third party, no telemetry)
-#                  |        \-> orders-db (postgres)  <- legacy-reports (no telemetry)
-#                  \-> catalog -> catalog-cache (redis)
+#   loadgen -> web -> orders -> payments -> payment-gateway   third party, no telemetry
+#               |       \-> orders-db (postgres) <- legacy-reports   no telemetry: only the database knows
+#               |-> catalog -> catalog-cache (redis) <- partner-sync   no telemetry: only access logs know
+#               \-> recommendations -> inventory      mesh only (simulated Istio sidecars, no OpenTelemetry)
+#   orders -> order-events (managed Kafka) <- email-worker -> email-provider (SaaS)
+#   catalog -> catalog-db (managed MongoDB)      managed services: seen only through client spans
+#
+# Signals: traces -> OTel Collector -> service graph metrics (Prometheus) and
+# Tempo; container logs -> Alloy -> Loki; sidecar metrics -> Prometheus.
 #
 # Run from the repository root:  docker compose -f lab/compose.yaml up -d --build
 name: teia-lab
@@ -25,53 +33,114 @@ x-infra: &infra
     teia.ignore: "true"
 
 services:
-  # --- the shop -------------------------------------------------------------
+  # --- the shop: OpenTelemetry part -----------------------------------------
   web:
     <<: *demo
+    labels:
+      teia.kind: service
+      team: storefront
+      system: shop
+      tier: edge
+      teia.tech: frontend
     environment:
       <<: *otel
       SERVICE_NAME: web
-      CALLS: orders=http://orders:8080/,catalog=http://catalog:8080/
+      CALLS: orders=http://orders:8080/,catalog=http://catalog:8080/,recommendations=http://recommendations:8080/
 
   orders:
     <<: *demo
+    labels:
+      teia.kind: service
+      team: checkout
+      system: shop
+      tier: backend
     environment:
       <<: *otel
       SERVICE_NAME: orders
       CALLS: payments=http://payments:8080/
       POSTGRES_DSN: postgres://orders:orders@orders-db:5432/orders?sslmode=disable
       POSTGRES_PEER: orders-db
+      PUBLISH: order-events=kafka
     depends_on:
       orders-db: { condition: service_healthy }
 
   catalog:
     <<: *demo
+    labels:
+      teia.kind: service
+      team: catalog
+      system: shop
+      tier: backend
     environment:
       <<: *otel
       SERVICE_NAME: catalog
       REDIS_ADDR: catalog-cache:6379
       REDIS_PEER: catalog-cache
+      DOCDB: catalog-db=mongodb
 
   payments:
     <<: *demo
+    labels:
+      teia.kind: service
+      team: checkout
+      system: shop
+      tier: backend
     environment:
       <<: *otel
       SERVICE_NAME: payments
       CALLS: payment-gateway=http://payment-gateway:8080/
       ERROR_RATE: "0.05"
 
+  # --- the shop: mesh part (sidecar metrics, no OpenTelemetry) --------------
+  recommendations:
+    <<: *demo
+    labels:
+      teia.kind: service
+      team: catalog
+      system: shop
+      tier: backend
+    environment:
+      SERVICE_NAME: recommendations
+      TELEMETRY: "off"
+      MESH: istio
+      MESH_NAMESPACE: shop-mesh
+      CALLS: inventory=http://inventory:8080/
+
+  inventory:
+    <<: *demo
+    labels:
+      teia.kind: service
+      team: catalog
+      system: shop
+      tier: backend
+    environment:
+      SERVICE_NAME: inventory
+      TELEMETRY: "off"
+      MESH: istio
+      MESH_NAMESPACE: shop-mesh
+
+  # --- what nobody instrumented ---------------------------------------------
   # A third party we do not control: answers HTTP, emits no telemetry.
   payment-gateway:
     <<: *demo
     labels:
       teia.kind: external
+      team: partners
+      system: partners
+      tier: external
     environment:
       SERVICE_NAME: payment-gateway
       TELEMETRY: "off"
 
-  # The job nobody instrumented. Only the database knows it exists.
+  # A legacy job: only the database knows it exists.
   legacy-reports:
     <<: *demo
+    labels:
+      teia.kind: service
+      team: finance
+      system: backoffice
+      tier: batch
+      teia.tech: job
     environment:
       SERVICE_NAME: legacy-reports
       ROLE: legacy
@@ -80,6 +149,39 @@ services:
       POSTGRES_DSN: postgres://reports:reports@orders-db:5432/orders?sslmode=disable
     depends_on:
       orders-db: { condition: service_healthy }
+
+  # Sends the order e-mails: consumes from the managed Kafka, calls a SaaS.
+  email-worker:
+    <<: *demo
+    labels:
+      teia.kind: service
+      teia.tech: job
+      team: checkout
+      system: shop
+      tier: worker
+    environment:
+      <<: *otel
+      SERVICE_NAME: email-worker
+      ROLE: consumer
+      INTERVAL: 2s
+      CONSUME: order-events=kafka
+      NOTIFY: email-provider
+
+  # A partner integration calling catalog: only catalog's access log knows who.
+  partner-sync:
+    <<: *demo
+    labels:
+      teia.kind: service
+      team: partners
+      system: partners
+      tier: batch
+      teia.tech: job
+    environment:
+      SERVICE_NAME: partner-sync
+      ROLE: loadgen
+      TELEMETRY: "off"
+      TARGET: http://catalog:8080/
+      INTERVAL: 3s
 
   loadgen:
     <<: *demo
@@ -94,9 +196,12 @@ services:
 
   orders-db:
     image: postgres:18.6-alpine
-    restart: unless-stopped
     labels:
       teia.kind: database
+      team: checkout
+      system: shop
+      tier: data
+    restart: unless-stopped
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: orders
@@ -109,11 +214,14 @@ services:
 
   catalog-cache:
     image: redis:8.10.2-alpine
-    restart: unless-stopped
     labels:
       teia.kind: cache
+      team: catalog
+      system: shop
+      tier: data
+    restart: unless-stopped
 
-  # --- observability --------------------------------------------------------
+  # --- observability the platform already has -------------------------------
   otel-collector:
     <<: *infra
     image: otel/opentelemetry-collector-contrib:0.162.0
@@ -129,10 +237,58 @@ services:
     ports:
       - "${PROMETHEUS_PORT:-9480}:9090"
 
+  tempo:
+    <<: *infra
+    image: grafana/tempo:3.1.0
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo/tempo.yaml:ro
+    ports:
+      - "${TEMPO_PORT:-3280}:3200"
+
+  loki:
+    <<: *infra
+    image: grafana/loki:3.7.8
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./loki.yaml:/etc/loki/loki.yaml:ro
+    ports:
+      - "${LOKI_PORT:-3180}:3100"
+
+  alloy:
+    <<: *infra
+    image: grafana/alloy:v1.20.1
+    command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy/data"]
+    volumes:
+      - ./alloy.alloy:/etc/alloy/config.alloy:ro
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro
+
+  # Builds the teia Grafana panel (plugins/grafana) so the lab needs nothing
+  # but Docker. Runs once; Grafana starts after it.
+  teia-panel:
+    image: node:24-bookworm
+    restart: "no"
+    labels:
+      teia.ignore: "true"
+    working_dir: /repo/plugins/grafana
+    command:
+      - sh
+      - -c
+      - |
+        cat /repo/certs/*.crt > /tmp/extra-ca.pem 2>/dev/null || true
+        export NODE_EXTRA_CA_CERTS=/tmp/extra-ca.pem
+        npm ci --no-audit --no-fund && npm run build
+    volumes:
+      - ..:/repo
+      - teia-panel-node-modules:/repo/plugins/grafana/node_modules
+
   grafana:
     <<: *infra
     image: grafana/grafana:13.2.4
+    depends_on:
+      teia-panel: { condition: service_completed_successfully }
     environment:
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: nilum-teia-panel
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_PLUGINS_PREINSTALL_SYNC: yesoreyeram-infinity-datasource@4.1.1
@@ -143,8 +299,21 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - ../certs:/etc/teia-certs:ro
+      - ../plugins/grafana/dist:/var/lib/grafana/plugins/nilum-teia-panel:ro
     ports:
       - "${GRAFANA_PORT:-3480}:3000"
+
+  # End-to-end check: docker compose -f lab/compose.yaml run --rm e2e
+  e2e:
+    <<: *demo
+    profiles: [e2e]
+    restart: "no"
+    labels:
+      teia.ignore: "true"
+    environment:
+      ROLE: e2e
+      TEIA_URL: http://teia:8080
+      PG_ADMIN_DSN: postgres://postgres:postgres@orders-db:5432/orders?sslmode=disable
 
   # --- teia -----------------------------------------------------------------
   teia:
@@ -159,6 +328,9 @@ services:
     volumes:
       - ./teia.yaml:/etc/teia/teia.yaml:ro
       - ./flows:/etc/teia/flows:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro
     ports:
       - "${TEIA_PORT:-8480}:8080"
+
+volumes:
+  teia-panel-node-modules:

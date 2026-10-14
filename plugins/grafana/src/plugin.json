@@ -1,0 +1,44 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "panel",
+  "name": "teia",
+  "id": "nilum-teia-panel",
+  "info": {
+    "keywords": [
+      "service map",
+      "dependency graph",
+      "topology",
+      "observability",
+      "opentelemetry",
+      "istio",
+      "backstage",
+      "network"
+    ],
+    "description": "Who talks to whom, compared with what teams declared: live communication map with health, drift and blind spots.",
+    "author": {
+      "name": "Nilum",
+      "url": "https://nilum.com.br"
+    },
+    "logos": {
+      "small": "img/logo.svg",
+      "large": "img/logo.svg"
+    },
+    "links": [
+      {
+        "name": "Website",
+        "url": "https://github.com/nilum-br/teia"
+      },
+      {
+        "name": "License",
+        "url": "https://github.com/nilum-br/teia/blob/main/LICENSE"
+      }
+    ],
+    "screenshots": [],
+    "version": "%VERSION%",
+    "updated": "%TODAY%"
+  },
+  "dependencies": {
+    "grafanaDependency": ">=13.2.0",
+    "plugins": []
+  }
+}

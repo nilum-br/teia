@@ -2,45 +2,49 @@
 
 **Seu diagrama de arquitetura está mentindo em algum lugar. A teia mostra onde, e o que fazer.**
 
-A teia mapeia quem fala com quem na sua plataforma e compara com o que os times *declararam*. E,
+A teia mapeia quem fala com quem na sua plataforma a partir da telemetria que você **já tem**: traces, métricas
+de mesh, fluxos eBPF, logs de acesso e os próprios bancos. Depois compara com o que os times *declararam*. E,
 diferente de um mapa de serviços comum, diz exatamente onde está cega e qual permissão, adaptador ou
-instrumentação faria ela enxergar mais.
+instrumentação faria ela enxergar mais. Roda como um binário só em Linux, macOS e Windows, e aparece onde o time
+já olha: no **Grafana**.
 
 [English](README.md)
 
 ## Por quê
 
-Mapa de serviços virou commodity: Grafana, Kiali, Hubble e qualquer APM desenham um. Nenhum deles
-responde:
+Mapa de serviços virou commodity. Nenhum deles responde:
 
 - **Drift**: que comunicações acontecem sem ninguém ter declarado, e quais declaradas nunca acontecem?
 - **Cobertura**: quanto do quadro eu **não** estou vendo, e o que exatamente resolve?
-- **Contrato**: onde está a lista revisada e versionada de "o serviço A pode chamar o B na porta X, porque Y"?
-  É dela que segurança, rede e plataforma precisam para trabalhar.
+- **Contrato**: onde está a lista revisada de "A pode chamar B na porta X, porque Y"?
 
-A teia junta três camadas num grafo só:
+O **advisor** vai "fiando a teia": a cada rodada aponta o próximo ponto cego e o passo concreto (o `GRANT`, o RBAC,
+a instrumentação) para enxergá-lo.
 
-| Camada | De onde vem |
-|---|---|
-| **Declarado** (intenção) | arquivos `Flows` ao lado do `catalog-info.yaml` de cada serviço |
-| **Observado** (realidade) | adaptadores sobre o que você já roda: service graph do OpenTelemetry/Tempo, inventário, os próprios bancos |
-| **Drift** | a diferença. *ghost*: observado e não declarado. *stale*: declarado e não observado |
+## Agnóstica de propósito
 
-Por cima disso, o **advisor** vai "fiando" a teia: a cada rodada aponta o próximo ponto cego e o passo
-concreto para enxergá-lo.
+- **Não precisa de service mesh nem de agente novo.** Mesh é um sinal entre vários; veja [docs/sources.md](docs/sources.md).
+- **Detecção automática:** apontada para o Prometheus, encontra sozinha métricas de service graph, Istio, Linkerd, Beyla/OBI, Hubble e Retina (10 presets). O `teia detect` mostra o que a plataforma oferece e gera um `teia.yaml` inicial.
+- **Qualquer outra coisa** vira aresta com uma query PromQL ou LogQL e um mapeamento de labels.
+- **Ambiente misto é o normal:** parte com Istio, parte com OpenTelemetry, parte sem nada. Cada aresta registra quais sinais a viram.
+- **Identidade confiável:** IPs são resolvidos pelo inventário, e IP reciclado nunca é atribuído ao workload errado.
 
-```text
- 1. [warning/permission] Reached database orders-db but cannot see who else connects to it
-    Right now 2 session(s) are hidden, from roles: orders (1), reports (1).
-    -> GRANT pg_monitor TO "teia";
-```
+## O que você vê
 
-Você aplica, e na rodada seguinte aparece o job legado que ninguém instrumentou, já com o próximo passo
-para ver dentro dele.
+O mapa, no Grafana (`nilum-teia-panel`) ou na interface da própria teia, é o mesmo componente:
+
+- **Saúde:** cada card fica verde, amarelo ou vermelho pela taxa de erro.
+- **Tráfego andando:** pontos percorrem cada comunicação na velocidade do tráfego; pontos vermelhos são erros. Ao vivo.
+- **Drift e visibilidade:** tracejado é não declarado, pontilhado é declarado e não visto; a borda do card diz o quanto a teia vê em primeira mão.
+- **[Biblioteca de ícones](docs/icons.md) padronizada:** microsserviço, banco relacional, banco de documentos (NoSQL), cache, stream (Kafka), fila, gateway, job, SaaS externo. A tecnologia é detectada pelos spans, pela imagem ou por label.
+- **Labels:** agrupe por `team`, `system`, `k8s.namespace` ou qualquer label; busque com `team:checkout`, `tech:kafka`.
+- **Próximos passos, feed ao vivo e exportação** (PNG, SVG, matriz de fluxos em CSV para pedido de firewall).
+
+As mudanças também saem por **webhook** (JSON ou Slack) e **métricas Prometheus** (`/metrics`) para alerta.
 
 ## Testar em 5 minutos
 
-Só precisa de Docker:
+Só precisa de Docker (Linux, macOS ou Windows):
 
 ```sh
 docker compose -f lab/compose.yaml up -d --build
@@ -48,40 +52,24 @@ docker compose -f lab/compose.yaml up -d --build
 
 | O quê | Onde |
 |---|---|
-| UI da teia (grafo, próximos passos, export) | http://localhost:8480 |
-| Grafana (Node Graph + tabela de achados) | http://localhost:3480 |
+| **Grafana com o painel da teia** | http://localhost:3480/d/teia-overview |
+| Interface da teia | http://localhost:8480 |
 | Prometheus | http://localhost:9480 |
 
-O roteiro do lab:
-
 ```sh
-# 1. o que a teia vê, e o que falta?
-docker compose -f lab/compose.yaml exec teia teia discover
-
-# 2. faça o que o primeiro achado pede
+docker compose -f lab/compose.yaml exec teia teia discover          # o que a teia vê e o que falta
 docker compose -f lab/compose.yaml exec orders-db psql -U postgres -d orders -c 'GRANT pg_monitor TO teia;'
-
-# 3. de novo: aparece o legacy-reports -> orders-db, e a visibilidade sobe de 50% para 63%
-docker compose -f lab/compose.yaml exec teia teia discover
-
-# matriz de fluxos para pedido de liberação de firewall (CSV com cabeçalho em português)
+docker compose -f lab/compose.yaml exec teia teia discover          # o job legado escondido aparece
 docker compose -f lab/compose.yaml exec teia teia export matrix --lang pt-BR --declared-only
+docker compose -f lab/compose.yaml run --rm e2e                     # o teste ponta a ponta que o CI roda
 ```
 
 Atrás de proxy com inspeção TLS? Coloque a CA como `.crt` em `certs/` antes do build.
 
-## Estado
+## Documentação
 
-**v0, esqueleto que funciona.**
-
-- engine em Go: merge, resolução de identidade, drift, cobertura;
-- fontes: declarado, service graph (Prometheus), Docker e explorador Postgres;
-- advisor com IDs estáveis e correções prontas para copiar;
-- CLI, API, UI embutida, Grafana e lab.
-
-Próximos passos: inventário Kubernetes, plugin Backstage (card + relações no catálogo) e `teia diff`
-comentando em PR. Veja [docs/roadmap.md](docs/roadmap.md) e o
-[panorama do mercado](docs/landscape.md).
+[Sinais e fontes](docs/sources.md) · [Arquitetura](docs/architecture.md) · [Regras do advisor](docs/advisor.md) ·
+[Ícones](docs/icons.md) · [Especificação dos flows](docs/flows-spec.md) · [Roadmap](docs/roadmap.md) · [Panorama](docs/landscape.md)
 
 ## Licença
 

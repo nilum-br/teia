@@ -7,6 +7,7 @@ package source
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/nilum-br/teia/internal/model"
 )
@@ -31,20 +32,53 @@ type NodeObservation struct {
 	SelfReported bool
 	// Addresses lets the engine map "ip:..." IDs back to this node.
 	Addresses []string
-	Labels    map[string]string
+	// Since is when the node got those addresses (container or pod start).
+	// IPs get recycled: an address seen in a time window is only attributed
+	// to a node that held it for the whole window.
+	Since  time.Time
+	Labels map[string]string
 	// Ignore drops the node (and its edges) from the graph.
 	Ignore bool
 }
 
 // EdgeObservation is a communication as seen by one source.
 type EdgeObservation struct {
-	From, To    string
-	Protocol    string
-	Port        int
-	Declared    bool // true for intent (flows files), false for traffic
-	Reason      string
+	From, To string
+	Protocol string
+	Port     int
+	Declared bool // true for intent (flows files), false for traffic
+	Reason   string
+	// Signal is the kind of telemetry that observed the edge.
+	Signal string
+	// Window is how far back the observation looks (log and metric
+	// queries); zero means "right now" (a database's current sessions).
+	Window      time.Duration
 	RequestRate float64
 	ErrorRate   float64
+}
+
+// Signals name the kind of telemetry that saw a node first-hand. A node
+// carries the label SignalLabel(signal)="true" for each, so the advisor can
+// tell who could have been the "unknown" caller of a given signal.
+const (
+	SignalTraces   = "traces"   // OpenTelemetry SDKs or agents
+	SignalMesh     = "mesh"     // service mesh proxies
+	SignalNetwork  = "network"  // eBPF / flow telemetry
+	SignalLogs     = "logs"     // access logs and other log lines
+	SignalMetrics  = "metrics"  // other metrics (custom queries)
+	SignalDatabase = "database" // a datastore reporting its own clients
+)
+
+// SignalLabel is the node label recording that a signal saw the node.
+func SignalLabel(signal string) string { return "teia.signal." + signal }
+
+// UnknownCaller is traffic into Callee whose callers Signal cannot name: the
+// service graph "user" (callers without traces), Istio "unknown" (callers
+// without a sidecar).
+type UnknownCaller struct {
+	Callee string
+	Signal string
+	Rate   float64
 }
 
 // Observation is everything a source learned in one round.
@@ -57,6 +91,9 @@ type Observation struct {
 	// Explores lists node IDs this source can look inside, so the advisor
 	// does not suggest exploring them again.
 	Explores []string
+	// UnknownCallers is traffic into a callee from callers this source
+	// cannot identify.
+	UnknownCallers []UnknownCaller
 	// Degraded marks a round that worked but saw less than it could.
 	Degraded bool
 	Message  string

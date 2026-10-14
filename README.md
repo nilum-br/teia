@@ -2,9 +2,10 @@
 
 **Your architecture diagram is lying somewhere. teia tells you where, and what to do about it.**
 
-teia maps who talks to whom across your platform, compares it with what teams *declared*, and,
-unlike a plain service map, tells you exactly where it is blind and which grant, adapter or
-instrumentation would let it see more.
+teia maps who talks to whom across your platform from the telemetry you **already** have (traces, mesh metrics,
+eBPF flows, access logs, the databases themselves), compares it with what teams *declared*, and, unlike a plain
+service map, tells you exactly where it is blind and which grant, adapter or instrumentation would let it see more.
+It runs as a single binary on Linux, macOS and Windows, and shows up where your team already looks: **Grafana**.
 
 > _teia_ is Portuguese for "web": the mesh of threads that holds everything together.
 
@@ -12,40 +13,56 @@ instrumentation would let it see more.
 
 ## Why
 
-Service maps are a commodity: Grafana, Kiali, Hubble and every APM draw one. What none of them does
-is answer these questions:
+Service maps are a commodity: Grafana, Kiali, Hubble and every APM draw one. None of them answers:
 
 - **Drift.** Which communications happen that nobody declared, and which declared ones never happen?
-- **Coverage.** How much of the picture am I *not* seeing, and what exactly would fix that?
-- **Contract.** Where is the reviewed, versioned list of "service A may call B on port X, because Y"
-  that security, network and platform teams can all work from?
+- **Coverage.** How much am I *not* seeing, and what exactly would fix that?
+- **Contract.** Where is the reviewed list of "A may call B on port X, because Y" that security, network and platform teams can all work from?
 
-teia merges three things into one graph:
+teia merges three layers into one graph:
 
-| Layer | Where it comes from | Example |
-|---|---|---|
-| **Declared** (intent) | `Flows` files next to each service's `catalog-info.yaml` | `orders` calls `payments` over HTTP to charge the customer |
-| **Observed** (reality) | adapters over what you already run: OpenTelemetry / Tempo service graph metrics, inventory, the databases themselves | `legacy-reports` holds a connection to `orders-db` |
-| **Drift** | the difference | ghost: observed but undeclared · stale: declared but not observed |
+| Layer | Where it comes from |
+|---|---|
+| **Declared** (intent) | `Flows` files next to each service's `catalog-info.yaml` |
+| **Observed** (reality) | whatever the platform already runs: OpenTelemetry / Tempo, Istio / Linkerd, Beyla / Hubble / Retina, Loki access logs, Kubernetes or Docker inventory, the databases |
+| **Drift** | ghost: observed but undeclared · stale: declared but not observed |
 
-On top of that, the **advisor** crawls outwards and explains every blind spot with a concrete next step:
+The **advisor** then crawls outwards ("fiando a teia") and explains every blind spot with a concrete next step:
 
 ```text
- 1. [warning/permission] Reached database orders-db but cannot see who else connects to it
-    teia is connected to orders-db as "teia" but PostgreSQL hides where other sessions come from.
+[warning/permission] Reached database orders-db but cannot see who else connects to it
     Right now 2 session(s) are hidden, from roles: orders (1), reports (1).
-    -> Grant the built-in monitoring role. It is read-only: it exposes session metadata, not table data.
-       GRANT pg_monitor TO "teia";
+    -> GRANT pg_monitor TO "teia";
 ```
 
-Apply it, and the next round finds the job nobody instrumented, then tells you how to see inside it.
-Each round of fixes widens what the next round can see.
+Apply it and the next round finds the legacy job nobody instrumented, then tells you how to see inside it.
+
+## Agnostic by design
+
+- **No mesh required, no agent shipped.** A mesh is one signal among several; see [docs/sources.md](docs/sources.md).
+- **Auto-detection.** Point teia at Prometheus and it finds service graph metrics, Istio, Linkerd, Beyla/OBI, Hubble and Retina on its own (10 presets). `teia detect` prints what your platform offers and a starting config.
+- **Anything else** becomes edges through a PromQL or LogQL query plus a label mapping.
+- **Mixed platforms are normal:** part Istio, part OpenTelemetry, part nothing. Each edge records which signals saw it, and "unknown callers" are explained per signal.
+- **Identity you can trust:** IPs are resolved through inventory, and recycled IPs are never attributed to the wrong workload.
+
+## What you see
+
+The map, in Grafana (`nilum-teia-panel`) or in teia's own UI, is the same component:
+
+- **Health:** each card turns green, amber or red with its error rate (thresholds configurable).
+- **Live traffic:** dots travel along each communication at its speed, and red dots are errors. Updates arrive live (Server-Sent Events, or the dashboard refresh in Grafana).
+- **Drift and visibility:** dashed means undeclared, dotted means declared but not seen; card borders say how first-hand teia's view is.
+- **One [icon library](docs/icons.md):** microservices, relational and document databases, caches, Kafka streams, queues, gateways, jobs, external SaaS. The technology is detected from spans, images or labels.
+- **Labels:** group by `team`, `system`, `k8s.namespace` or any label; search with `team:checkout`, `tech:kafka`.
+- **Next steps, live feed, export** (PNG, SVG, flow matrix CSV for firewall requests).
+
+Changes also go out as **webhooks** (JSON or Slack) and **Prometheus metrics** (`/metrics`) for alerting.
 
 ## Try it in 5 minutes
 
-You only need Docker. The lab is a small shop with the blind spots real platforms have: a third-party
-gateway without telemetry, a Redis cache, a PostgreSQL database and a legacy job that only the database
-knows about.
+You only need Docker (Linux, macOS or Windows). The lab is a small shop with the mix real platforms have: part
+OpenTelemetry, part Istio mesh without OpenTelemetry, a managed Kafka and MongoDB seen only through client spans, a
+third-party gateway, Redis, PostgreSQL, and jobs nobody instrumented.
 
 ```sh
 docker compose -f lab/compose.yaml up -d --build
@@ -53,33 +70,31 @@ docker compose -f lab/compose.yaml up -d --build
 
 | What | Where |
 |---|---|
-| teia UI (graph, next steps, export) | http://localhost:8480 |
-| Grafana (Node Graph + findings table) | http://localhost:3480 |
+| **Grafana with the teia panel** | http://localhost:3480/d/teia-overview |
+| teia's own UI | http://localhost:8480 |
 | Prometheus | http://localhost:9480 |
 
-Then follow the advisor, like you would in production:
+Follow the advisor, like you would in production:
 
 ```sh
-# 1. what does teia see, and what is it missing?
-docker compose -f lab/compose.yaml exec teia teia discover
-
-# 2. do what the first finding says
+docker compose -f lab/compose.yaml exec teia teia discover          # what teia sees and what it misses
 docker compose -f lab/compose.yaml exec orders-db psql -U postgres -d orders -c 'GRANT pg_monitor TO teia;'
-
-# 3. look again: legacy-reports shows up, with the next step to see inside it
-docker compose -f lab/compose.yaml exec teia teia discover
-
-# flow matrix for a firewall request (CSV, Portuguese headers)
+docker compose -f lab/compose.yaml exec teia teia discover          # the hidden legacy job shows up
 docker compose -f lab/compose.yaml exec teia teia export matrix --lang pt-BR --declared-only
+docker compose -f lab/compose.yaml run --rm e2e                     # the end-to-end check CI runs
 ```
 
-`make lab-up`, `make lab-report`, `make lab-grant` and `make lab-revoke` do the same if you have `make`.
 Behind a TLS-inspecting proxy? Drop its CA as a `.crt` in `certs/` before building.
+
+## Install
+
+- **Binaries** for Linux, macOS and Windows (amd64, arm64) and a multi-arch image (`ghcr.io/nilum-br/teia`) are published on every release tag.
+- **From source:** `go build ./cmd/teia` (Go 1.27). Docker and Kubernetes endpoints follow `DOCKER_HOST` / kubeconfig, including Docker Desktop, Colima, OrbStack, Podman and Windows named pipes.
+- **Grafana panel:** see [plugins/grafana](plugins/grafana).
 
 ## Declaring flows
 
 ```yaml
-# catalog-info.yaml, next to the Backstage Component (or in its own file)
 apiVersion: teia.nilum.io/v1alpha1
 kind: Flows
 metadata:
@@ -98,52 +113,20 @@ spec:
       reason: persist orders
 ```
 
-Nobody should write these from scratch: for a service without a file, the advisor generates one from
-observed traffic, ready to review and commit. `teia validate` checks files in CI and editors get completion from
-[`schema/flows.schema.json`](schema/flows.schema.json). See [docs/flows-spec.md](docs/flows-spec.md).
+Nobody should write these from scratch: for a service without a file, the advisor generates one from observed
+traffic. See [docs/flows-spec.md](docs/flows-spec.md).
+
+## Docs
+
+[Signals and sources](docs/sources.md) · [Architecture](docs/architecture.md) · [Advisor rules](docs/advisor.md) ·
+[Icon library](docs/icons.md) · [Flows spec](docs/flows-spec.md) · [Roadmap](docs/roadmap.md) · [Landscape](docs/landscape.md)
 
 ## Status
 
-**Early, v0 skeleton.** What works today:
+v0, moving fast. What works today is exercised end to end by the lab check in CI. Next: Backstage plugin
+(entity card plus catalog relations), `teia diff` comments on pull requests, a teia data source for Grafana, and
+more database explorers.
 
-- engine in Go: merge, identity resolution through inventory addresses and aliases, drift, coverage scores
-- sources: `declared` (flows files), `servicegraph` (Prometheus with OTel Collector or Tempo service graph
-  metrics, so Beyla works too), `docker` (inventory), `postgres` (`pg_stat_activity` explorer)
-- advisor with stable rule IDs and copy-paste fixes ([docs/advisor.md](docs/advisor.md))
-- `teia serve | discover | export matrix | validate`, JSON API, built-in UI, Grafana Node Graph endpoints
-- the lab above
+## Contributing and license
 
-Next: Kubernetes inventory, Backstage plugin (entity card + catalog relations), `teia diff` comments on
-PRs, Istio and Hubble adapters. See [docs/roadmap.md](docs/roadmap.md) and how it compares to existing tools in
-[docs/landscape.md](docs/landscape.md).
-
-## Design principles
-
-- **Read what you already run.** No new agent, no eBPF of our own: teia consumes OpenTelemetry, Prometheus,
-  Beyla, Hubble, the Kubernetes API and the datastores themselves, with read-only credentials.
-- **Never call silence absence.** A declared flow is only "stale" when teia can actually see the caller.
-- **Every finding has a next step**, with the least privilege that unlocks it.
-- **Calm UI.** State is carried by color and line style, never by motion.
-
-## Architecture
-
-```
- sources (adapters)                engine (Go)                         surfaces
- declared  flows files ──┐
- servicegraph (Prom)  ───┤      ┌──────────────────────────┐      ┌──────────────────────────────┐
- docker / k8s inventory ─┼────▶ │ merge + identity + drift │─API─▶│ built-in UI · Grafana        │
- postgres explorer ──────┘      │ coverage + advisor       │─CLI─▶│ discover · export · validate │
-                                └──────────────────────────┘      │ Backstage plugin (next)      │
-                                                                  └──────────────────────────────┘
-```
-
-Details in [docs/architecture.md](docs/architecture.md).
-
-## Contributing
-
-Issues and PRs are welcome, especially new sources and explorers (MySQL, Redis, Kafka, Istio, Hubble, Kubernetes).
-See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## License
-
-Apache-2.0. Built by [Nilum](https://nilum.com.br) and contributors.
+Issues and PRs welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Apache-2.0. Built by [Nilum](https://nilum.com.br) and contributors.

@@ -1,4 +1,6 @@
-FROM golang:1.27.2 AS build
+# Cross-compiles on the build machine's native platform, so multi-arch images
+# (linux/amd64, linux/arm64) build fast: docker buildx build --platform ...
+FROM --platform=$BUILDPLATFORM golang:1.27.2 AS build
 # Optional extra CA certificates for networks with TLS inspection: drop *.crt
 # files in ./certs (they are gitignored). Harmless when the folder is empty.
 COPY certs/ /usr/local/share/ca-certificates/extra/
@@ -8,8 +10,11 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 ARG VERSION=dev
+ARG TARGETOS=linux
+ARG TARGETARCH
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/teia ./cmd/teia
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/teia ./cmd/teia
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/teia /usr/local/bin/teia

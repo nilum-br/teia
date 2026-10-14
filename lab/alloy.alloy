@@ -1,0 +1,34 @@
+// Ships the stdout of every lab container to Loki, labelled with its compose
+// project and service. This is how most platforms already collect logs.
+discovery.docker "lab" {
+  host = "unix:///var/run/docker.sock"
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=teia-lab"]
+  }
+}
+
+discovery.relabel "lab" {
+  targets = discovery.docker.lab.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "project"
+  }
+}
+
+loki.source.docker "lab" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.lab.output
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

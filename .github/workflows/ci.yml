@@ -9,26 +9,86 @@ permissions:
   contents: read
 
 jobs:
-  go:
-    runs-on: ubuntu-latest
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - name: gofmt
+        if: runner.os == 'Linux'
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - run: go vet ./...
-      - run: go test -race ./...
-      - run: go build ./cmd/teia
+      - name: test
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then go test -race ./...; else go test ./...; fi
+      - run: go build -o teia-bin ./cmd/teia
+      - name: cli smoke test
+        shell: bash
+        run: |
+          ./teia-bin version
+          ./teia-bin validate examples/flows/*.yaml lab/flows/*.yaml
       - name: lab demo builds
         working-directory: lab/demo
         run: go vet ./... && go build .
-      - name: example flows are valid
-        run: go run ./cmd/teia validate examples/flows/*.yaml lab/flows/*.yaml
+
+  cross-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: build every release target
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            GOOS=${target%/*} GOARCH=${target#*/} CGO_ENABLED=0 go build -o /dev/null ./cmd/teia && echo "ok $target"
+          done
+
+  grafana-panel:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugins/grafana
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: plugins/grafana/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run test:ci
+      - run: npm run build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nilum-teia-panel
+          path: plugins/grafana/dist
 
   image:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: docker build -t teia:ci .
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: build linux/amd64 and linux/arm64
+        run: docker buildx build --platform linux/amd64,linux/arm64 -t teia:ci .
+
+  lab-e2e:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v7
+      - name: run the lab and check what teia finds
+        run: bash lab/e2e.sh
+      - name: lab logs on failure
+        if: failure()
+        run: docker compose -f lab/compose.yaml logs --tail 80

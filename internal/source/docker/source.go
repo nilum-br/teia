@@ -6,6 +6,7 @@
 //
 //	teia.node:   node ID (defaults to the compose service or container name)
 //	teia.kind:   service | database | cache | queue | external
+//	teia.tech:   technology for the icon (postgresql, redis, kafka...)
 //	teia.ignore: "true" to keep it out of the graph
 package docker
 
@@ -27,31 +28,33 @@ import (
 	"github.com/nilum-br/teia/internal/source"
 )
 
-const DefaultSocket = "/var/run/docker.sock"
-
 type Config struct {
-	Socket string
+	// Host is a Docker endpoint (unix:///var/run/docker.sock,
+	// npipe:////./pipe/docker_engine, tcp://host:2375). Empty means
+	// DOCKER_HOST, then the usual place for this OS.
+	Host string
 	// Project limits discovery to one compose project.
 	Project string
 }
 
 type Source struct {
-	name   string
-	cfg    Config
-	client *http.Client
+	name     string
+	cfg      Config
+	endpoint endpoint
+	err      error
+	client   *http.Client
 }
 
 func New(name string, cfg Config) *Source {
-	if cfg.Socket == "" {
-		cfg.Socket = DefaultSocket
-	}
+	s := &Source{name: name, cfg: cfg}
+	s.endpoint, s.err = resolveEndpoint(cfg.Host)
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, "unix", cfg.Socket)
+			return s.endpoint.dial(ctx)
 		},
 	}
-	return &Source{name: name, cfg: cfg, client: &http.Client{Transport: transport, Timeout: 10 * time.Second}}
+	s.client = &http.Client{Transport: transport, Timeout: 10 * time.Second}
+	return s
 }
 
 func (s *Source) Name() string { return s.name }
@@ -59,6 +62,8 @@ func (s *Source) Type() string { return "docker" }
 
 type container struct {
 	Names           []string          `json:"Names"`
+	Image           string            `json:"Image"`
+	Created         int64             `json:"Created"`
 	Labels          map[string]string `json:"Labels"`
 	NetworkSettings struct {
 		Networks map[string]struct {
@@ -69,11 +74,16 @@ type container struct {
 
 func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	var obs source.Observation
-	if _, err := os.Stat(s.cfg.Socket); errors.Is(err, fs.ErrNotExist) {
-		obs.Degraded = true
-		obs.Message = "docker socket not found"
-		obs.Findings = append(obs.Findings, s.socketFinding(false))
-		return obs, nil
+	if s.err != nil {
+		return obs, s.err
+	}
+	if s.endpoint.scheme == "unix" {
+		if _, err := os.Stat(s.endpoint.addr); errors.Is(err, fs.ErrNotExist) {
+			obs.Degraded = true
+			obs.Message = "docker socket not found"
+			obs.Findings = append(obs.Findings, s.socketFinding(false))
+			return obs, nil
+		}
 	}
 
 	u := "http://docker/containers/json"
@@ -93,7 +103,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 			obs.Findings = append(obs.Findings, s.socketFinding(true))
 			return obs, nil
 		}
-		return obs, fmt.Errorf("listing containers: %w", err)
+		return obs, fmt.Errorf("listing containers at %s: %w", s.endpoint, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -109,10 +119,21 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 			ID:     nodeID(c),
 			Kind:   model.NodeKind(c.Labels["teia.kind"]),
 			Ignore: c.Labels["teia.ignore"] == "true",
-			Labels: map[string]string{"docker.container": strings.TrimPrefix(first(c.Names), "/")},
+			Labels: userLabels(c.Labels),
+		}
+		n.Labels["docker.container"] = strings.TrimPrefix(first(c.Names), "/")
+		n.Labels["image"] = c.Image
+		if t := c.Labels["teia.tech"]; t != "" {
+			n.Labels["teia.tech"] = t
+		}
+		if p := c.Labels["com.docker.compose.project"]; p != "" {
+			n.Labels["compose.project"] = p
 		}
 		if n.Kind == "" {
 			n.Kind = model.KindUnknown
+		}
+		if c.Created > 0 {
+			n.Since = time.Unix(c.Created, 0)
 		}
 		for _, nw := range c.NetworkSettings.Networks {
 			if nw.IPAddress != "" {
@@ -122,6 +143,27 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		obs.Nodes = append(obs.Nodes, n)
 	}
 	return obs, nil
+}
+
+// machineLabelPrefixes are set by tools, not people; they would only add
+// noise to grouping and filtering.
+var machineLabelPrefixes = []string{"com.docker.", "org.opencontainers.", "desktop.docker.io/", "teia."}
+
+func userLabels(in map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range in {
+		machine := false
+		for _, p := range machineLabelPrefixes {
+			if strings.HasPrefix(k, p) {
+				machine = true
+				break
+			}
+		}
+		if !machine {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 func nodeID(c container) string {
@@ -159,10 +201,10 @@ func (s *Source) socketFinding(denied bool) model.Finding {
 	}
 	if denied {
 		f.Title = "teia cannot read the Docker socket"
-		f.Detail = fmt.Sprintf("Permission denied on %s, so containers without traffic stay invisible and IP addresses cannot be resolved to workloads.", s.cfg.Socket)
+		f.Detail = fmt.Sprintf("Permission denied on %s, so containers without traffic stay invisible and IP addresses cannot be resolved to workloads.", s.endpoint)
 	} else {
-		f.Title = "Docker socket is not mounted"
-		f.Detail = fmt.Sprintf("%s does not exist inside the teia container.", s.cfg.Socket)
+		f.Title = "Docker socket not found"
+		f.Detail = fmt.Sprintf("%s does not exist. Set sources.docker.host or DOCKER_HOST if your runtime (Podman, Colima, OrbStack, rootless Docker) listens elsewhere.", s.endpoint)
 	}
 	return f
 }

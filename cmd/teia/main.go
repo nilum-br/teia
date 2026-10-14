@@ -36,6 +36,8 @@ Usage:
   teia discover [--config teia.yaml]     run one discovery round and print the report
 
 The config path defaults to $TEIA_CONFIG, then ./teia.yaml.
+  teia detect   [--prometheus URL] [--tempo URL] [--loki URL] [--kubernetes] [--docker]
+                                         probe what the platform already runs and print a starting config
   teia export matrix [--config teia.yaml] [--lang pt-BR] [--declared-only]
                                          flow matrix (CSV) for firewall and security reviews
   teia validate FILE...                  check flows files
@@ -53,6 +55,8 @@ func main() {
 		err = serve(os.Args[2:])
 	case "discover":
 		err = discover(os.Args[2:])
+	case "detect":
+		err = detect(os.Args[2:])
 	case "export":
 		err = export(os.Args[2:])
 	case "validate":
@@ -86,10 +90,13 @@ func newLogger() *slog.Logger {
 
 func newEngine(cfg *config.Config, log *slog.Logger) *engine.Engine {
 	return engine.New(cfg.BuildSources(), engine.Options{
-		Interval: cfg.Interval,
-		Timeout:  cfg.Timeout,
-		Aliases:  cfg.Aliases,
-		Ignore:   cfg.Ignore,
+		Interval:  cfg.Interval,
+		Timeout:   cfg.Timeout,
+		Aliases:   cfg.Aliases,
+		Ignore:    cfg.Ignore,
+		Retention: cfg.Retention,
+		Health:    cfg.HealthThresholds(),
+		Notifiers: cfg.Notifiers(),
 	}, log)
 }
 
