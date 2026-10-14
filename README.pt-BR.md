@@ -1,4 +1,16 @@
-# teia
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+    <img src="docs/assets/logo-light.svg" alt="teia" width="260">
+  </picture>
+</p>
+
+<p align="center">
+  <a href="https://github.com/nilum-br/teia/actions/workflows/ci.yml"><img src="https://github.com/nilum-br/teia/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-005aff" alt="Apache-2.0"></a>
+  <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/nilum-br/teia?color=005aff" alt="Versão do Go"></a>
+  <a href="plugins/grafana"><img src="https://img.shields.io/badge/Grafana-painel-a9f549?labelColor=020f59" alt="Painel do Grafana"></a>
+</p>
 
 **Seu diagrama de arquitetura está mentindo em algum lugar. A teia mostra onde, e o que fazer.**
 
@@ -9,6 +21,8 @@ instrumentação faria ela enxergar mais. Roda como um binário só em Linux, ma
 já olha: no **Grafana**.
 
 [English](README.md)
+
+![O mapa da teia no lab: serviços, bancos e jobs com saúde, tráfego ao vivo, drift e os próximos passos para enxergar mais](docs/assets/screenshots/teia-map.png)
 
 ## Por quê
 
@@ -33,14 +47,33 @@ a instrumentação) para enxergá-lo.
 
 O mapa, no Grafana (`nilum-teia-panel`) ou na interface da própria teia, é o mesmo componente:
 
+![O painel da teia dentro de um dashboard do Grafana](docs/assets/screenshots/grafana-panel.png)
+
 - **Saúde:** cada card fica verde, amarelo ou vermelho pela taxa de erro.
 - **Tráfego andando:** pontos percorrem cada comunicação na velocidade do tráfego; pontos vermelhos são erros. Ao vivo.
 - **Drift e visibilidade:** tracejado é não declarado, pontilhado é declarado e não visto; a borda do card diz o quanto a teia vê em primeira mão.
 - **[Biblioteca de ícones](docs/icons.md) padronizada:** microsserviço, banco relacional, banco de documentos (NoSQL), cache, stream (Kafka), fila, gateway, job, SaaS externo. A tecnologia é detectada pelos spans, pela imagem ou por label.
 - **Labels:** agrupe por `team`, `system`, `k8s.namespace` ou qualquer label; busque com `team:checkout`, `tech:kafka`.
 - **Próximos passos, feed ao vivo e exportação** (PNG, SVG, matriz de fluxos em CSV para pedido de firewall).
+- **Teclado e leitor de tela:** todo card e controle é alcançável com Tab; `F` enquadra, `/` busca e `Espaço` liga e desliga a animação, que também segue a preferência de movimento reduzido.
+
+| Clique em qualquer coisa para ver a história e o próximo passo exato | Agrupe por qualquer label, no tema escuro ou claro |
+|---|---|
+| ![Detalhes do orders-db: quem chama, quais sinais o veem e o GRANT que revelaria clientes escondidos](docs/assets/screenshots/teia-details.png) | ![O lab agrupado por time, tema claro](docs/assets/screenshots/teia-groups-light.png) |
+
+As visões viram links compartilháveis: `?group=team`, `?q=kind:database`, `?select=orders-db`, `?theme=light`, `?flow=1`, `?legend=icons`.
+
+<p align="center"><img src="docs/assets/icon-library.svg" alt="A biblioteca de ícones da teia: um pictograma por tipo de componente" width="820"></p>
 
 As mudanças também saem por **webhook** (JSON ou Slack) e **métricas Prometheus** (`/metrics`) para alerta.
+
+## Como funciona
+
+<p align="center"><img src="docs/assets/architecture.svg" alt="As fontes que a teia lê, a rodada de descoberta e onde o resultado aparece" width="900"></p>
+
+A teia só lê e não guarda banco de dados: a cada intervalo pergunta a cada fonte o que ela viu, junta as respostas
+num grafo com identidades estáveis, compara com os flows declarados, calcula saúde e cobertura e pergunta ao
+advisor o que deixaria o quadro mais completo. O resultado sai como JSON, stream ao vivo, métricas e webhooks.
 
 ## Testar em 5 minutos
 
@@ -66,11 +99,22 @@ docker compose -f lab/compose.yaml run --rm e2e                     # o teste po
 
 Atrás de proxy com inspeção TLS? Coloque a CA como `.crt` em `certs/` antes do build.
 
+## Instalar
+
+- **Pelo código-fonte** (hoje): `go build ./cmd/teia` (Go 1.27+).
+- **Releases** (a partir da primeira tag): binários para Linux, macOS e Windows (amd64, arm64), imagem multi-arch em `ghcr.io/nilum-br/teia` e o zip do painel do Grafana.
+
+Depois, `teia detect` mostra o que a plataforma oferece e gera um `teia.yaml` inicial, e `teia serve` sobe a API e
+a interface. Antes de expor a API além do localhost, configure `auth.token` (e `cors.allowedOrigins` para o modo
+direto do painel do Grafana): veja [Configuração](docs/configuration.md).
+
 ## Documentação
 
-[Sinais e fontes](docs/sources.md) · [Arquitetura](docs/architecture.md) · [Regras do advisor](docs/advisor.md) ·
-[Ícones](docs/icons.md) · [Especificação dos flows](docs/flows-spec.md) · [Roadmap](docs/roadmap.md) · [Panorama](docs/landscape.md)
+[Sinais e fontes](docs/sources.md) · [Configuração](docs/configuration.md) · [Arquitetura](docs/architecture.md) ·
+[Regras do advisor](docs/advisor.md) · [Ícones](docs/icons.md) · [Especificação dos flows](docs/flows-spec.md) ·
+[Roadmap](docs/roadmap.md) · [Panorama](docs/landscape.md)
 
-## Licença
+## Contribuir e licença
 
-Apache-2.0. Feito pela [Nilum](https://nilum.com.br) e contribuidores.
+Issues e PRs são bem-vindos; veja o [CONTRIBUTING.md](CONTRIBUTING.md). Vulnerabilidades devem ser reportadas em
+privado, como descrito no [SECURITY.md](SECURITY.md). Apache-2.0. Feito pela [Nilum](https://nilum.com.br) e contribuidores.

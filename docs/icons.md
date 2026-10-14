@@ -7,6 +7,10 @@ tells *what it is* and the color tells *how it is doing*.
 teia draws its own icons instead of product logos, so the map looks consistent and the project stays clear of
 trademark issues. The technology's name is written on the card (`PostgreSQL · 2.0/s`).
 
+![The teia icon library](assets/icon-library.svg)
+
+The image is generated from the map component itself (`python scripts/gen-docs-assets.py`), so it never drifts.
+
 | Category | Technologies recognised |
 |---|---|
 | Microservice | any service (default) |

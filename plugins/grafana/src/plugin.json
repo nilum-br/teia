@@ -33,7 +33,10 @@
         "url": "https://github.com/nilum-br/teia/blob/main/LICENSE"
       }
     ],
-    "screenshots": [],
+    "screenshots": [
+      { "name": "The communication map in a dashboard", "path": "img/screenshot-panel.png" },
+      { "name": "Details and the next step to see more", "path": "img/screenshot-details.png" }
+    ],
     "version": "%VERSION%",
     "updated": "%TODAY%"
   },

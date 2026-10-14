@@ -1,4 +1,16 @@
-# teia
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+    <img src="docs/assets/logo-light.svg" alt="teia" width="260">
+  </picture>
+</p>
+
+<p align="center">
+  <a href="https://github.com/nilum-br/teia/actions/workflows/ci.yml"><img src="https://github.com/nilum-br/teia/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-005aff" alt="Apache-2.0"></a>
+  <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/nilum-br/teia?color=005aff" alt="Go version"></a>
+  <a href="plugins/grafana"><img src="https://img.shields.io/badge/Grafana-panel-a9f549?labelColor=020f59" alt="Grafana panel"></a>
+</p>
 
 **Your architecture diagram is lying somewhere. teia tells you where, and what to do about it.**
 
@@ -10,6 +22,8 @@ It runs as a single binary on Linux, macOS and Windows, and shows up where your 
 > _teia_ is Portuguese for "web": the mesh of threads that holds everything together.
 
 [Português](README.pt-BR.md)
+
+![teia's map of the lab: services, datastores and jobs with their health, live traffic, drift and the next steps to see more](docs/assets/screenshots/teia-map.png)
 
 ## Why
 
@@ -49,14 +63,33 @@ Apply it and the next round finds the legacy job nobody instrumented, then tells
 
 The map, in Grafana (`nilum-teia-panel`) or in teia's own UI, is the same component:
 
+![The teia panel inside a Grafana dashboard](docs/assets/screenshots/grafana-panel.png)
+
 - **Health:** each card turns green, amber or red with its error rate (thresholds configurable).
 - **Live traffic:** dots travel along each communication at its speed, and red dots are errors. Updates arrive live (Server-Sent Events, or the dashboard refresh in Grafana).
 - **Drift and visibility:** dashed means undeclared, dotted means declared but not seen; card borders say how first-hand teia's view is.
 - **One [icon library](docs/icons.md):** microservices, relational and document databases, caches, Kafka streams, queues, gateways, jobs, external SaaS. The technology is detected from spans, images or labels.
 - **Labels:** group by `team`, `system`, `k8s.namespace` or any label; search with `team:checkout`, `tech:kafka`.
 - **Next steps, live feed, export** (PNG, SVG, flow matrix CSV for firewall requests).
+- **Keyboard and screen readers:** every card and control is reachable with Tab; `F` fits, `/` searches, `Space` toggles the animation, which also follows the reduced-motion setting.
+
+| Click anything for its story and the exact next step | Group by any label, in dark or light |
+|---|---|
+| ![Details of orders-db: who calls it, which signals see it, and the GRANT that would reveal hidden clients](docs/assets/screenshots/teia-details.png) | ![The lab grouped by team, light theme](docs/assets/screenshots/teia-groups-light.png) |
+
+Views are shareable links: `?group=team`, `?q=kind:database`, `?select=orders-db`, `?theme=light`, `?flow=1`, `?legend=icons`.
+
+<p align="center"><img src="docs/assets/icon-library.svg" alt="The teia icon library: one pictogram per kind of component" width="820"></p>
 
 Changes also go out as **webhooks** (JSON or Slack) and **Prometheus metrics** (`/metrics`) for alerting.
+
+## How it works
+
+<p align="center"><img src="docs/assets/architecture.svg" alt="Sources teia reads, the discovery round, and where the result shows up" width="900"></p>
+
+teia is read-only and keeps no database: every interval it asks each source what it saw, merges the answers into
+one graph with stable identities, compares it with the declared flows, scores health and coverage, and asks the
+advisor what would make the picture more complete. The result is served as JSON, a live stream, metrics and webhooks.
 
 ## Try it in 5 minutes
 
@@ -88,9 +121,13 @@ Behind a TLS-inspecting proxy? Drop its CA as a `.crt` in `certs/` before buildi
 
 ## Install
 
-- **Binaries** for Linux, macOS and Windows (amd64, arm64) and a multi-arch image (`ghcr.io/nilum-br/teia`) are published on every release tag.
-- **From source:** `go build ./cmd/teia` (Go 1.27). Docker and Kubernetes endpoints follow `DOCKER_HOST` / kubeconfig, including Docker Desktop, Colima, OrbStack, Podman and Windows named pipes.
+- **From source** (today): `go build ./cmd/teia` (Go 1.27+). Docker and Kubernetes endpoints follow `DOCKER_HOST` / kubeconfig, including Docker Desktop, Colima, OrbStack, Podman and Windows named pipes.
+- **Releases** (from the first tag on): binaries for Linux, macOS and Windows (amd64, arm64), a multi-arch image at `ghcr.io/nilum-br/teia` and the Grafana panel zip.
 - **Grafana panel:** see [plugins/grafana](plugins/grafana).
+
+Then `teia detect` prints what your platform offers and a starting `teia.yaml`, and `teia serve` runs the API and
+the UI. Before exposing the API beyond localhost, set `auth.token` (and `cors.allowedOrigins` for the Grafana
+panel's direct mode): see [Configuration](docs/configuration.md).
 
 ## Declaring flows
 
@@ -118,8 +155,9 @@ traffic. See [docs/flows-spec.md](docs/flows-spec.md).
 
 ## Docs
 
-[Signals and sources](docs/sources.md) · [Architecture](docs/architecture.md) · [Advisor rules](docs/advisor.md) ·
-[Icon library](docs/icons.md) · [Flows spec](docs/flows-spec.md) · [Roadmap](docs/roadmap.md) · [Landscape](docs/landscape.md)
+[Signals and sources](docs/sources.md) · [Configuration](docs/configuration.md) · [Architecture](docs/architecture.md) ·
+[Advisor rules](docs/advisor.md) · [Icon library](docs/icons.md) · [Flows spec](docs/flows-spec.md) · [Roadmap](docs/roadmap.md) ·
+[Landscape](docs/landscape.md)
 
 ## Status
 
@@ -129,4 +167,5 @@ more database explorers.
 
 ## Contributing and license
 
-Issues and PRs welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Apache-2.0. Built by [Nilum](https://nilum.com.br) and contributors.
+Issues and PRs welcome; see [CONTRIBUTING.md](CONTRIBUTING.md), and report vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md). Apache-2.0. Built by [Nilum](https://nilum.com.br) and contributors.
