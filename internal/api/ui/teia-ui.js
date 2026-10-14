@@ -833,7 +833,7 @@ button.label { cursor: pointer; }
       .particles circle.ghost { fill: var(--ghost); }
       .particles circle.err { fill: var(--failing); }
       .particles circle.faint { opacity: .55; }
-      .dim { opacity: .14; transition: opacity .2s; }
+      .dim, .node.dim { opacity: .14; transition: opacity .2s; }
       @media (prefers-reduced-motion: reduce) { .node.enter, .flowing .h-failing .halo { animation: none; } .dim, .card, .tile { transition: none; } }
     `;
 
@@ -949,7 +949,6 @@ button.label { cursor: pointer; }
       let sub = n.group ? `${n.members.length} workload${n.members.length === 1 ? '' : 's'}` : techLabel(n);
       if (n.requestRate > 0) sub += ` · ${fmtRate(n.requestRate)}/s`;
       if (n.errorRate > 0.0005 && !n.group) sub += ` · ${pct(n.errorRate)} err`;
-      if (n.group && n.internal) sub += ` · ${n.internal} inside`;
       p.sub.textContent = sub.length > 30 ? sub.slice(0, 29) + '…' : sub;
       p.badges.replaceChildren(...n.signals.slice(0, 6).map((s, i) => {
         const b = sv('g', { class: 'badge', transform: `translate(${-NODE_W / 2 + 70 + i * 21},${NODE_H / 2})` });
@@ -1427,8 +1426,8 @@ button.label { cursor: pointer; }
     }
 
     // locate shows a subject (node, edge or "a->b") on the map, through its
-    // group when it is folded into one.
-    function locate(subject) {
+    // group when it is folded into one. move: false selects it in place.
+    function locate(subject, { move = true } = {}) {
       if (!subject || !currentView) return;
       const viewId = id => currentView.nodes.has(id) ? id : currentView.groupOf(id);
       if (subject.includes('->')) {
@@ -1438,7 +1437,8 @@ button.label { cursor: pointer; }
         subject = a;
       }
       const id = viewId(subject);
-      if (id && nodeEls.has(id)) focusNode(id);
+      if (!id || !nodeEls.has(id)) return;
+      if (move) focusNode(id); else select({ type: 'node', id });
     }
 
     function renderSteps() {
@@ -1466,7 +1466,8 @@ button.label { cursor: pointer; }
           el('span', { class: 'pill' }, el('i', { class: 'dot', style: `background:${css('--' + n.health)}` }), HEALTH_LABEL[n.health]), ' ',
           el('span', { class: 'pill' }, n.kind), ' ', el('span', { class: 'pill' }, n.visibility + ' visibility')))];
         if (n.group) {
-          parts.push(el('p', { class: 'explain' }, `${n.members.length} workload${n.members.length === 1 ? '' : 's'} with ${n.labelKey}=${n.title}. Double-click the card to expand it.`));
+          const inside = n.internal ? `, talking to each other through ${n.internal} communication${n.internal === 1 ? '' : 's'}` : '';
+          parts.push(el('p', { class: 'explain' }, `${n.members.length} workload${n.members.length === 1 ? '' : 's'} with ${n.labelKey}=${n.title}${inside}. Double-click the card to expand it.`));
           parts.push(el('button', { type: 'button', class: 'btn', onclick: () => toggleGroup(n.id) }, 'Expand group'));
           parts.push(el('h3', {}, 'Members'));
           parts.push(...n.members.map(m => rel(m.id, m.kind, m.health, () => { state.expanded.add(n.title); renderMap(); focusNode(m.id); })));
@@ -1648,7 +1649,8 @@ button.label { cursor: pointer; }
       const changed = sig !== state.sig;
       const isNew = !state.snap || snap.round !== state.snap.round;
       state.snap = snap;
-      if (changed) { state.sig = sig; state.lastData = Date.now(); renderAll(); } else renderLive();
+      state.lastData = Date.now();
+      if (changed) { state.sig = sig; renderAll(); } else renderLive();
       if (fresh && isNew) pushActivity(snap.changes, true);
     }
 
@@ -1757,7 +1759,7 @@ button.label { cursor: pointer; }
     const onMotion = () => { if (store.get('flow', null) == null) { state.flow = !motionMQ.matches; renderButtons(); wake(); } };
     motionMQ.addEventListener('change', onMotion);
 
-    // Shareable views (page mode): ?group=team&q=kind:database&theme=light&select=orders-db&legend=icons&live=0
+    // Shareable views (page mode): ?group=team&q=kind:database&theme=light&select=orders-db&legend=icons&flow=1&live=0
     if (page && typeof location !== 'undefined') {
       const params = new URLSearchParams(location.search);
       if (params.has('group')) state.groupBy = params.get('group');
@@ -1766,6 +1768,7 @@ button.label { cursor: pointer; }
       if (params.get('live') === '0') opts.stream = false;
       if (params.has('select')) opts.select = params.get('select');
       if (params.get('legend') === 'icons') state.legendIcons = true;
+      if (params.has('flow')) state.flow = params.get('flow') !== '0';
     }
     if (opts.theme) host.dataset.theme = opts.theme;
 
@@ -1785,7 +1788,7 @@ button.label { cursor: pointer; }
     timers.push(setInterval(renderLive, 1000));
     if (opts.api) {
       load(aborter.signal)
-        .then(() => { if (!destroyed && opts.select) locate(opts.select); })
+        .then(() => { if (!destroyed && opts.select) locate(opts.select, { move: false }); })
         .catch(() => { /* the stream will bring it */ })
         .finally(() => { if (destroyed) return; if (opts.stream !== false) connect(); else { state.live = false; renderButtons(); renderLive(); } });
     }
