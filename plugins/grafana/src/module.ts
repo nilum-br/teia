@@ -7,10 +7,23 @@ export const plugin = new PanelPlugin<TeiaOptions>(TeiaPanel)
   .setPanelOptions((builder) =>
     builder
       .addTextInput({
+        path: 'journey',
+        name: 'Journey',
+        description:
+          'Show one journey instead of the whole map: a value of the journey label (checkout), any label (team=payments), or what a service depends on (from:orders). Dashboard variables work, such as ${journey}.',
+        defaultValue: '',
+      })
+      .addTextInput({
         path: 'groupBy',
         name: 'Group by label',
         description: 'Initial grouping, for example team, system or k8s.namespace. Viewers can change it on the panel.',
         defaultValue: '',
+      })
+      .addBooleanSwitch({
+        path: 'values',
+        name: 'Values on lines',
+        description: 'Traffic and p95 latency on every line; an amber or red line shows why instead.',
+        defaultValue: true,
       })
       .addBooleanSwitch({
         path: 'flow',

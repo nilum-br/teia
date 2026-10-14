@@ -1,6 +1,6 @@
 {
   "uid": "teia-overview",
-  "title": "teia \u00b7 service communication",
+  "title": "teia · service communication",
   "tags": [
     "teia"
   ],
@@ -142,7 +142,9 @@
       "options": {
         "groupBy": "",
         "flow": true,
-        "teiaUrl": ""
+        "teiaUrl": "",
+        "journey": "${journey}",
+        "values": true
       }
     },
     {
@@ -292,5 +294,24 @@
         }
       ]
     }
-  ]
+  ],
+  "templating": {
+    "list": [
+      {
+        "type": "custom",
+        "name": "journey",
+        "label": "Journey",
+        "query": "Whole map : *, checkout, browse, reporting, partner-feed",
+        "current": {
+          "text": "Whole map",
+          "value": "*",
+          "selected": true
+        },
+        "options": [],
+        "hide": 0,
+        "skipUrlSync": false,
+        "description": "The journey the teia panel shows: services carry it in their journey label"
+      }
+    ]
+  }
 }

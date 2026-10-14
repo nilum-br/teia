@@ -70,9 +70,11 @@ The map, in Grafana (`nilum-teia-panel`) or in teia's own UI, is the same compon
 - **Live traffic:** dots travel along each communication at its speed, and red dots are errors. Updates arrive live (Server-Sent Events, or the dashboard refresh in Grafana).
 - **Drift and visibility:** dashed means undeclared, dotted means declared but not seen; card borders say how first-hand teia's view is.
 - **One [icon library](docs/icons.md):** microservices, relational and document databases, caches, Kafka streams, queues, gateways, jobs, external SaaS. The technology is detected from spans, images or labels.
-- **Labels:** group by `team`, `system`, `k8s.namespace` or any label; search with `team:checkout`, `tech:kafka`.
+- **Journeys:** show one journey on its own (`journey=checkout` on the services it goes through): what it calls, stubs where it enters and leaves, and why it is red. See [docs/journeys.md](docs/journeys.md).
+- **Values on the lines:** each line says its traffic and p95 (`1.8/s · 9.5 ms`); an amber or red line says why instead. `V` toggles them.
+- **Labels:** group by `team`, `system`, `k8s.namespace` or any label; search with `team:checkout`, `tech:kafka`, `journey=checkout`.
 - **Next steps, live feed, export** (PNG, SVG, flow matrix CSV for firewall requests).
-- **Keyboard and screen readers:** every card and control is reachable with Tab; `F` fits, `/` searches, `Space` toggles the animation, which also follows the reduced-motion setting.
+- **Keyboard and screen readers:** every card and control is reachable with Tab; `F` fits, `/` searches, `J` picks a journey, `V` toggles values on lines, `Space` toggles the animation, which also follows the reduced-motion setting.
 
 | Amber or red says why, and where it comes from | Group by any label, in dark or light |
 |---|---|
@@ -80,7 +82,9 @@ The map, in Grafana (`nilum-teia-panel`) or in teia's own UI, is the same compon
 | **A queue says how much waits and how far behind** | **A cache or database says how full it is** |
 | ![email-worker to order-events is amber: 1.5k messages waiting, 75 s behind, from kafka_exporter](docs/assets/screenshots/teia-queue.png) | ![catalog-cache: memory against maxmemory and clients against maxclients, from redis_exporter](docs/assets/screenshots/teia-cache-light.png) |
 
-Views are shareable links: `?group=team`, `?q=kind:database`, `?select=orders-db`, `?theme=light`, `?flow=1`, `?legend=icons`.
+Views are shareable links: `?journey=checkout`, `?group=team`, `?q=kind:database`, `?select=orders-db`, `?theme=light`, `?flow=1`, `?values=0`, `?legend=icons`.
+
+![The checkout journey on its own, with catalog and recommendations as stubs where it leaves, and its headline: orders → payments, errors](docs/assets/screenshots/teia-journey.png)
 
 <p align="center"><img src="docs/assets/icon-library.svg" alt="The teia icon library: one pictogram per kind of component" width="820"></p>
 
@@ -161,7 +165,7 @@ traffic. See [docs/flows-spec.md](docs/flows-spec.md).
 ## Docs
 
 [Signals and sources](docs/sources.md) · [Configuration](docs/configuration.md) · [Architecture](docs/architecture.md) ·
-[Advisor rules](docs/advisor.md) · [Icon library](docs/icons.md) · [Flows spec](docs/flows-spec.md) · [Roadmap](docs/roadmap.md) ·
+[Journeys](docs/journeys.md) · [Advisor rules](docs/advisor.md) · [Icon library](docs/icons.md) · [Flows spec](docs/flows-spec.md) · [Roadmap](docs/roadmap.md) ·
 [Landscape](docs/landscape.md)
 
 ## Status

@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 import { describe, it } from 'node:test';
 
 const { core } = createRequire(import.meta.url)('./ui/teia-ui.js');
-const { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag } = core;
+const { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, journeySnapshot, journeyWhy, journeyNames } = core;
 
 const node = (id, extra = {}) => ({ id, kind: 'service', health: 'healthy', visibility: 'full', sources: [], ...extra });
 const edge = (from, to, extra = {}) => ({ from, to, state: 'ok', health: 'healthy', declared: true, observed: true, requestRate: 1, errorRate: 0, signals: ['traces'], sources: [], ...extra });
@@ -344,6 +344,104 @@ describe('view edges', () => {
   it('carry the measures of the communications they draw', () => {
     const s = snap([node('worker'), node('topic')], [edge('worker', 'topic', { measures: [{ cause: 'backlog', what: 'messages waiting', value: 1500 }] })]);
     assert.equal(view(s).edges.get('worker->topic').measures[0].value, 1500);
+  });
+});
+
+describe('journeys', () => {
+  // The lab's shop, with its journey labels.
+  const j = v => ({ labels: { journey: v } });
+  const shop = snap([
+    node('web', j('checkout,browse')), node('orders', j('checkout')), node('payments', j('checkout')), node('email-worker', j('checkout')),
+    node('orders-db', { kind: 'database', ...j('checkout') }), node('payment-gateway', { kind: 'external' }), node('order-events', { kind: 'queue' }),
+    node('email-provider', { kind: 'external' }), node('catalog', j('browse')), node('recommendations', j('browse')), node('inventory', j('browse')),
+    node('catalog-cache', { kind: 'cache', ...j('browse') }), node('catalog-db', { kind: 'database' }),
+    node('legacy-reports', j('reporting')), node('partner-sync', j('partner-feed')),
+  ], [
+    edge('web', 'orders'), edge('web', 'catalog'), edge('web', 'recommendations'), edge('orders', 'payments'), edge('orders', 'orders-db'),
+    edge('orders', 'order-events'), edge('payments', 'payment-gateway'), edge('email-worker', 'order-events'), edge('email-worker', 'email-provider'),
+    edge('catalog', 'catalog-cache'), edge('catalog', 'catalog-db'), edge('recommendations', 'inventory'), edge('legacy-reports', 'orders-db'),
+    edge('partner-sync', 'catalog'),
+  ]);
+  const ids = set => [...set].sort();
+
+  it('reads a journey, any label, or what a node depends on', () => {
+    assert.deepEqual(parseJourney('checkout'), { text: 'checkout', key: 'journey', value: 'checkout' });
+    assert.deepEqual(parseJourney('team=payments'), { text: 'team=payments', key: 'team', value: 'payments' });
+    assert.deepEqual(parseJourney(' team: payments '), { text: 'team: payments', key: 'team', value: 'payments' });
+    assert.deepEqual(parseJourney('from:orders'), { text: 'from:orders', entry: 'orders' });
+    assert.equal(parseJourney('  '), null);
+  });
+
+  it('takes its members and what they call, and stops at datastores and at other journeys', () => {
+    const c = journeyOf(shop, 'checkout');
+    assert.deepEqual(ids(c.roles.keys()), ['email-provider', 'email-worker', 'order-events', 'orders', 'orders-db', 'payment-gateway', 'payments', 'web']);
+    assert.equal(c.roles.get('orders-db'), 'member');
+    assert.equal(c.roles.get('payment-gateway'), 'dependency');
+  });
+
+  it('shows where it is entered from and where it leaves, as stubs', () => {
+    const v = journeySnapshot(shop, journeyOf(shop, 'checkout'));
+    const stubs = v.nodes.filter(n => n.stub).map(n => n.id).sort();
+    assert.deepEqual(stubs, ['catalog', 'legacy-reports', 'recommendations']);
+    assert.ok(v.edges.find(e => e.from === 'legacy-reports' && e.to === 'orders-db').stubEdge);
+    assert.ok(!v.edges.some(e => e.from === 'catalog' && e.to === 'catalog-db'), 'nothing beyond a stub');
+  });
+
+  it('shares a datastore without swallowing its other clients', () => {
+    const r = journeyOf(shop, 'reporting');
+    assert.deepEqual(ids(r.roles.keys()), ['legacy-reports', 'orders-db']);
+  });
+
+  it('follows from a node with no ownership boundary', () => {
+    const f = journeyOf(shop, 'from:orders');
+    assert.deepEqual(ids(f.roles.keys()), ['order-events', 'orders', 'orders-db', 'payment-gateway', 'payments']);
+  });
+
+  it('ends on cycles, cuts unlabelled chains at maxDepth, and caps its size', () => {
+    const chain = snap([node('m', j('x')), node('s1'), node('s2'), node('s3'), node('s4')],
+      [edge('m', 's1'), edge('s1', 's2'), edge('s2', 's3'), edge('s3', 's4'), edge('s2', 'm')]);
+    assert.deepEqual(ids(journeyOf(chain, 'x').roles.keys()), ['m', 's1', 's2']);
+    const capped = journeyOf(chain, 'x', { maxNodes: 2 });
+    assert.equal(capped.truncated, true);
+    assert.equal(capped.roles.size, 2);
+  });
+
+  it('keeps the two busiest outside callers and folds the rest', () => {
+    const busy = snap([node('db', { kind: 'database', ...j('x') }), ...['a', 'b', 'c', 'd', 'e'].map(id => node(id))],
+      ['a', 'b', 'c', 'd', 'e'].map((id, i) => edge(id, 'db', { requestRate: i + 1 })));
+    const v = journeySnapshot(busy, journeyOf(busy, 'x'));
+    const stubs = v.nodes.filter(n => n.stub).map(n => n.id).sort();
+    assert.deepEqual(stubs, ['+3 callers of db', 'd', 'e']);
+    assert.equal(v.edges.find(e => e.from === '+3 callers of db').requestRate, 6);
+  });
+
+  it('heads with the origin of its worst health', () => {
+    const fail = { cause: 'errors', health: 'failing', value: 0.07, limit: 0.05, summary: '7.0% errors, over 5.0%' };
+    const s = snap([
+      node('web', { ...j('checkout'), health: 'failing', reasons: [{ ...fail, via: 'orders' }] }),
+      node('orders', { ...j('checkout'), health: 'failing', reasons: [{ ...fail, via: 'payments' }] }),
+      node('payments', { ...j('checkout'), health: 'failing', reasons: [fail] }),
+    ], [edge('web', 'orders'), edge('orders', 'payments', { health: 'failing', reasons: [fail] })]);
+    const why = journeyWhy(s, journeyOf(s, 'checkout'));
+    assert.equal(why.health, 'failing');
+    assert.equal(why.subject, 'orders->payments');
+    assert.equal(why.more, 1); // payments itself
+  });
+
+  it('lists the journeys the label names', () => {
+    assert.deepEqual(journeyNames(shop), ['browse', 'checkout', 'partner-feed', 'reporting']);
+  });
+
+  it('never folds a stub into a group', () => {
+    const v = journeySnapshot(shop, journeyOf(shop, 'checkout'));
+    const grouped = view(v, { groupBy: 'journey' });
+    assert.ok(grouped.nodes.has('catalog'), 'catalog stays a stub, not part of group:browse');
+  });
+
+  it('searches an exact label value with key=value', () => {
+    const vv = view(shop);
+    const hits = [...vv.nodes.values()].filter(matcher('journey=checkout')).map(n => n.id);
+    assert.ok(hits.includes('web') && hits.includes('orders') && !hits.includes('catalog'));
   });
 });
 

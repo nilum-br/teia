@@ -1,7 +1,7 @@
 import React from 'react';
 import { render } from '@testing-library/react';
 import { LoadingState, PanelProps, toDataFrame } from '@grafana/data';
-import { TeiaPanel } from './TeiaPanel';
+import { journeyOf, TeiaPanel } from './TeiaPanel';
 import { TeiaOptions } from '../types';
 
 // jsdom has no layout: give SVG geometry and ResizeObserver harmless answers.
@@ -39,10 +39,10 @@ function props(over: Partial<PanelProps<TeiaOptions>> = {}): PanelProps<TeiaOpti
   return {
     id: 7,
     data: { series, state: LoadingState.Done },
-    options: { teiaUrl: '', groupBy: '', flow: false },
+    options: { teiaUrl: '', groupBy: '', flow: false, journey: '', values: true },
     width: 800,
     height: 500,
-    replaceVariables: (s: string) => (s === '${__dashboard.uid}' ? 'dash-1' : s),
+    replaceVariables: (s: string) => (s === '${__dashboard.uid}' ? 'dash-1' : s === '${journey}' ? 'checkout' : s),
     ...over,
   } as unknown as PanelProps<TeiaOptions>;
 }
@@ -94,6 +94,33 @@ describe('TeiaPanel', () => {
     expect(details).toContain('Why it is amber');
     expect(details).toContain('messages waiting');
     expect(details).toContain('1.5k');
+  });
+
+  it('shows only the journey a dashboard variable picks, with stubs where it leaves', () => {
+    const shop = [
+      toDataFrame({
+        refId: 'nodes',
+        fields: [
+          { name: 'id', values: ['web', 'orders', 'catalog'] },
+          { name: 'kind', values: ['service', 'service', 'service'] },
+          { name: 'labels', values: ['{"journey":"checkout,browse"}', '{"journey":"checkout"}', '{"journey":"browse"}'] },
+        ],
+      }),
+      toDataFrame({ refId: 'edges', fields: [{ name: 'source', values: ['web', 'web'] }, { name: 'target', values: ['orders', 'catalog'] }] }),
+    ];
+    const { container, rerender } = render(<TeiaPanel {...props({ data: { series: shop, state: LoadingState.Done }, options: { teiaUrl: '', groupBy: '', flow: false, journey: '${journey}', values: true } } as never)} />);
+    const root = shadow(container);
+    const drawn = () => [...root.querySelectorAll('.node')].map((n) => `${(n as HTMLElement).dataset.id}${n.classList.contains('stub') ? ' (stub)' : ''}`).sort();
+    expect(drawn()).toEqual(['catalog (stub)', 'orders', 'web']);
+    expect(root.querySelector('.journey-chip')?.textContent).toContain('checkout');
+    rerender(<TeiaPanel {...props({ data: { series: shop, state: LoadingState.Done }, options: { teiaUrl: '', groupBy: '', flow: false, journey: '', values: true } } as never)} />);
+    expect(drawn()).toEqual(['catalog', 'orders', 'web']);
+    expect(localStorage.getItem('teia.panel-dash-1-7.journey')).toBeNull();
+  });
+
+  it('treats an All choice or an unresolved variable as the whole map', () => {
+    expect(['All', '$__all', '*', '${journey}', '{checkout,browse}', ''].map(journeyOf)).toEqual(['', '', '', '', '', '']);
+    expect(journeyOf(' checkout ')).toBe('checkout');
   });
 
   it('cleans up when the panel goes away', () => {

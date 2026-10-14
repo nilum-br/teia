@@ -60,6 +60,16 @@ then follows `stream` (Server-Sent Events), so:
 - it only works when teia has no `auth.token`: `EventSource` cannot send an `Authorization` header, and teia never
   accepts its session cookie from another origin. Keep such a teia on a private network, or use dashboard queries.
 
+## Options
+
+| Option | What it does |
+|---|---|
+| Journey | Show one journey instead of the whole map: a value of the `journey` label (`checkout`), any label (`team=payments`), or what a service depends on (`from:orders`). Takes dashboard variables such as `${journey}`; "All" or an unresolved variable shows the whole map. See [journeys](../../docs/journeys.md). |
+| Values on lines | Traffic and p95 latency on every line; an amber or red line shows why instead. |
+| Group by label | Initial grouping, for example `team`, `system` or `k8s.namespace`. Viewers can change it. |
+| Animate traffic | Dots travel along each communication at the speed of its traffic; red dots are errors. |
+| teia API URL | Direct mode, described above. |
+
 ## Roadmap
 
 - a teia data source plugin (Go backend), so no Infinity data source is needed

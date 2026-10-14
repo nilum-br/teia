@@ -111,6 +111,10 @@ export interface TeiaMountOptions {
   theme?: 'dark' | 'light';
   groupBy?: string;
   flow?: boolean;
+  /** The journey shown: a journey label value, key=value, or from:node. */
+  journey?: string;
+  /** Traffic and latency on every line (default true). */
+  values?: boolean;
   /** Node to select once the first snapshot is in. */
   select?: string;
 }
@@ -120,7 +124,7 @@ export interface TeiaController {
   /** Reports the host's own query state; an empty message clears it. */
   setStatus(error?: string): void;
   /** Applies panel options, unless the viewer already chose otherwise on the map. */
-  setOptions(options: { groupBy?: string; flow?: boolean }): void;
+  setOptions(options: { groupBy?: string; flow?: boolean; journey?: string; values?: boolean }): void;
   setTheme(theme: 'dark' | 'light'): void;
   destroy(): void;
 }

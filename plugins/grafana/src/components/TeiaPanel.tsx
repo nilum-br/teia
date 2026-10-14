@@ -19,6 +19,7 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, wi
   // Layout and filters are remembered per dashboard and panel: panel ids
   // repeat across dashboards, dashboard uids do not.
   const storageKey = `panel-${replaceVariables('${__dashboard.uid}') || 'local'}-${id}`;
+  const journey = journeyOf(replaceVariables(options.journey || ''));
 
   useEffect(() => {
     if (!host.current) {
@@ -31,6 +32,8 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, wi
       theme: mode,
       groupBy: options.groupBy,
       flow: options.flow,
+      journey,
+      values: options.values,
     });
     return () => {
       ui.current?.destroy();
@@ -45,8 +48,8 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, wi
   }, [mode]);
 
   useEffect(() => {
-    ui.current?.setOptions({ groupBy: options.groupBy, flow: options.flow });
-  }, [options.groupBy, options.flow]);
+    ui.current?.setOptions({ groupBy: options.groupBy, flow: options.flow, journey, values: options.values });
+  }, [options.groupBy, options.flow, journey, options.values]);
 
   useEffect(() => {
     if (options.teiaUrl || !ui.current) {
@@ -65,3 +68,11 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, wi
 
   return <div ref={host} style={{ width, height }} data-testid="teia-panel" />;
 };
+
+/** journeyOf reads the panel's journey after variables: an "All" choice, or
+ * a variable left unresolved, means the whole map. */
+export function journeyOf(value: string): string {
+  const v = value.trim();
+  return v === '*' || v === 'All' || v === '$__all' || v.startsWith('$') || v.startsWith('{') ? '' : v;
+}
+

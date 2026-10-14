@@ -54,9 +54,11 @@ O mapa, no Grafana (`nilum-teia-panel`) ou na interface da própria teia, é o m
 - **Tráfego andando:** pontos percorrem cada comunicação na velocidade do tráfego; pontos vermelhos são erros. Ao vivo.
 - **Drift e visibilidade:** tracejado é não declarado, pontilhado é declarado e não visto; a borda do card diz o quanto a teia vê em primeira mão.
 - **[Biblioteca de ícones](docs/icons.md) padronizada:** microsserviço, banco relacional, banco de documentos (NoSQL), cache, stream (Kafka), fila, gateway, job, SaaS externo. A tecnologia é detectada pelos spans, pela imagem ou por label.
-- **Labels:** agrupe por `team`, `system`, `k8s.namespace` ou qualquer label; busque com `team:checkout`, `tech:kafka`.
+- **Jornadas:** mostre uma jornada sozinha (`journey=checkout` nos serviços por onde ela passa): o que ela chama, stubs de onde entra e para onde sai, e por que está vermelha. Veja [docs/journeys.md](docs/journeys.md).
+- **Valores nas linhas:** cada linha diz o tráfego e o p95 (`1.8/s · 9.5 ms`); uma linha amarela ou vermelha diz o porquê no lugar. `V` liga e desliga.
+- **Labels:** agrupe por `team`, `system`, `k8s.namespace` ou qualquer label; busque com `team:checkout`, `tech:kafka`, `journey=checkout`.
 - **Próximos passos, feed ao vivo e exportação** (PNG, SVG, matriz de fluxos em CSV para pedido de firewall).
-- **Teclado e leitor de tela:** todo card e controle é alcançável com Tab; `F` enquadra, `/` busca e `Espaço` liga e desliga a animação, que também segue a preferência de movimento reduzido.
+- **Teclado e leitor de tela:** todo card e controle é alcançável com Tab; `F` enquadra, `/` busca, `J` escolhe uma jornada, `V` liga os valores nas linhas e `Espaço` liga e desliga a animação, que também segue a preferência de movimento reduzido.
 
 | Amarelo ou vermelho diz o porquê, e de onde vem | Agrupe por qualquer label, no tema escuro ou claro |
 |---|---|
@@ -64,7 +66,9 @@ O mapa, no Grafana (`nilum-teia-panel`) ou na interface da própria teia, é o m
 | **A fila diz quanto espera e quão atrasada está** | **O cache ou o banco diz o quanto está cheio** |
 | ![email-worker para order-events está amarelo: 1,5 mil mensagens esperando, 75 s de atraso, do kafka_exporter](docs/assets/screenshots/teia-queue.png) | ![catalog-cache: memória contra o maxmemory e clientes contra o maxclients, do redis_exporter](docs/assets/screenshots/teia-cache-light.png) |
 
-As visões viram links compartilháveis: `?group=team`, `?q=kind:database`, `?select=orders-db`, `?theme=light`, `?flow=1`, `?legend=icons`.
+As visões viram links compartilháveis: `?journey=checkout`, `?group=team`, `?q=kind:database`, `?select=orders-db`, `?theme=light`, `?flow=1`, `?values=0`, `?legend=icons`.
+
+![A jornada checkout sozinha, com catalog e recommendations como stubs onde ela sai, e o resumo: orders → payments, erros](docs/assets/screenshots/teia-journey.png)
 
 <p align="center"><img src="docs/assets/icon-library.svg" alt="A biblioteca de ícones da teia: um pictograma por tipo de componente" width="820"></p>
 
@@ -117,7 +121,7 @@ direto do painel do Grafana): veja [Configuração](docs/configuration.md) e [Ex
 ## Documentação
 
 [Sinais e fontes](docs/sources.md) · [Configuração](docs/configuration.md) · [Arquitetura](docs/architecture.md) ·
-[Regras do advisor](docs/advisor.md) · [Ícones](docs/icons.md) · [Especificação dos flows](docs/flows-spec.md) ·
+[Jornadas](docs/journeys.md) · [Regras do advisor](docs/advisor.md) · [Ícones](docs/icons.md) · [Especificação dos flows](docs/flows-spec.md) ·
 [Roadmap](docs/roadmap.md) · [Panorama](docs/landscape.md)
 
 ## Contribuir e licença

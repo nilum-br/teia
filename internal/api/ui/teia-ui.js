@@ -209,6 +209,13 @@ details summary { cursor: pointer; color: var(--accent); font-size: 12px; margin
 .why svg { width: 18px; height: 18px; }
 .why.degraded svg { color: var(--warn-text); } .why.failing svg { color: var(--err-text); }
 .why .btn { height: 26px; font-size: 11.5px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.search .isolate { position: absolute; right: 4px; top: 3px; height: 24px; padding: 0 8px; font-size: 11.5px; }
+.journey-chip { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 4px 0 10px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; }
+.journey-chip svg { width: 13px; height: 13px; }
+.journey-chip .why { font-weight: 500; display: inline-flex; gap: 5px; align-items: center; }
+.journey-chip button { height: 20px; min-width: 20px; border: 0; border-radius: 999px; background: rgba(2, 15, 89, .16); color: inherit; cursor: pointer; padding: 0 6px; font-size: 11.5px; }
 .legend .reasons { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .legend .reasons svg { width: 14px; height: 14px; color: var(--ink); flex: none; }
 .pill { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 1px 8px; font-size: 11px; border: 1px solid var(--line-2); color: var(--ink-2); }
@@ -318,9 +325,12 @@ button.label { cursor: pointer; }
   <label class="search">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
     <input id="search" type="search" placeholder="Search…  e.g. team:checkout" aria-label="Search the map" autocomplete="off" spellcheck="false">
+    <button type="button" class="btn isolate" id="isolateBtn" title="Show only what the search names, and what it calls (Shift+Enter)" hidden>Isolate</button>
   </label>
   <div class="ctl">
+    <select class="btn" id="journey" title="Show one journey (J)" aria-label="Show one journey" hidden></select>
     <select class="btn" id="groupBy" title="Group nodes by a label" aria-label="Group nodes by a label"></select>
+    <button type="button" class="btn" id="valuesBtn" title="Traffic and latency on every line (V)"></button>
     <button type="button" class="btn" id="flowBtn" title="Animate traffic (space)"></button>
     <button type="button" class="btn" id="liveBtn" title="Follow live updates"></button>
     <button type="button" class="btn stepsBtn" id="stepsBtn" title="Next steps">Next steps <span class="count" id="stepsBadge">0</span></button>
@@ -349,6 +359,7 @@ button.label { cursor: pointer; }
       <button type="button" class="btn" id="resetBtn" title="Reset layout" aria-label="Reset layout">↺</button>
     </div>
     <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+    <div class="sr-only" id="announce" role="status" aria-live="polite"></div>
   </div>
   <aside>
     <nav class="tabs" role="tablist">
@@ -644,7 +655,7 @@ button.label { cursor: pointer; }
   // placeTag picks where a w × h tag goes: the first spot (its centre) that
   // overlaps none of the obstacles ({x0, y0, x1, y1}); when every spot does,
   // the one that covers the least. Spots run from the middle of a line out.
-  function placeTag(spots, w, h, obstacles) {
+  function placeTag(spots, w, h, obstacles, { strict = false } = {}) {
     const box = p => ({ x0: p.x - w / 2, y0: p.y - h / 2, x1: p.x + w / 2, y1: p.y + h / 2 });
     const overlap = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
     let best = null;
@@ -654,6 +665,7 @@ button.label { cursor: pointer; }
       if (covered === 0) return { ...p, box: b };
       if (!best || covered < best.covered) best = { ...p, box: b, covered };
     }
+    if (strict || !best) return null;
     return { x: best.x, y: best.y, box: best.box };
   }
 
@@ -661,7 +673,8 @@ button.label { cursor: pointer; }
   // signals it has (traffic, latency, errors). When that does not fit, what
   // it is goes first: the icon and the details already say it.
   function cardSubtitle(n, max = 30) {
-    const what = n.group ? `${n.members.length} workload${n.members.length === 1 ? '' : 's'}` : techLabel(n);
+    if (n.stubOf) return `${n.stubOf.length} more callers`;
+    const what = n.stub ? 'outside the journey' : n.group ? `${n.members.length} workload${n.members.length === 1 ? '' : 's'}` : techLabel(n);
     const stats = [];
     if (n.requestRate > 0) stats.push(`${fmtRate(n.requestRate)}/s`);
     if (n.latencyP95Ms > 0) stats.push(fmtMs(n.latencyP95Ms));
@@ -671,11 +684,140 @@ button.label { cursor: pointer; }
     return text.length > max ? text.slice(0, max - 1) + '…' : text;
   }
 
+  // ---------------------------------------------------------- journeys
+  // A journey is a path through the map: the services that take part in it
+  // (by a label, "journey" unless said otherwise), what they call
+  // downstream, and stubs where it is entered from or leaves to the rest.
+
+  const JOURNEY_KEY = 'journey';
+
+  // parseJourney reads "checkout" (a value of the journey label),
+  // "team=checkout" or "team:checkout" (any label), or "from:orders" (what
+  // a node depends on).
+  function parseJourney(spec) {
+    const text = String(spec || '').trim();
+    if (!text) return null;
+    const m = /^([^=:\s]+)\s*[=:]\s*(.+)$/.exec(text);
+    if (!m) return { text, key: JOURNEY_KEY, value: text };
+    if (m[1].toLowerCase() === 'from') return { text, entry: m[2].trim() };
+    return { text, key: m[1], value: m[2].trim() };
+  }
+
+  // labelValues splits a label's value on commas: a service can take part in
+  // several journeys ("checkout,browse").
+  const labelValues = (n, key) => String(n?.labels?.[key] ?? '').split(',').map(v => v.trim().toLowerCase()).filter(Boolean);
+  const isService = n => !!n && n.kind === 'service';
+
+  // journeyOf expands a journey over a snapshot. Members are the nodes the
+  // spec names; from them it follows calls downstream with plain rules:
+  // datastores, caches, queues and externals are included but never walked
+  // past (their other clients are not part of this journey); a service that
+  // belongs to another value of the same label is where the journey leaves;
+  // unlabelled services are followed maxDepth hops past the last member.
+  function journeyOf(snap, spec, { maxDepth = 2, maxNodes = 200 } = {}) {
+    const j = typeof spec === 'string' ? parseJourney(spec) : spec;
+    const roles = new Map(); // id -> 'member' | 'dependency'
+    if (!j) return { spec: j, roles, truncated: false, empty: true };
+    const nodes = new Map(snap.nodes.map(n => [n.id, n]));
+    const out = new Map();
+    for (const e of snap.edges) {
+      if (!out.has(e.from)) out.set(e.from, []);
+      out.get(e.from).push(e.to);
+    }
+    const want = j.entry ? null : j.value.toLowerCase();
+    const member = n => !!n && (j.entry ? n.id.toLowerCase() === j.entry.toLowerCase() : labelValues(n, j.key).includes(want));
+    const elsewhere = n => !j.entry && isService(n) && labelValues(n, j.key).length > 0 && !member(n);
+    const queue = [];
+    for (const n of snap.nodes) if (member(n)) { roles.set(n.id, 'member'); queue.push([n.id, 0]); }
+    let truncated = false;
+    for (let q = 0; q < queue.length; q++) {
+      const [id, depth] = queue[q];
+      if (!isService(nodes.get(id))) continue; // included, not walked past
+      for (const to of [...new Set(out.get(id) || [])].sort()) {
+        if (roles.has(to)) continue;
+        const n = nodes.get(to);
+        if (elsewhere(n)) continue; // owned by another journey: a stub
+        const next = member(n) ? 0 : depth + 1;
+        if (isService(n) && next > maxDepth) continue;
+        if (roles.size >= maxNodes) { truncated = true; break; }
+        roles.set(to, member(n) ? 'member' : 'dependency');
+        queue.push([to, next]);
+      }
+    }
+    return { spec: j, roles, truncated, empty: roles.size === 0 };
+  }
+
+  // journeySnapshot keeps the journey and, as stubs, the nodes right outside
+  // it: who calls into it and where it leaves to. A node called from more
+  // than three outsiders keeps its two busiest and one "+N" stub for the rest.
+  function journeySnapshot(snap, journey) {
+    const inside = id => journey.roles.has(id);
+    const callers = new Map(); // inside id -> outside caller edges
+    const keep = new Set();
+    for (const e of snap.edges) {
+      if (inside(e.from) && !inside(e.to)) keep.add(e.to);
+      if (!inside(e.from) && inside(e.to)) {
+        if (!callers.has(e.to)) callers.set(e.to, []);
+        callers.get(e.to).push(e);
+      }
+    }
+    const extra = [];
+    for (const [to, list] of callers) {
+      list.sort((a, b) => b.requestRate - a.requestRate || (a.from < b.from ? -1 : 1));
+      list.slice(0, list.length > 3 ? 2 : 3).forEach(e => keep.add(e.from));
+      if (list.length > 3) {
+        const rest = list.slice(2);
+        const id = `+${rest.length} callers of ${to}`;
+        extra.push({
+          node: { id, kind: 'unknown', health: 'unknown', visibility: 'none', requestRate: 0, errorRate: 0, latencyP50Ms: 0, latencyP95Ms: 0, reasons: [], measures: [], sources: [], addresses: [], labels: {}, stub: true, stubOf: rest.map(e => e.from) },
+          edge: { ...rest[0], from: id, to, requestRate: rest.reduce((a, e) => a + e.requestRate, 0), reasons: [], measures: [], stubEdge: true },
+        });
+      }
+    }
+    const role = id => journey.roles.get(id);
+    const nodes = snap.nodes
+      .filter(n => inside(n.id) || keep.has(n.id))
+      .map(n => inside(n.id) ? { ...n, journeyRole: role(n.id) } : { ...n, stub: true });
+    const edges = snap.edges
+      .filter(e => (inside(e.from) || keep.has(e.from)) && (inside(e.to) || keep.has(e.to)) && (inside(e.from) || inside(e.to)))
+      .map(e => inside(e.from) && inside(e.to) ? e : { ...e, stubEdge: true });
+    return { ...snap, nodes: [...nodes, ...extra.map(x => x.node)], edges: [...edges, ...extra.map(x => x.edge)] };
+  }
+
+  // journeyWhy is a journey's headline: its worst health and the reason that
+  // most likely causes it. Reasons that only pass on a slow or failing
+  // dependency inside the journey give way to the one they point at.
+  function journeyWhy(snap, journey) {
+    const inside = id => journey.roles.has(id);
+    const items = [
+      ...snap.nodes.filter(n => inside(n.id)).map(n => ({ subject: n.id, edge: false, health: n.health, reasons: n.reasons || [] })),
+      ...snap.edges.filter(e => inside(e.from) && inside(e.to)).map(e => ({ subject: e.from + '->' + e.to, edge: true, health: e.health, reasons: e.reasons || [] })),
+    ];
+    let health = 'unknown';
+    for (const it of items) if (HEALTH_RANK[it.health] > HEALTH_RANK[health]) health = it.health;
+    const passes = (r, cause) => r.via && inside(r.via) && snap.nodes.some(n => n.id === r.via && (n.reasons || []).some(x => x.cause === cause));
+    const candidates = [];
+    for (const it of items) for (const r of it.reasons) {
+      if (r.health === health && !passes(r, r.cause)) candidates.push({ subject: it.subject, edge: it.edge, reason: r });
+    }
+    const weight = c => (c.reason.limit > 0 ? c.reason.value / c.reason.limit : 0);
+    candidates.sort((a, b) => (b.edge - a.edge) || (weight(b) - weight(a)) || (a.subject < b.subject ? -1 : 1));
+    return candidates.length ? { health, subject: candidates[0].subject, reason: candidates[0].reason, more: candidates.length - 1 } : { health, subject: '', reason: null, more: 0 };
+  }
+
+  // journeyNames lists the journeys the label names, for the selector.
+  function journeyNames(snap, key = JOURNEY_KEY) {
+    const names = new Set();
+    for (const n of snap.nodes) for (const v of String(n.labels?.[key] ?? '').split(',')) if (v.trim()) names.add(v.trim());
+    return [...names].sort();
+  }
+
   // buildView: what is drawn. Grouping by a label folds nodes into one card
   // and sums the traffic between groups.
   function buildView(snap, index, { groupBy = '', expanded = new Set() } = {}) {
+    const stubs = new Set(snap.nodes.filter(n => n.stub).map(n => n.id));
     const groupOf = id => {
-      if (!groupBy) return null;
+      if (!groupBy || stubs.has(id)) return null;
       const v = index.nodes.get(id)?.labels?.[groupBy];
       if (!v || expanded.has(v)) return null;
       return 'group:' + v;
@@ -704,7 +846,7 @@ button.label { cursor: pointer; }
       const id = from + '->' + to;
       let ve = edges.get(id);
       if (!ve) {
-        ve = { id, from, to, members: [], requestRate: 0, failed: 0, latency: latencySum(), reasons: [], measures: [], signals: new Set(), states: new Set(), declared: false, observed: false, health: 'unknown', protocol: e.protocol, reason: e.reason, port: e.port, sources: new Set() };
+        ve = { id, from, to, members: [], requestRate: 0, failed: 0, latency: latencySum(), reasons: [], measures: [], stubEdge: true, signals: new Set(), states: new Set(), declared: false, observed: false, health: 'unknown', protocol: e.protocol, reason: e.reason, port: e.port, sources: new Set() };
         edges.set(id, ve);
       }
       ve.members.push(e);
@@ -717,6 +859,7 @@ button.label { cursor: pointer; }
       e.sources.forEach(s => ve.sources.add(s));
       ve.states.add(e.state);
       ve.declared ||= e.declared; ve.observed ||= e.observed;
+      ve.stubEdge &&= !!e.stubEdge; // a stub line only when every member is one
       if (HEALTH_RANK[e.health] > HEALTH_RANK[ve.health]) ve.health = e.health;
     }
     for (const ve of edges.values()) {
@@ -743,6 +886,12 @@ button.label { cursor: pointer; }
     const terms = String(q || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
     if (!terms.length) return null;
     return n => terms.every(t => {
+      const eq = t.indexOf('=');
+      if (eq > 0) { // key=value: an exact label value (one of a comma list)
+        const k = t.slice(0, eq), v = t.slice(eq + 1);
+        const labels = n.group ? n.members.map(m => m.labels || {}) : [n.labels || {}];
+        return labels.some(l => Object.entries(l).some(([lk, lv]) => lk.toLowerCase() === k && String(lv).toLowerCase().split(',').map(x => x.trim()).includes(v)));
+      }
       const i = t.indexOf(':');
       if (i > 0) {
         const k = t.slice(0, i), v = t.slice(i + 1);
@@ -842,7 +991,7 @@ button.label { cursor: pointer; }
     } catch { return null; }
   }
 
-  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, TECH, CATEGORY, SIGNAL, REASON };
+  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, journeySnapshot, journeyWhy, journeyNames, TECH, CATEGORY, SIGNAL, REASON };
 
   // ============================================================== mount
   function mount(host, opts = {}) {
@@ -919,6 +1068,8 @@ button.label { cursor: pointer; }
       tab: 'steps',
       activity: [],
       legendIcons: false,
+      journey: '', // the journey shown: a value of the journey label, any key=value, or from:node
+      values: stored('values', opts.values !== false), // traffic and latency on every line
     };
     let index = indexSnapshot(sanitize({}));
 
@@ -957,6 +1108,14 @@ button.label { cursor: pointer; }
       .why-tag text { fill: #020f59; font-size: 10.5px; font-weight: 700; }
       .why-tag svg { color: #020f59; }
       .why-tag { cursor: pointer; }
+      .value-tag rect { fill: var(--panel); stroke: var(--line-2); stroke-width: 1; }
+      .value-tag text { fill: var(--ink-2); font-size: 10px; font-weight: 600; }
+      .value-tag { cursor: pointer; }
+      .far .value-tag { display: none; }
+      .node.stub .card { fill: transparent; stroke: var(--line-2); stroke-dasharray: 4 4; }
+      .node.stub .tile { fill: var(--line-2); }
+      .node.stub { opacity: .8; }
+      .edge.to-stub path.line { stroke-opacity: .3; }
       .flowing .h-failing .halo { animation: halo 1.6s ease-out infinite; }
       @keyframes halo { 0% { opacity: .7; transform: scale(1); } 100% { opacity: 0; transform: scale(1.12); } }
       .node.match .card { stroke: var(--accent); stroke-width: 2.2; }
@@ -1011,8 +1170,11 @@ button.label { cursor: pointer; }
       return true;
     }
 
+    // posKey stores each view's own layout: the whole map, or one journey.
+    const posKey = () => 'positions' + (state.journey ? '@' + state.journey.toLowerCase() : '');
+
     function renderMap() {
-      const view = buildView(state.snap, index, state);
+      const view = buildView(state.j ? journeySnapshot(state.snap, state.j) : state.snap, index, state);
       currentView = view;
       const key = [...view.nodes.keys()].sort().join('|') + '#' + [...view.edges.keys()].sort().join('|');
       if (key !== topologyKey) { layoutPos = layered(view); topologyKey = key; }
@@ -1038,14 +1200,18 @@ button.label { cursor: pointer; }
         if (!g) { g = createEdge(); edgeEls.set(e.id, g); layerEdges.append(g); }
         g._edge = e;
         g.style.display = edgeVisible(e) ? '' : 'none';
-        g.setAttribute('class', `edge s-${e.state} h-${e.health}${state.selected?.id === e.id ? ' sel' : ''}`);
+        g.setAttribute('class', `edge s-${e.state} h-${e.health}${e.stubEdge ? ' to-stub' : ''}${state.selected?.id === e.id ? ' sel' : ''}`);
         routeEdge(g, posOf(e.from), posOf(e.to), view.edges.has(e.to + '->' + e.from) ? 7 : 0);
       }
       for (const [id, g] of edgeEls) if (!eSeen.has(id)) { g.remove(); edgeEls.delete(id); }
 
       const empty = $('#empty');
       empty.hidden = view.nodes.size > 0;
-      if (!empty.hidden) empty.firstChild.textContent = 'No communication discovered yet. The Sources tab shows what teia reads and what failed.';
+      if (!empty.hidden) {
+        empty.firstChild.textContent = state.j
+          ? `Nothing takes part in the journey "${state.journey}". Clear it with ✕ above, or search for the label your services carry.`
+          : 'No communication discovered yet. The Sources tab shows what teia reads and what failed.';
+      }
 
       renderMarks();
       renderReasons();
@@ -1089,7 +1255,7 @@ button.label { cursor: pointer; }
     function updateNode(g, n) {
       const p = g._parts;
       const sel = state.selected?.id === n.id;
-      g.setAttribute('class', `node kind-${n.kind} h-${n.health} vis-${n.visibility}${sel ? ' sel' : ''}${g.classList.contains('enter') ? ' enter' : ''}`);
+      g.setAttribute('class', `node kind-${n.kind} h-${n.health} vis-${n.visibility}${n.stub ? ' stub' : ''}${sel ? ' sel' : ''}${g.classList.contains('enter') ? ' enter' : ''}`);
       const cat = categoryOf(n);
       if (p.cat !== cat) {
         p.icon.replaceChildren(iconSVG(iconOf(n)));
@@ -1216,21 +1382,54 @@ button.label { cursor: pointer; }
         x0: n._pos.x - NODE_W / 2 - 6, x1: n._pos.x + NODE_W / 2 + 6,
         y0: n._pos.y - NODE_H / 2 - 14, y1: n._pos.y + NODE_H / 2 + 12, // the card's own tag and badges
       }));
-      for (const g of edgeEls.values()) {
+      const shown = [...edgeEls.values()].filter(g => g.style.display !== 'none');
+      const spotsOf = g => { const pts = samples(g); return [24, 20, 28, 16, 32, 12, 36, 8, 40, 5, 43].map(i => ({ x: pts[i][0], y: pts[i][1] })); };
+      const pin = (tag, g, w, at) => {
+        tag.setAttribute('transform', `translate(${at.x - w / 2},${at.y})`);
+        tag.addEventListener('click', ev => { ev.stopPropagation(); select({ type: 'edge', id: g._edge.id }); });
+      };
+      // Reasons first: they matter most and take the best spots.
+      for (const g of shown) {
         const e = g._edge;
-        if (g.style.display === 'none' || !e.reasons.length) continue;
+        if (!e.reasons.length) continue;
         const tag = sv('g');
         tag._edge = e;
         layerReasons.append(tag);
         drawWhy(tag, e.reasons);
         const w = Number(tag.querySelector('rect')?.getAttribute('width')) || 80;
-        const pts = samples(g);
-        const spots = [24, 20, 28, 16, 32, 12, 36, 8, 40, 5, 43].map(i => ({ x: pts[i][0], y: pts[i][1] }));
-        const at = placeTag(spots, w, 18, obstacles);
+        const at = placeTag(spotsOf(g), w, 18, obstacles);
         obstacles.push(at.box);
-        tag.setAttribute('transform', `translate(${at.x - w / 2},${at.y})`);
-        tag.addEventListener('click', ev => { ev.stopPropagation(); select({ type: 'edge', id: e.id }); });
+        pin(tag, g, w, at);
       }
+      // Then the quiet values, only where they fit: a value never covers a
+      // card or a reason, it is left out instead.
+      if (!state.values) return;
+      for (const g of shown) {
+        const e = g._edge;
+        const text = lineValue(e);
+        if (e.reasons.length || e.stubEdge || !text) continue;
+        const tag = sv('g', { class: 'value-tag' });
+        tag._edge = e;
+        const label = sv('text', { x: 7, y: 3.5 });
+        label.textContent = text;
+        tag.append(label);
+        layerReasons.append(tag);
+        const w = Math.ceil(label.getComputedTextLength ? label.getComputedTextLength() : text.length * 5.6) + 14;
+        tag.insertBefore(sv('rect', { x: 0, y: -8, width: w, height: 16, rx: 8 }), label);
+        const at = placeTag(spotsOf(g), w, 16, obstacles, { strict: true });
+        if (!at) { tag.remove(); continue; }
+        obstacles.push(at.box);
+        pin(tag, g, w, at);
+      }
+    }
+
+    // lineValue is what a line says when nothing is wrong: its traffic and
+    // p95, the two numbers people look for on an arrow.
+    function lineValue(e) {
+      const parts = [];
+      if (e.requestRate > 0) parts.push(`${fmtRate(e.requestRate)}/s`);
+      if (e.latencyP95Ms > 0) parts.push(fmtMs(e.latencyP95Ms));
+      return parts.join(' · ');
     }
 
     function renderEdgeLabel() {
@@ -1259,7 +1458,7 @@ button.label { cursor: pointer; }
       const old = new Map(particles.map(p => [p.key, p]));
       particles = [];
       layerParticles.replaceChildren();
-      const visible = [...edgeEls.values()].filter(g => g.style.display !== 'none');
+      const visible = [...edgeEls.values()].filter(g => g.style.display !== 'none' && !g._edge.stubEdge);
       const budget = particleBudget(visible.map(g => g._edge));
       for (const g of visible) {
         const e = g._edge, count = budget.get(e.id) || 0;
@@ -1315,6 +1514,7 @@ button.label { cursor: pointer; }
     function applyView() {
       const { x, y, k } = state.view;
       viewport.setAttribute('transform', `translate(${x},${y}) scale(${k})`);
+      layerReasons?.classList.toggle('far', k < 0.55); // values unreadable this small
       stage.style.setProperty('--grid-x', x + 'px');
       stage.style.setProperty('--grid-y', y + 'px');
       stage.style.setProperty('--grid-size', 24 * k + 'px');
@@ -1390,7 +1590,7 @@ button.label { cursor: pointer; }
       const d = drag;
       drag = null;
       if (d.type === 'node') {
-        if (d.moved) { store.set('positions', state.positions); renderMarks(); renderReasons(); rebuildParticles(); return; }
+        if (d.moved) { store.set(posKey(), state.positions); renderMarks(); renderReasons(); rebuildParticles(); return; }
         if (!commit) return;
         // a second click on the same card within 350 ms expands or collapses its group
         const now = performance.now();
@@ -1515,6 +1715,17 @@ button.label { cursor: pointer; }
       // A saved filter on a signal the data no longer has would hide everything.
       for (const s of [...state.signals]) if (!present.has(s)) state.signals.delete(s);
       const chips = [];
+      if (state.j) {
+        const why = journeyWhy(state.snap, state.j);
+        const parts = [iconSVG('<circle cx="5" cy="12" r="2.4"/><circle cx="19" cy="6" r="2.4"/><circle cx="19" cy="18" r="2.4"/><path d="M7.2 11l9.6-4M7.2 13l9.6 4"/>'),
+          el('span', {}, `${state.journey} · ${state.j.roles.size}${state.j.truncated ? '+' : ''}`)];
+        if (why.reason) {
+          parts.push(el('button', { type: 'button', title: `Show ${why.subject.replace('->', ' → ')}`, onclick: () => locate(why.subject) },
+            iconSVG(REASON[why.reason.cause].icon), `${why.subject.replace('->', ' → ')} · ${reasonTag(why.reason, why.more)}`));
+        }
+        parts.push(el('button', { type: 'button', 'aria-label': 'Show the whole map', title: 'Show the whole map', onclick: () => setJourney('') }, '✕'));
+        chips.push(el('div', { class: 'journey-chip' }, ...parts), el('span', { class: 'sep' }));
+      }
       if (state.snap.drift) {
         const count = st => edges.filter(e => e.state === st).length;
         const stateChip = (st, label, style) => el('button', {
@@ -1567,6 +1778,50 @@ button.label { cursor: pointer; }
       $('#legend').replaceChildren(...parts);
     }
 
+    // setJourney shows one journey, or the whole map for "". It keeps the
+    // view's own layout, says so to screen readers and, on teia's page, in
+    // the address bar so the view can be shared.
+    function setJourney(spec) {
+      spec = String(spec || '').trim();
+      if (spec === state.journey) return;
+      state.journey = spec;
+      state.positions = stored(posKey(), {});
+      topologyKey = '';
+      state.fitted = false;
+      state.j = spec && state.snap ? journeyOf(state.snap, spec) : null;
+      if (state.selected && state.j && !state.j.roles.has(state.selected.id)) state.selected = null;
+      if (page && typeof history !== 'undefined' && typeof location !== 'undefined') {
+        const url = new URL(location.href);
+        if (spec) url.searchParams.set('journey', spec); else url.searchParams.delete('journey');
+        history.replaceState(null, '', url);
+      }
+      if (!state.snap) return;
+      renderAll();
+      state.fitted = fit();
+      const j = state.j;
+      $('#announce').textContent = !j ? 'Whole map' : `Journey ${spec}: ${j.roles.size} components${journeyLine(j)}`;
+    }
+
+    // journeyLine is the journey's headline: why it is amber or red.
+    function journeyLine(j) {
+      const why = journeyWhy(state.snap, j);
+      return why.reason ? `, ${why.health} because of ${why.subject.replace('->', ' → ')}: ${why.reason.summary || reasonTag(why.reason)}` : '';
+    }
+
+    let journeyKeys = null;
+    function renderJourneys() {
+      const sel = $('#journey');
+      const names = journeyNames(state.snap);
+      const keys = names.join('|') + '#' + state.journey;
+      sel.hidden = names.length === 0 && !state.journey;
+      if (journeyKeys !== keys) { // rebuilding would close an open dropdown on every update
+        journeyKeys = keys;
+        const custom = state.journey && !names.includes(state.journey) ? [el('option', { value: state.journey }, 'Journey ' + state.journey)] : [];
+        sel.replaceChildren(el('option', { value: '' }, 'Whole map'), ...names.map(n => el('option', { value: n }, 'Journey ' + n)), ...custom);
+      }
+      sel.value = state.journey;
+    }
+
     let groupKeys = null;
     function renderGroupBy() {
       const sel = $('#groupBy');
@@ -1589,6 +1844,10 @@ button.label { cursor: pointer; }
       live.replaceChildren(iconSVG('<circle cx="12" cy="12" r="3"/><path d="M5.6 5.6a9 9 0 000 12.8M18.4 5.6a9 9 0 010 12.8M8.5 8.5a5 5 0 000 7M15.5 8.5a5 5 0 010 7"/>'), 'Live');
       live.classList.toggle('on', state.live);
       live.setAttribute('aria-pressed', String(state.live));
+      const values = $('#valuesBtn');
+      values.replaceChildren(iconSVG('<path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/>'), 'Values');
+      values.classList.toggle('on', state.values);
+      values.setAttribute('aria-pressed', String(state.values));
     }
 
     // ------------------------------------------------------------- side panel
@@ -1688,7 +1947,17 @@ button.label { cursor: pointer; }
           parts.push(el('button', { type: 'button', class: 'btn', onclick: () => toggleGroup(n.id) }, 'Expand group'));
           parts.push(el('h3', {}, 'Members'));
           parts.push(...n.members.map(m => rel(m.id, m.kind, m.health, () => { state.expanded.add(n.title); renderMap(); focusNode(m.id); })));
+        } else if (n.stubOf) {
+          parts.push(el('p', { class: 'explain' }, `${n.stubOf.length} more callers outside the journey: ${n.stubOf.join(', ')}.`));
         } else {
+          if (n.stub) {
+            parts.push(el('p', { class: 'explain' }, `Outside the journey ${state.journey}: it calls into it, or the journey leaves to it.`));
+            parts.push(el('button', { type: 'button', class: 'btn', onclick: () => { setJourney(''); locate(n.id); } }, 'Show on the whole map'));
+          } else if (n.journeyRole) {
+            parts.push(el('p', { class: 'explain' }, n.journeyRole === 'member'
+              ? `Part of the journey ${state.journey}.`
+              : `Used by the journey ${state.journey}${(state.snap.edges.some(e => e.to === n.id && !state.j.roles.has(e.from))) ? ', and by others outside it: its health includes their traffic' : ''}.`));
+          }
           parts.push(el('p', { class: 'explain' }, VIS_EXPLAIN[n.visibility]));
           const kv = el('dl', { class: 'kv' });
           const row = (k, v) => kv.append(el('dt', {}, k), el('dd', {}, v));
@@ -1856,7 +2125,8 @@ button.label { cursor: pointer; }
     // ----------------------------------------------------------------- data
     function renderAll() {
       index = indexSnapshot(state.snap);
-      renderRings(); renderFilters(); renderGroupBy(); renderButtons();
+      state.j = state.journey ? journeyOf(state.snap, state.journey) : null;
+      renderRings(); renderFilters(); renderGroupBy(); renderJourneys(); renderButtons();
       renderMap(); renderSteps(); renderSources(); renderDetails(); renderLive();
     }
 
@@ -1921,6 +2191,8 @@ button.label { cursor: pointer; }
       }
       if (onControl) return;
       if (ev.key === 'f') fit();
+      else if (ev.key === 'j' && !$('#journey').hidden) { ev.preventDefault(); $('#journey').focus(); }
+      else if (ev.key === 'v') $('#valuesBtn').click();
       else if (ev.key === ' ') { ev.preventDefault(); $('#flowBtn').click(); }
       else if (ev.key === '/') { ev.preventDefault(); $('#search').focus(); }
     }
@@ -1928,11 +2200,13 @@ button.label { cursor: pointer; }
     let searchTimer = 0;
     app.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
     $('#search').addEventListener('input', ev => {
+      $('#isolateBtn').hidden = !ev.target.value.trim();
       clearTimeout(searchTimer);
       searchTimer = setTimeout(() => { state.query = ev.target.value; applyHighlight(); }, 120);
     });
     $('#search').addEventListener('keydown', ev => {
       if (ev.key !== 'Enter') return;
+      if (ev.shiftKey) { ev.preventDefault(); isolate(); return; }
       state.query = ev.target.value; applyHighlight();
       const m = matcher(state.query);
       const hit = m && currentView && [...currentView.nodes.values()].find(m);
@@ -1943,6 +2217,21 @@ button.label { cursor: pointer; }
       state.selected = null; renderMap(); renderDetails(); fit();
     });
     $('#flowBtn').addEventListener('click', () => { state.flow = !state.flow; store.set('flow', state.flow); renderButtons(); wake(); });
+    $('#valuesBtn').addEventListener('click', () => { state.values = !state.values; store.set('values', state.values); renderButtons(); renderReasons(); applyHighlight(); });
+    $('#journey').addEventListener('change', ev => setJourney(ev.target.value));
+    // isolate turns what the search names into the journey shown.
+    const isolate = () => {
+      let q = $('#search').value.trim();
+      if (!q) return;
+      // One word that names a node, not a journey: what that node depends on.
+      if (/^[^\s=:]+$/.test(q) && state.snap && !journeyNames(state.snap).includes(q)) {
+        const n = state.snap.nodes.find(x => x.id.toLowerCase() === q.toLowerCase());
+        if (n) q = 'from:' + n.id;
+      }
+      $('#search').value = ''; state.query = ''; $('#isolateBtn').hidden = true;
+      setJourney(q);
+    };
+    $('#isolateBtn').addEventListener('click', isolate);
     $('#liveBtn').addEventListener('click', () => {
       state.live = !state.live; renderButtons(); renderLive();
       if (!state.live) return;
@@ -1952,7 +2241,7 @@ button.label { cursor: pointer; }
     $('#fitBtn').addEventListener('click', fit);
     $('#zoomIn').addEventListener('click', () => { const r = stage.getBoundingClientRect(); zoomAt(1.2, r.width / 2, r.height / 2); });
     $('#zoomOut').addEventListener('click', () => { const r = stage.getBoundingClientRect(); zoomAt(1 / 1.2, r.width / 2, r.height / 2); });
-    $('#resetBtn').addEventListener('click', () => { state.positions = {}; store.set('positions', {}); topologyKey = ''; renderMap(); fit(); });
+    $('#resetBtn').addEventListener('click', () => { state.positions = {}; store.set(posKey(), {}); topologyKey = ''; renderMap(); fit(); });
     const setMenu = open => { $('#exportMenu').classList.toggle('open', open); $('#exportBtn').setAttribute('aria-expanded', String(open)); };
     $('#exportBtn').addEventListener('click', ev => { ev.stopPropagation(); setMenu(!$('#exportMenu').classList.contains('open')); });
     app.addEventListener('click', () => setMenu(false));
@@ -1980,7 +2269,7 @@ button.label { cursor: pointer; }
     const onMotion = () => { if (store.get('flow', null) == null) { state.flow = !motionMQ.matches; renderButtons(); wake(); } };
     motionMQ.addEventListener('change', onMotion);
 
-    // Shareable views (page mode): ?group=team&q=kind:database&theme=light&select=orders-db&legend=icons&flow=1&live=0
+    // Shareable views (page mode): ?journey=checkout&group=team&q=kind:database&theme=light&select=orders-db&legend=icons&flow=1&values=0&live=0
     if (page && typeof location !== 'undefined') {
       const params = new URLSearchParams(location.search);
       if (params.has('group')) state.groupBy = params.get('group');
@@ -1990,7 +2279,11 @@ button.label { cursor: pointer; }
       if (params.has('select')) opts.select = params.get('select');
       if (params.get('legend') === 'icons') state.legendIcons = true;
       if (params.has('flow')) state.flow = params.get('flow') !== '0';
+      if (params.has('journey')) state.journey = params.get('journey').trim();
+      if (params.has('values')) state.values = params.get('values') !== '0';
     }
+    if (opts.journey) state.journey = String(opts.journey).trim();
+    state.positions = stored(posKey(), {});
     if (opts.theme) host.dataset.theme = opts.theme;
 
     // API links only make sense when teia's API is reachable from the browser.
@@ -2019,7 +2312,10 @@ button.label { cursor: pointer; }
       update(snap, changes) { apply(snap, true); if (changes) pushActivity(changes, state.activity.length > 0); },
       // setStatus reports the host's own query state (the panel's data.state).
       setStatus(error) { state.error = error || ''; renderLive(); },
-      setOptions({ groupBy, flow } = {}) {
+      setOptions({ groupBy, flow, journey, values } = {}) {
+        // A journey from the host (a dashboard variable) is the viewer's choice.
+        if (journey != null) setJourney(journey);
+        if (values != null && store.get('values', null) == null && values !== state.values) { state.values = values; renderButtons(); if (state.snap) renderReasons(); }
         if (groupBy != null && store.get('groupBy', null) == null && groupBy !== state.groupBy) { state.groupBy = groupBy; state.expanded.clear(); if (state.snap) { renderGroupBy(); renderMap(); fit(); } }
         if (flow != null && store.get('flow', null) == null && flow !== state.flow) { state.flow = flow; renderButtons(); wake(); }
       },
