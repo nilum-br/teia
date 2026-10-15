@@ -314,6 +314,11 @@ button.label { cursor: pointer; }
 @container teia (max-width: 960px) {
   .search input { width: 160px; }
 }
+/* Slice choices sit in the bar when it has room; narrow maps keep them in Filter. */
+.slice-pick { display: contents; }
+@container teia (max-width: 760px) {
+  .slice-pick { display: none; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .live.on i, .toast, .feed .ev.new { animation: none; }
@@ -2845,11 +2850,13 @@ button.label { cursor: pointer; }
         else if (sl) out.push(el('span', { class: 'caption slice-note', title: 'Rates, errors and latencies come only from these calls. Node readings from exporters stay node-wide.' }, 'metrics of these calls only'));
         if (sl?.excluded.length) out.push(el('span', { class: 'caption slice-note', title: 'These sources cannot split their connections by the selected dimensions, so their connections are left out of the slice.' }, 'without ' + sl.excluded.join(', ')));
         if (!pickable) return out;
+        const others = [];
         for (const [k, vs] of Object.entries(dims)) {
           const current = Object.fromEntries(state.slice.split(',').map(p => p.split(':')))[k];
           if (current === undefined) continue;
-          for (const v of vs.slice(0, 6)) if (v !== current) out.push(el('button', { type: 'button', class: 'jtab', title: `Only the calls with ${k} = ${v}`, onclick: () => setSlice(state.slice.split(',').map(p => p.startsWith(k + ':') ? k + ':' + v : p).join(',')) }, `${k}: ${v}`));
+          for (const v of vs.slice(0, 6)) if (v !== current) others.push(el('button', { type: 'button', class: 'jtab', title: `Only the calls with ${k} = ${v}`, onclick: () => setSlice(state.slice.split(',').map(p => p.startsWith(k + ':') ? k + ':' + v : p).join(',')) }, `${k}: ${v}`));
         }
+        if (others.length) out.push(el('span', { class: 'slice-pick' }, ...others));
         return out;
       }
       const entries = Object.entries(dims);
@@ -2858,7 +2865,7 @@ button.label { cursor: pointer; }
       for (const [k, vs] of entries) for (const v of vs.slice(0, 6)) {
         out.push(el('button', { type: 'button', class: 'jtab', title: `Only the calls with ${k} = ${v}`, onclick: () => setSlice(k + ':' + v) }, `${k}: ${v}`));
       }
-      return out;
+      return [el('span', { class: 'slice-pick' }, ...out)];
     }
 
     // ----------------------------------------------------- the filter panel
@@ -2902,6 +2909,19 @@ button.label { cursor: pointer; }
         const destination = ['journey', 'k8s.namespace', 'namespace', 'health'].includes(sec.key) ? sections : advanced;
         destination.push(el('section', {}, el('h5', {}, sec.title), el('div', { class: 'values' },
           ...values.map(v => value(chosen.includes(v.value), v.label, v.count, dot(v), icon(v), () => toggleFacet(sec.key, v.value), JSON.stringify([sec.key, v.value]))))));
+      }
+      // Slices: the values calls carried. Narrow bars leave their choice to this panel.
+      const dims = Object.entries(state.snap.dimensions || {});
+      if (dims.length && (!!opts.api || typeof opts.onSliceChange === 'function')) {
+        const current = Object.fromEntries((state.slice ? state.slice.split(',') : []).map(p => p.split(':')));
+        const choices = [];
+        for (const [k, vs] of dims) for (const v of vs) {
+          const label = `${k}: ${v}`;
+          if (q && !label.toLowerCase().includes(q) && !'calls of'.includes(q)) continue;
+          const pick = () => { const next = { ...current }; if (current[k] === v) delete next[k]; else next[k] = v; setSlice(sliceText(next)); renderFilterPanel(); };
+          choices.push(value(current[k] === v, label, '', null, null, pick, 'slice:' + k + ':' + v));
+        }
+        if (choices.length) sections.unshift(el('section', {}, el('h5', { title: 'Only the calls whose own telemetry carried the value, with their own metrics' }, 'Calls of'), el('div', { class: 'values' }, ...choices)));
       }
       if (state.snap.drift) {
         const count = st => state.snap.edges.filter(e => e.state === st).length;

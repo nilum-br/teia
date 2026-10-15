@@ -46,6 +46,19 @@ async function names(root: Locator) {
   return (await root.locator('.node .title').allTextContents()).sort();
 }
 
+// pickSlice chooses a slice value: in the bar when it has room, otherwise in
+// the Filter panel, which narrow maps keep it to so the map keeps its space.
+async function pickSlice(root: Locator, label: string) {
+  const inline = root.locator('.slice-pick').getByRole('button', { name: label, exact: true });
+  if (await inline.isVisible()) {
+    await inline.click();
+    return;
+  }
+  await root.locator('#filterBtn').click();
+  await root.locator('#filterPanel').getByRole('button', { name: label }).click();
+  await root.locator('#filterPanel').getByRole('button', { name: 'Done', exact: true }).click();
+}
+
 async function workspace(root: Locator, tab: string) {
   await root.getByRole('button', { name: 'Investigate', exact: true }).click();
   await root.getByRole('button', { name: tab, exact: true }).click();
@@ -58,7 +71,7 @@ test('a slice chosen while live updates are paused is drawn at once', async ({ p
   const root = await mountFixture(page, snapshot(), { api: '/api/v1/', stream: false });
   await expect(root.locator('#liveBtn')).toHaveAttribute('aria-pressed', 'false');
   expect(await names(root)).toEqual(['catalog', 'db', 'orders', 'web']);
-  await root.getByRole('button', { name: 'journey: checkout', exact: true }).click();
+  await pickSlice(root, 'journey: checkout');
   await expect(root.locator('.fchip.slice')).toContainText('Calls of journey = checkout');
   await expect.poll(() => names(root)).toEqual(['db', 'orders', 'web']);
   await root.getByRole('button', { name: 'Show every call', exact: true }).click();
@@ -72,7 +85,7 @@ test('an update held while paused does not replace a slice chosen after it', asy
   await expect(root.locator('#liveBtn')).toHaveAttribute('aria-pressed', 'false');
   // A whole-map update arrives while paused and waits for Live.
   await page.evaluate(() => { const w = window as FixtureWindow; w.fixture.update(w.fixtureSnapshot); });
-  await root.getByRole('button', { name: 'journey: checkout', exact: true }).click();
+  await pickSlice(root, 'journey: checkout');
   await expect.poll(() => names(root)).toEqual(['db', 'orders', 'web']);
   await root.locator('#liveBtn').click();
   await expect(root.locator('#liveBtn')).toHaveAttribute('aria-pressed', 'true');
@@ -91,12 +104,12 @@ for (const width of [1600, 600]) {
     await dialog.getByRole('button', { name: 'Show sampled operation', exact: true }).click();
     await expect.poll(() => names(root)).toEqual(['db', 'orders', 'web']);
     // The checkout slice keeps the checkout operation on the map.
-    await root.getByRole('button', { name: 'journey: checkout', exact: true }).click();
+    await pickSlice(root, 'journey: checkout');
     await expect(root.locator('.fchip.slice')).toContainText('Calls of journey = checkout');
     await expect(root.locator('#investigationSummary')).toContainText('Sampled operation: POST /checkout');
     expect(await names(root)).toEqual(['db', 'orders', 'web']);
     // Browse did not sample it: no platform calls stand in for it.
-    await root.getByRole('button', { name: 'journey: browse', exact: true }).click();
+    await pickSlice(root, 'journey: browse');
     await expect(root.locator('#investigationSummary')).toContainText('not sampled in this slice');
     await expect(root.locator('.node')).toHaveCount(0);
     dialog = await workspace(root, 'Operations and traces');
@@ -117,7 +130,7 @@ test('a capture of a slice is compared only with a capture of the same slice', a
   let dialog = await workspace(root, 'Compare snapshots');
   await dialog.getByRole('button', { name: 'Capture current snapshot as before', exact: true }).click();
   await dialog.getByRole('button', { name: 'Close investigation', exact: true }).click();
-  await root.getByRole('button', { name: 'journey: checkout', exact: true }).click();
+  await pickSlice(root, 'journey: checkout');
   await expect.poll(() => names(root)).toEqual(['db', 'orders', 'web']);
   dialog = await workspace(root, 'Compare snapshots');
   await expect(dialog).toContainText('“Capture current snapshot” takes that slice');
@@ -142,7 +155,9 @@ for (const width of [1600, 600]) {
     const root = page.getByTestId('teia-panel');
     const node = (id: string) => root.locator(`.node[data-id="${id}"]`);
     await expect(node('catalog')).toHaveCount(1, { timeout: 60_000 });
-    await root.getByRole('button', { name: 'journey: checkout', exact: true }).click();
+    // A narrow panel leaves the choice to Filter; a wide one offers it in the bar too.
+    await expect(root.locator('.slice-pick').first()).toBeVisible({ visible: width > 760 });
+    await pickSlice(root, 'journey: checkout');
     await expect(page).toHaveURL(/var-slice=journey(%3A|:)checkout/);
     await expect(node('catalog')).toHaveCount(0, { timeout: 60_000 });
     await expect(node('orders')).toHaveCount(1);
