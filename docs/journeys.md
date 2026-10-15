@@ -233,6 +233,8 @@ sources:
   `journeys`, `findings`, `coverage`, `stream`, the Grafana frames and the flow matrix, rebuilds the round from the
   selected calls only. Nodes no selected call touches disappear, including ports; health, journeys and findings are
   judged on those calls. Exporter readings on nodes (memory, connections) stay node-wide.
+- Declared flows are not per journey: a selected call keeps its declaration, but a flow only declared (or made by
+  other journeys) between two services the slice reaches is left out rather than shown as stale.
 - Several matching slices (every tenant of one journey) add their rates; their p95s are weighted by traffic and
   marked approximate, never summed. Errors use only measured traffic.
 - A source that cannot split by every selected dimension (a mesh preset, a query without `dimensions`) is left out
