@@ -18,6 +18,7 @@ import (
 	"github.com/nilum-br/teia/internal/history"
 	"github.com/nilum-br/teia/internal/journey"
 	"github.com/nilum-br/teia/internal/model"
+	"github.com/nilum-br/teia/internal/slice"
 )
 
 //go:embed ui
@@ -31,6 +32,12 @@ type Snapshotter interface {
 	Changes() []model.Change
 	// Subscribe delivers the JSON of every new snapshot.
 	Subscribe() (<-chan []byte, func())
+}
+
+// Slicer is implemented by engines that can rebuild the last round from the
+// calls carrying a selection of business dimensions (?slice=journey:x).
+type Slicer interface {
+	Sliced(sel slice.Selector) model.Snapshot
 }
 
 // DefaultMaxStreams caps concurrent /api/v1/stream clients when Options
@@ -70,8 +77,26 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 	}
 	mux := http.NewServeMux()
 	registerHistory(mux, opts)
-	snap := func() model.Snapshot { return eng.Snapshot() }
 	send := func(w http.ResponseWriter, v any) { writeJSON(w, opts.Log, v) }
+	// snapOf is the whole snapshot, or with ?slice= only the selected calls.
+	// It answers the error itself and reports false when the request is bad.
+	snapOf := func(w http.ResponseWriter, r *http.Request) (model.Snapshot, bool) {
+		sel, err := slice.Parse(r.URL.Query().Get("slice"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return model.Snapshot{}, false
+		}
+		if sel == nil {
+			return eng.Snapshot(), true
+		}
+		slicer, ok := eng.(Slicer)
+		if !ok {
+			writeError(w, http.StatusNotImplemented, "this server cannot slice snapshots by dimension")
+			return model.Snapshot{}, false
+		}
+		return slicer.Sliced(sel), true
+	}
+	snap := func() model.Snapshot { return eng.Snapshot() }
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
@@ -81,15 +106,30 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 		send(w, eng.Changes())
 	})
 	mux.HandleFunc("GET /api/v1/stream", streamHandler(eng, opts.MaxStreams))
-	mux.HandleFunc("GET /api/v1/snapshot", func(w http.ResponseWriter, _ *http.Request) {
-		send(w, snap())
+	mux.HandleFunc("GET /api/v1/snapshot", func(w http.ResponseWriter, r *http.Request) {
+		if s, ok := snapOf(w, r); ok {
+			send(w, s)
+		}
 	})
-	mux.HandleFunc("GET /api/v1/graph", func(w http.ResponseWriter, _ *http.Request) {
-		s := snap()
-		send(w, map[string]any{"generatedAt": s.GeneratedAt, "timeMode": s.TimeMode, "nodes": s.Nodes, "edges": s.Edges, "journeys": s.Journeys})
+	mux.HandleFunc("GET /api/v1/graph", func(w http.ResponseWriter, r *http.Request) {
+		s, ok := snapOf(w, r)
+		if !ok {
+			return
+		}
+		send(w, map[string]any{"generatedAt": s.GeneratedAt, "timeMode": s.TimeMode, "nodes": s.Nodes, "edges": s.Edges, "journeys": s.Journeys, "slice": s.Slice})
+	})
+	mux.HandleFunc("GET /api/v1/dimensions", func(w http.ResponseWriter, _ *http.Request) {
+		dims := snap().Dimensions
+		if dims == nil {
+			dims = map[string][]string{}
+		}
+		send(w, dims)
 	})
 	mux.HandleFunc("GET /api/v1/journeys", func(w http.ResponseWriter, r *http.Request) {
-		s := snap()
+		s, ok := snapOf(w, r)
+		if !ok {
+			return
+		}
 		key := r.URL.Query().Get("key")
 		contract := s.Journeys
 		if contract == nil || (key != "" && key != contract.Key) {
@@ -97,21 +137,29 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 		}
 		send(w, contract)
 	})
-	mux.HandleFunc("GET /api/v1/findings", func(w http.ResponseWriter, _ *http.Request) {
-		send(w, snap().Findings)
+	mux.HandleFunc("GET /api/v1/findings", func(w http.ResponseWriter, r *http.Request) {
+		if s, ok := snapOf(w, r); ok {
+			send(w, s.Findings)
+		}
 	})
-	mux.HandleFunc("GET /api/v1/coverage", func(w http.ResponseWriter, _ *http.Request) {
-		send(w, snap().Coverage)
+	mux.HandleFunc("GET /api/v1/coverage", func(w http.ResponseWriter, r *http.Request) {
+		if s, ok := snapOf(w, r); ok {
+			send(w, s.Coverage)
+		}
 	})
 	mux.HandleFunc("GET /api/v1/sources", func(w http.ResponseWriter, _ *http.Request) {
 		send(w, snap().Sources)
 	})
 	// Flow matrix for firewall and security reviews: ?lang=pt-BR&declared=true
 	mux.HandleFunc("GET /api/v1/export/matrix.csv", func(w http.ResponseWriter, r *http.Request) {
+		s, ok := snapOf(w, r)
+		if !ok {
+			return
+		}
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="teia-flow-matrix.csv"`)
 		mopts := export.MatrixOptions{Lang: r.URL.Query().Get("lang"), DeclaredOnly: r.URL.Query().Get("declared") == "true"}
-		if err := export.Matrix(w, snap(), mopts); err != nil {
+		if err := export.Matrix(w, s, mopts); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
@@ -120,11 +168,15 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 	// through dashboard queries (the Infinity data source in the lab, as
 	// there is no teia data source yet), and nodes and edges also fit the
 	// built-in Node Graph panel.
-	mux.HandleFunc("GET /api/v1/grafana/nodes", func(w http.ResponseWriter, _ *http.Request) {
-		send(w, grafanaNodes(snap()))
+	mux.HandleFunc("GET /api/v1/grafana/nodes", func(w http.ResponseWriter, r *http.Request) {
+		if s, ok := snapOf(w, r); ok {
+			send(w, grafanaNodes(s))
+		}
 	})
-	mux.HandleFunc("GET /api/v1/grafana/edges", func(w http.ResponseWriter, _ *http.Request) {
-		send(w, grafanaEdges(snap()))
+	mux.HandleFunc("GET /api/v1/grafana/edges", func(w http.ResponseWriter, r *http.Request) {
+		if s, ok := snapOf(w, r); ok {
+			send(w, grafanaEdges(s))
+		}
 	})
 	mux.HandleFunc("GET /api/v1/grafana/findings", func(w http.ResponseWriter, _ *http.Request) {
 		send(w, grafanaFindings(snap()))

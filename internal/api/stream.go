@@ -1,9 +1,12 @@
 package api
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/nilum-br/teia/internal/slice"
 )
 
 // streamRetryAfter is what a client over the stream cap is told to wait.
@@ -40,6 +43,28 @@ func streamHandler(eng Snapshotter, max int) http.HandlerFunc {
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("X-Accel-Buffering", "no") // nginx: do not buffer
 
+		// ?slice= streams the selected calls of every round instead.
+		sel, err := slice.Parse(r.URL.Query().Get("slice"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		slicer, _ := eng.(Slicer)
+		if sel != nil && slicer == nil {
+			writeError(w, http.StatusNotImplemented, "this server cannot slice snapshots by dimension")
+			return
+		}
+		encode := func(data []byte) []byte {
+			if sel == nil || len(data) == 0 {
+				return data
+			}
+			out, err := json.Marshal(slicer.Sliced(sel))
+			if err != nil {
+				return nil
+			}
+			return out
+		}
+
 		updates, stop := eng.Subscribe()
 		defer stop()
 
@@ -52,7 +77,7 @@ func streamHandler(eng Snapshotter, max int) http.HandlerFunc {
 			flusher.Flush()
 			return true
 		}
-		if data := eng.SnapshotJSON(); len(data) > 0 && !send(data) {
+		if data := encode(eng.SnapshotJSON()); len(data) > 0 && !send(data) {
 			return
 		}
 		// Headers go out now even before the first round, so clients know
@@ -66,7 +91,7 @@ func streamHandler(eng Snapshotter, max int) http.HandlerFunc {
 			case <-r.Context().Done():
 				return
 			case data := <-updates:
-				if !send(data) {
+				if data = encode(data); len(data) > 0 && !send(data) {
 					return
 				}
 			case <-keepalive.C:

@@ -179,6 +179,11 @@ sources:
       maxTraces: 400       # sample per round
       headers:
         X-Scope-OrgID: platform
+      # Business dimensions carried by spans, inherited down each trace.
+      # They let ?slice=journey:checkout keep only the calls of that journey.
+      dimensions:
+        journey: business.journey
+        tenant: business.tenant
 
   # Any PromQL or LogQL query that returns one series per caller/callee pair.
   queries:
@@ -209,6 +214,20 @@ sources:
       to: topic
       protocol: kafka
       toKind: queue
+    # Custom application metrics labelled with journey and tenant: each
+    # combination becomes a slice with its own rate, errors and p95.
+    - name: app-calls
+      url: http://prometheus:9090
+      window: 1m
+      query: sum by (source, target, journey, tenant) (rate(app_calls_total[$window]))
+      errors: sum by (source, target, journey, tenant) (rate(app_calls_total{status="error"}[$window]))
+      latency: histogram_quantile(0.95, sum by (source, target, journey, tenant, le) (rate(app_call_duration_seconds_bucket[$window])))
+      from: source
+      to: target
+      protocol: http
+      dimensions:
+        journey: journey
+        tenant: tenant
     # Egress flow metrics keyed by destination address.
     - name: egress-flows
       url: http://prometheus:9090
