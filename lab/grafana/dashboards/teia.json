@@ -40,7 +40,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/v1/grafana/nodes",
+          "url": "/api/v1/grafana/nodes?slice=${slice:percentencode}",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -58,7 +58,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/v1/grafana/edges",
+          "url": "/api/v1/grafana/edges?slice=${slice:percentencode}",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -76,7 +76,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/v1/grafana/findings",
+          "url": "/api/v1/grafana/findings?slice=${slice:percentencode}",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -112,7 +112,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/v1/coverage",
+          "url": "/api/v1/coverage?slice=${slice:percentencode}",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -184,7 +184,7 @@
               "source": "url",
               "parser": "backend",
               "format": "node-graph-nodes",
-              "url": "/api/v1/grafana/nodes",
+              "url": "/api/v1/grafana/nodes?slice=${slice:percentencode}",
               "url_options": {
                 "method": "GET",
                 "data": ""
@@ -202,7 +202,7 @@
               "source": "url",
               "parser": "backend",
               "format": "node-graph-edges",
-              "url": "/api/v1/grafana/edges",
+              "url": "/api/v1/grafana/edges?slice=${slice:percentencode}",
               "url_options": {
                 "method": "GET",
                 "data": ""
@@ -241,7 +241,7 @@
               "source": "url",
               "parser": "backend",
               "format": "table",
-              "url": "/api/v1/grafana/findings",
+              "url": "/api/v1/grafana/findings?slice=${slice:percentencode}",
               "url_options": {
                 "method": "GET",
                 "data": ""
@@ -310,6 +310,20 @@
         "hide": 2,
         "skipUrlSync": false,
         "description": "The journey the teia panel opens on, for links such as ?var-journey=checkout. Viewers pick journeys on the panel's own bar, from what the services carry."
+      },
+      {
+        "type": "textbox",
+        "name": "slice",
+        "label": "Slice",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": [],
+        "hide": 2,
+        "skipUrlSync": false,
+        "description": "Only the calls whose telemetry carried these dimension values (journey:checkout), passed to teia as ?slice=. The teia panel's Calls of buttons set it; empty is every call."
       }
     ]
   }

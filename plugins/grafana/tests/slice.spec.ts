@@ -131,3 +131,26 @@ test('a capture of a slice is compared only with a capture of the same slice', a
   await expect(dialog.locator('#comparisonResult')).toContainText('0 only after · 0 only before · 0 changed');
   await expect(dialog.locator('.comparison-map')).toHaveCount(2);
 });
+
+// The lab's web entry spans carry business.journey, and its dashboard passes
+// the slice variable to teia's queries: the panel's buttons set the variable.
+for (const width of [1600, 600]) {
+  test(`grafana: the panel picks a slice through the dashboard variable (${width}px)`, async ({ page }, info) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/d/teia-overview/teia?var-slice=&refresh=&theme=light');
+    const root = page.getByTestId('teia-panel');
+    const node = (id: string) => root.locator(`.node[data-id="${id}"]`);
+    await expect(node('catalog')).toHaveCount(1, { timeout: 60_000 });
+    await root.getByRole('button', { name: 'journey: checkout', exact: true }).click();
+    await expect(page).toHaveURL(/var-slice=journey(%3A|:)checkout/);
+    await expect(node('catalog')).toHaveCount(0, { timeout: 60_000 });
+    await expect(node('orders')).toHaveCount(1);
+    await expect(root.locator('.fchip.slice')).toContainText('Calls of journey = checkout');
+    await expect(root.locator('.slice-note').first()).toContainText('metrics of these calls only');
+    await page.screenshot({ path: info.outputPath(`grafana-slice-${width}.png`), animations: 'disabled' });
+    await root.getByRole('button', { name: 'Show every call', exact: true }).click();
+    await expect(node('catalog')).toHaveCount(1, { timeout: 60_000 });
+    await expect(root.locator('.fchip.slice')).toHaveCount(0);
+  });
+}

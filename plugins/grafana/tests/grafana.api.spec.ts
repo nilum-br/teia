@@ -22,7 +22,14 @@ for (const from of ['now-15m', 'now-30d']) {
     const { dashboard: saved } = await dashboard.json();
     const panel = saved.panels.find((p: { type: string }) => p.type === 'nilum-teia-panel');
     expect(panel).toBeDefined();
-    const queries = panel.targets.filter((q: { refId: string }) => ['nodes', 'edges'].includes(q.refId));
+    // Grafana's frontend fills dashboard variables in before a query leaves it;
+    // posting saved queries directly must do the same, with the saved values.
+    const variables = Object.fromEntries((saved.templating?.list ?? []).map((v: { name: string; current?: { value?: string } }) => [v.name, String(v.current?.value ?? '')]));
+    const interpolate = (url: string) => url.replace(/\$\{(\w+)(?::(\w+))?\}/g, (_: string, name: string, format?: string) =>
+      format === 'percentencode' ? encodeURIComponent(variables[name] ?? '') : variables[name] ?? '');
+    const queries = panel.targets.filter((q: { refId: string }) => ['nodes', 'edges'].includes(q.refId))
+      .map((q: { url?: string }) => ({ ...q, url: q.url && interpolate(q.url) }));
+    expect(queries.every((q: { url?: string }) => q.url?.endsWith('?slice='))).toBe(true);
     const response = await request.post('/api/ds/query', { data: { queries, from, to: 'now' } });
     expect(response.ok()).toBe(true);
     const { results } = await response.json();
