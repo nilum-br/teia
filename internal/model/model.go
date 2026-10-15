@@ -309,6 +309,10 @@ type Edge struct {
 	HealthRules []HealthRule   `json:"healthRules,omitempty"`
 	Evidence    []Evidence     `json:"evidence,omitempty"`
 	Links       []EvidenceLink `json:"links,omitempty"`
+	// Dimensions are the business dimension values (journey, tenant...)
+	// observed on this edge's calls, by dimension. They say which slices
+	// exist; the edge's own rates remain the total of every slice.
+	Dimensions map[string][]string `json:"dimensions,omitempty"`
 }
 
 // Key identifies an edge inside a graph.
@@ -446,4 +450,26 @@ type Snapshot struct {
 	Coverage    Coverage         `json:"coverage"`
 	// Changes since the previous round.
 	Changes []Change `json:"changes,omitempty"`
+	// Dimensions lists every business dimension value seen on any edge.
+	Dimensions map[string][]string `json:"dimensions,omitempty"`
+	// Slice is set when the snapshot only holds the calls that carried a
+	// selection of business dimensions; nil for the whole platform.
+	Slice *SliceScope `json:"slice,omitempty"`
+}
+
+// SliceScope describes a snapshot narrowed to the calls whose telemetry
+// carried every selected business dimension value. It follows each call's
+// own dimensions, not service ownership, and it is not access control.
+type SliceScope struct {
+	Selector map[string]string `json:"selector"`
+	// Matched is false when no call carried the selection: the snapshot is
+	// then empty, never silently the whole platform.
+	Matched bool `json:"matched"`
+	// Metrics is "scoped": rates, error shares and latencies come only from
+	// the selected calls. Node readings from exporters remain node-wide.
+	Metrics string `json:"metrics"`
+	// Sources contributed selected calls; Excluded have edges that cannot be
+	// split by the selection, so those edges are left out.
+	Sources  []string `json:"sources"`
+	Excluded []string `json:"excluded,omitempty"`
 }

@@ -291,6 +291,7 @@ name); the same for `tempo`, and `<dialect>/<name>` for queries. Two sources wit
 | `sources.tempo[].tracesPerService` | `20` | Most traces sampled per service in a round. |
 | `sources.tempo[].maxTraces` | `400` | Most traces per round. Each service gets an even share (at least one); when that cannot cover every service, rounds take turns. |
 | `sources.tempo[].headers` | none | Map of request headers. |
+| `sources.tempo[].dimensions` | none | Map of business dimension to span attribute, such as `journey: business.journey`. A span without the attribute inherits it from its closest ancestor in the same trace. Each combination becomes a sampled slice of the edge (sample count and sampled p50/p95, no rate or errors). See [slices](journeys.md#slices-follow-the-calls). |
 
 ### `sources.queries`: any PromQL or LogQL
 
@@ -316,6 +317,7 @@ second.
 | `sources.queries[].protocolLabel` | empty | Label holding the protocol; `protocol` is used for series without it. |
 | `sources.queries[].toKind` | `unknown` | Kind of the callees: `service`, `database`, `cache`, `queue`, `external` or `unknown`. |
 | `sources.queries[].headers` | none | Map of request headers. |
+| `sources.queries[].dimensions` | none | Map of business dimension to series label, such as `journey: journey`. `query`, `errors` and `latency` must keep those labels in their grouping. Each combination becomes a slice of the edge with its own rate, error share and p95; the edge itself stays the total. See [slices](journeys.md#slices-follow-the-calls). |
 
 Series without both labels, or with `-` as a value, are skipped.
 

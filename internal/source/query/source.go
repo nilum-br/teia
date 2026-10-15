@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"sort"
 	"strings"
 	"time"
 
@@ -52,6 +53,10 @@ type Config struct {
 	Protocol, ProtocolLabel string
 	// ToKind optionally sets the callee kind (database, cache, external...).
 	ToKind model.NodeKind
+	// Dimensions maps a business dimension (journey, tenant...) to the label
+	// holding it. The queries must keep those labels in their grouping; each
+	// combination becomes a slice of the edge with its own rates and p95.
+	Dimensions map[string]string
 }
 
 type Source struct {
@@ -117,6 +122,8 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		edge             source.EdgeObservation
 		busiest, p95Sum  float64
 		failed, p95Count float64
+		slices           map[string]*sliceAcc
+		sliceOrder       []string
 	}
 	edges := map[string]*acc{}
 	var order []string
@@ -130,7 +137,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		key := from + "->" + to
 		a := edges[key]
 		if a == nil {
-			a = &acc{edge: source.EdgeObservation{From: from, To: to, Signal: s.signal(), Window: s.cfg.Window, NoErrors: s.cfg.Errors == ""}}
+			a = &acc{edge: source.EdgeObservation{From: from, To: to, Signal: s.signal(), Window: s.cfg.Window, NoErrors: s.cfg.Errors == ""}, slices: map[string]*sliceAcc{}}
 			edges[key] = a
 			order = append(order, key)
 			obs.Nodes = append(obs.Nodes,
@@ -142,6 +149,16 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		if smp.Value >= a.busiest {
 			a.busiest = smp.Value
 			a.edge.Protocol = s.protocol(smp.Metric)
+		}
+		if dims := s.dims(smp.Metric); dims != nil {
+			sk := sliceKey(dims)
+			sl := a.slices[sk]
+			if sl == nil {
+				sl = &sliceAcc{slice: source.Slice{Dims: dims, NoErrors: s.cfg.Errors == ""}}
+				a.slices[sk] = sl
+				a.sliceOrder = append(a.sliceOrder, sk)
+			}
+			sl.slice.RequestRate += smp.Value
 		}
 	}
 	if skipped == len(samples) {
@@ -158,13 +175,23 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		}
 		for _, smp := range failed {
 			if from, to, ok := s.ends(smp.Metric); ok && edges[from+"->"+to] != nil {
-				edges[from+"->"+to].failed += smp.Value
+				a := edges[from+"->"+to]
+				a.failed += smp.Value
+				if sl := a.slices[sliceKey(s.dims(smp.Metric))]; sl != nil {
+					sl.failed += smp.Value
+				}
 			}
 		}
 		for _, a := range edges {
 			a.edge.NoErrors = err != nil
 			if err == nil && a.edge.RequestRate > 0 {
 				a.edge.ErrorRate = math.Min(1, a.failed/a.edge.RequestRate)
+			}
+			for _, sl := range a.slices {
+				sl.slice.NoErrors = err != nil
+				if err == nil && sl.slice.RequestRate > 0 {
+					sl.slice.ErrorRate = math.Min(1, sl.failed/sl.slice.RequestRate)
+				}
 			}
 		}
 	}
@@ -174,9 +201,17 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 			problems = append(problems, "latency query failed: "+promapi.RedactError(err).Error())
 		}
 		for _, smp := range latency {
+			if math.IsNaN(smp.Value) || math.IsInf(smp.Value, 0) {
+				continue // no calls in a bucket range: no quantile, not zero
+			}
 			if from, to, ok := s.ends(smp.Metric); ok && edges[from+"->"+to] != nil {
-				edges[from+"->"+to].p95Sum += smp.Value * 1000
-				edges[from+"->"+to].p95Count++
+				a := edges[from+"->"+to]
+				a.p95Sum += smp.Value * 1000
+				a.p95Count++
+				if sl := a.slices[sliceKey(s.dims(smp.Metric))]; sl != nil {
+					sl.p95Sum += smp.Value * 1000
+					sl.p95Count++
+				}
 			}
 		}
 		for _, a := range edges {
@@ -184,16 +219,77 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 				a.edge.LatencyP95Ms = a.p95Sum / a.p95Count
 				a.edge.LatencyApproximate = a.p95Count > 1
 			}
+			var weighted, weight float64
+			for _, sl := range a.slices {
+				if sl.p95Count > 0 {
+					sl.slice.LatencyP95Ms = sl.p95Sum / sl.p95Count
+					sl.slice.LatencyApproximate = sl.p95Count > 1
+					weighted += sl.slice.LatencyP95Ms * sl.slice.RequestRate
+					weight += sl.slice.RequestRate
+				}
+			}
+			// Series split by dimensions: weight each slice's p95 by its
+			// traffic rather than averaging a quiet slice like a busy one.
+			// Still an approximation, never a sum of percentiles.
+			if weight > 0 && len(a.slices) > 1 {
+				a.edge.LatencyP95Ms = weighted / weight
+				a.edge.LatencyApproximate = true
+			}
 		}
 	}
 	for _, key := range order {
-		obs.Edges = append(obs.Edges, edges[key].edge)
+		a := edges[key]
+		for _, sk := range a.sliceOrder {
+			a.edge.Slices = append(a.edge.Slices, a.slices[sk].slice)
+		}
+		obs.Edges = append(obs.Edges, a.edge)
 	}
+	for dim := range s.cfg.Dimensions {
+		obs.Dimensions = append(obs.Dimensions, dim)
+	}
+	sort.Strings(obs.Dimensions)
 	if len(problems) > 0 {
 		obs.Degraded = true
 		obs.Message = strings.Join(problems, "; ")
 	}
 	return obs, nil
+}
+
+type sliceAcc struct {
+	slice                    source.Slice
+	failed, p95Sum, p95Count float64
+}
+
+// dims reads a series' business dimensions; nil when none is configured or
+// the series carries none of them.
+func (s *Source) dims(m map[string]string) map[string]string {
+	var out map[string]string
+	for dim, label := range s.cfg.Dimensions {
+		if v := strings.TrimSpace(m[label]); v != "" {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[dim] = v
+		}
+	}
+	return out
+}
+
+// sliceKey identifies a combination of dimension values.
+func sliceKey(dims map[string]string) string {
+	if len(dims) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(dims))
+	for k := range dims {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(k + "=" + dims[k] + "\x00")
+	}
+	return b.String()
 }
 
 // expand puts the window into a query.

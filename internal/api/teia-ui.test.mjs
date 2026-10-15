@@ -720,3 +720,23 @@ describe('filters', () => {
       ['journey checkout', 'depends on orders', 'failing', 'Redis', 'team catalog']);
   });
 });
+
+describe('dimension slices', () => {
+  it('keeps the slice scope and dimension values, and redraws when the slice changes', () => {
+    const edges = [edge('app-a', 'app-b', { dimensions: { journey: ['notification', 'whatsapp'] } })];
+    const whole = snap([node('app-a'), node('app-b')], edges, { dimensions: { journey: ['notification', 'whatsapp', 7] } });
+    assert.deepEqual(whole.dimensions, { journey: ['notification', 'whatsapp'] });
+    assert.equal(whole.slice, undefined);
+    assert.deepEqual(whole.edges[0].dimensions, { journey: ['notification', 'whatsapp'] });
+    const sliced = snap([node('app-a'), node('app-b')], edges, { slice: { selector: { journey: 'notification' }, matched: true, metrics: 'scoped', sources: ['prometheus/calls'], excluded: ['prometheus/mesh'] } });
+    assert.deepEqual(sliced.slice, { selector: { journey: 'notification' }, matched: true, metrics: 'scoped', sources: ['prometheus/calls'], excluded: ['prometheus/mesh'] });
+    assert.notEqual(signature(whole), signature(sliced));
+    assert.equal(snap([], [], { slice: { selector: 'journey:x' } }).slice, undefined);
+  });
+
+  it('highlights typed key:value searches on labels', () => {
+    const s = snap([node('app-a', { labels: { 'journey.notification': 'true' } }), node('redis', { kind: 'cache' })], []);
+    const m = matcher('journey.notification:true');
+    assert.deepEqual([...view(s).nodes.values()].filter(m).map(n => n.id), ['app-a']);
+  });
+});
