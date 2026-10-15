@@ -15,9 +15,9 @@ See the [comparison and implementation audit](landscape.md).
 ## Prioritized implementation backlog
 
 Updated **15 October 2026**, following the [market, requirements and UI/UX review](landscape.md) of `62ef24b`,
-including Novatec, Kiali and Grafana. **All T01–T15 activities below are open.** The lab end-to-end check passed
-again during this review; separate reproductions exposed unknown-error aggregation and generic-frame import
-bugs. Passing the existing tests does not close those gaps.
+including Novatec, Kiali and Grafana. **T01/T02 implemented; T03 partially implemented; T16 audited and updated
+with compatibility/security follow-ups open; T04–T15 open.** R1/R2 now have regression coverage. T03 still needs
+original-sample timestamps from built-in adapters and fresh interactive validation; unknown age is shown explicitly.
 
 P0 protects the interpretation of data; P1 completes the primary investigation and adoption experience; P2
 extends the product after those foundations. Size is relative scope (S small, M medium, L large), not a delivery
@@ -40,19 +40,20 @@ date or an estimate backed by an implementation spike. Areas identify where work
 | T13 | P2 / L | Persisted observation history and replay | T03, T08 |
 | T14 | P2 / L | Reviewable Git changes and expected-frequency drift | T13 for historical comparisons |
 | T15 | P2 / L | Deeper resource signals and clearly scoped explorers | T03, T09 |
+| T16 | P1 / M | Latest stable dependencies and a repeatable update policy | Independent; validate with the current implementation |
 
 ### T01: Preserve unknown data throughout aggregation and frame import
 
 **Areas:** shared UI core, Grafana `frames.ts`, frame contract and regression fixtures.
 **Why:** reproduced R1/R2 can imply fewer errors or stronger visibility than the evidence supports.
 
-- [ ] Separate total traffic from traffic with error measurements. For 100 req/s at 50% measured errors plus
+- [x] Separate total traffic from traffic with error measurements. For 100 req/s at 50% measured errors plus
       900 req/s with unknown errors, display 50% **of the measured 10%**, or an explicit overall unknown state;
       never present an unqualified 5%. All-unknown inputs must not display 0% errors.
-- [ ] Generic frames containing only rate remain unknown for error health and first-hand visibility. Preserve
+- [x] Generic frames containing only rate remain unknown for error health and first-hand visibility. Preserve
       explicit zero, missing, null and invalid values distinctly; document supported fields, units and defaults.
       An absent/incompatible measure must not silently become healthy or full coverage.
-- [ ] Add regressions for mixed/all-unknown, zero traffic, invalid data and typed Teia versus generic Node Graph
+- [x] Add regressions for mixed/all-unknown, zero traffic, invalid data and typed Teia versus generic Node Graph
       frames. Check scope header, grouped edge, details and coverage rings together; retain valid backend health
       reasons from other measured signals.
 
@@ -60,18 +61,24 @@ date or an estimate backed by an implementation spike. Areas identify where work
 
 **Areas:** model/aggregation, shared UI labels/tooltips, documentation.
 
-- [ ] Identify weighted summaries of percentiles as approximations throughout API/UI/Grafana; do not label them
+- [x] Identify weighted summaries of percentiles as approximations throughout API/UI/Grafana; do not label them
       as a combined-distribution p95 or an end-to-end transaction p95. When compatible histograms are available,
       aggregate the distributions before calculating a percentile.
-- [ ] Distinguish entry-edge traffic/errors from worst dependency health. A journey with successful entry calls
+- [x] Distinguish entry-edge traffic/errors from worst dependency health. A journey with successful entry calls
       and a failing downstream dependency must explain both facts without suggesting a contradictory status.
       Fan-out totals must not be described as a count of unique user transactions.
-- [ ] Validate with unequal traffic distributions, fan-out, partial latency coverage and zero-rate samples.
+- [x] Validate with unequal traffic distributions, fan-out, partial latency coverage and zero-rate samples.
       Document which input supports each statistic and remove unsupported competitor-equivalence comments.
 
 ### T03: Expose actual time, freshness and coverage
 
 **Areas:** source/model metadata, graph and Grafana APIs, `TeiaPanel`, shared UI.
+
+Implemented: current/query/mixed modes, explicit ignored dashboard range, per-source collection timestamps,
+lookbacks, retained evidence, supplied observation timestamps, unknown timing, grouped detail provenance and
+last-successful source collection. Automated coverage includes failure/recovery, old supplied samples, retention
+expiry, pause/errors and two Grafana ranges. Built-in sources still generally lack original-sample timestamps;
+collecting those and interactive verification of saved dashboards remain open. No historical query support is claimed.
 
 - [ ] Show **current state**, effective measurement window and last observation for Teia snapshot/direct modes.
       Selecting a past Grafana period must not imply that these modes queried that period. For external frames,
@@ -238,6 +245,34 @@ T12 does not depend on publication being complete.
       cannot support a finite catch-up estimate under continuing traffic.
 - [ ] Evaluate MySQL/Redis/Kafka explorers individually for the discovery gaps they close and their permissions
       and cost. Exporter metrics alone must not be advertised as discovering clients or consumer ownership.
+
+### T16: Keep toolchains and dependencies on current stable releases
+
+**Areas:** Go/TypeScript, direct and transitive libraries, container images, plugin tooling and CI actions.
+Requested on 15 October 2026; audit/update performed by a dedicated agent alongside the P0 fixes.
+See [versions, sources and compatibility evidence](../CONTRIBUTING.md#dependency-maintenance).
+
+- [x] Inventory current versions and verify latest stable releases against official registries/upstream sources.
+      Include both Go modules, the Grafana plugin, language runtimes, build/lint/test tools and lab/release images.
+      Distinguish stable from prerelease tags and declared versions from those actually resolved in lockfiles.
+- [x] Apply updates and required compatibility changes, align related packages, refresh locks and review changes
+      in supported runtimes. Record an evidence-backed reason and follow-up for any dependency that cannot yet
+      run on the latest stable release; avoid arbitrary downgrades or unreviewed forced audit fixes.
+- [x] Pass Go race/vet/lint, plugin types/lint/tests/build and local lab end-to-end validation on the updated
+      toolchain. Add a repeatable dependency-update mechanism and document how version alignment is checked.
+
+Verification on 15 October: Go race/vet/lint and tidy checks; 73 shared UI tests and 33 plugin tests; TypeScript 7,
+ESLint and Webpack build; Helm lint/default/full-values and five chart regressions; actionlint; Go vulnerability
+checks for root/demo; real npm 12.2 clean install; rebuilt lab end-to-end scenarios passed. The saved dashboard's
+Infinity queries returned current-mode metadata/evidence for both 15-minute and 30-day requested ranges with
+the same snapshot timestamp. This is API/DOM validation, not a new interactive visual/accessibility audit.
+
+- [ ] T16.1: upgrade Node to Current when Grafana plugin-e2e supports it; meanwhile use the latest compatible LTS.
+- [ ] T16.2: migrate Grafana/React ESLint config to ESLint 10; the latest React plugin currently caps support at 9.
+- [ ] T16.3: advance kube-openapi with the next compatible stable Kubernetes SDK and remove the FTP override once
+      get-uri adopts the fix. Recheck stable webpack-subresource-integrity releases (latest currently is an RC).
+- [ ] T16.4: remediate residual npm advisories in braces, sprintf-js and Grafana's router compatibility dependency.
+      Audit decreased from 31 to 26 alerts (3 high, 23 moderate); Go govulncheck is clean in both modules.
 
 ## Suggested execution order
 

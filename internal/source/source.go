@@ -71,7 +71,10 @@ type EdgeObservation struct {
 	Signal string
 	// Window is how far back the observation looks (log and metric
 	// queries); zero means "right now" (a database's current sessions).
-	Window      time.Duration
+	Window time.Duration
+	// ObservedAt is the original observation time, only when the source
+	// supplies it. Collection time must not be substituted for it.
+	ObservedAt  time.Time
 	RequestRate float64
 	ErrorRate   float64
 	// NoErrors says the signal counts requests but not their failures, so
@@ -79,8 +82,9 @@ type EdgeObservation struct {
 	NoErrors bool
 	// LatencyP50Ms and LatencyP95Ms are call durations in milliseconds;
 	// zero when the signal does not measure them.
-	LatencyP50Ms float64
-	LatencyP95Ms float64
+	LatencyP50Ms       float64
+	LatencyP95Ms       float64
+	LatencyApproximate bool
 	// Measures are readings beyond traffic, such as sessions of this caller
 	// waiting on locks.
 	Measures []model.Measure

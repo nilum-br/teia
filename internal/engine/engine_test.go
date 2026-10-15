@@ -125,11 +125,23 @@ func TestFailedTelemetryRetainsTopologyWithoutOldHealth(t *testing.T) {
 		returns(observed), fails(errors.New("unavailable")), returns(observed),
 	}}
 	e := New([]source.Source{src}, Options{Retention: time.Minute}, quiet())
+	clock := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	e.now = func() time.Time { return clock }
 	first := e.Refresh(context.Background())
+	if first.TimeMode != "current" || first.Edges[0].Evidence[0].CollectedAt != clock || !first.Edges[0].Evidence[0].ObservedAt.IsZero() {
+		t.Fatal("collection time must not invent the original observation time")
+	}
 	if len(first.Edges) != 1 || first.Edges[0].Health != model.HealthHealthy {
 		t.Fatalf("expected measured healthy traffic: %+v", first.Edges)
 	}
+	clock = clock.Add(10 * time.Second)
 	failed := e.Refresh(context.Background())
+	if !failed.Edges[0].Evidence[0].Retained || failed.Edges[0].Evidence[0].CollectedAt != first.GeneratedAt {
+		t.Fatal("retention must keep the old evidence time, not the new refresh time")
+	}
+	if statusOf(t, failed, "metrics").LastSuccessAt != first.GeneratedAt {
+		t.Fatal("source must expose the last successful collection")
+	}
 	if len(failed.Edges) != 1 || !failed.Edges[0].Observed {
 		t.Fatal("keep topology during a temporary failure")
 	}
@@ -146,7 +158,11 @@ func TestFailedTelemetryRetainsTopologyWithoutOldHealth(t *testing.T) {
 	if statusOf(t, failed, "metrics").State != model.SourceError {
 		t.Fatal("report the source failure")
 	}
+	clock = clock.Add(10 * time.Second)
 	recovered := e.Refresh(context.Background())
+	if recovered.Edges[0].Evidence[0].Retained || recovered.Edges[0].Evidence[0].CollectedAt != clock {
+		t.Fatal("recovery must replace the retained evidence")
+	}
 	if recovered.Edges[0].Health != model.HealthHealthy || recovered.Edges[0].RequestRate != 10 {
 		t.Fatal("recovery must restore measurements, without mutating the source's observation")
 	}

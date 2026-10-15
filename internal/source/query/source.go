@@ -182,6 +182,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		for _, a := range edges {
 			if a.p95Count > 0 {
 				a.edge.LatencyP95Ms = a.p95Sum / a.p95Count
+				a.edge.LatencyApproximate = a.p95Count > 1
 			}
 		}
 	}

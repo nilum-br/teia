@@ -224,6 +224,23 @@ describe('categoryOf', () => {
 });
 
 describe('latency', () => {
+  it('qualifies weighted percentiles and ignores missing p50 and zero-rate members', () => {
+    const nodes = [node('a', { labels: { team: 'x' } }), ...['b', 'c', 'd', 'e'].map(id => node(id, { labels: { team: 'y' } }))];
+    const s = snap(nodes, [
+      edge('a', 'b', { requestRate: 100, latencyP50Ms: 10, latencyP95Ms: 1000 }),
+      edge('a', 'c', { requestRate: 300, latencyP95Ms: 3000 }),
+      edge('a', 'd', { requestRate: 600 }),
+      edge('a', 'e', { requestRate: 0, latencyP95Ms: 999999 }),
+    ]);
+    for (const aggregate of [view(s, { groupBy: 'team' }).edges.get('group:x->group:y'), scopeStats(s, { roles: new Map(nodes.map(n => [n.id, 'member'])) })]) {
+      assert.equal(aggregate.latencyP95Ms, 2500);
+      assert.equal(aggregate.latencyP50Ms, 10);
+      assert.equal(aggregate.latencyApproximate, true);
+      assert.equal(aggregate.latencyCoverage, 0.4);
+    }
+    assert.equal(view(s).edges.get('a->e').latencyP95Ms, 999999, 'a single sampled edge retains its observation without a rate');
+    assert.match(reasonTag({ cause: 'latency', value: 2500, approximate: true }), /≈ p95/);
+  });
   it('survives sanitising, and junk becomes "not measured"', () => {
     const s = sanitize({ nodes: [{ id: 'a', latencyP95Ms: 'slow' }], edges: [{ from: 'a', to: 'b', latencyP50Ms: 12, latencyP95Ms: NaN }] });
     assert.equal(s.nodes[0].latencyP95Ms, 0);
@@ -252,11 +269,36 @@ describe('latency', () => {
 });
 
 describe('unmeasured failures', () => {
+  it('preserves the measured subset in both grouped edges and scope summaries', () => {
+    const nodes = [node('a', { labels: { team: 'x' } }), node('b', { labels: { team: 'y' } }), node('c', { labels: { team: 'y' } })];
+    const edges = [edge('a', 'b', { requestRate: 100, errorRate: 0.5 }), edge('a', 'c', { requestRate: 900, errorsUnknown: true })];
+    const s = snap(nodes, edges), scope = { roles: new Map(nodes.map(n => [n.id, 'member'])) };
+    for (const aggregate of [view(s, { groupBy: 'team' }).edges.get('group:x->group:y'), scopeStats(s, scope)]) {
+      assert.equal(aggregate.errorRate, 0.5);
+      assert.equal(aggregate.errorCoverage, 0.1);
+      assert.equal(aggregate.errorsUnknown, false);
+    }
+    const unknown = snap(nodes, edges.map(e => ({ ...e, errorsUnknown: true })));
+    assert.equal(scopeStats(unknown, scope).errorsUnknown, true);
+    assert.equal(scopeStats(unknown, scope).errorCoverage, 0);
+    // A zero-rate reading must not make an otherwise unmeasured group known.
+    const zero = snap(nodes, [edges[1], edge('a', 'b', { requestRate: 0 })]);
+    assert.equal(view(zero, { groupBy: 'team' }).edges.get('group:x->group:y').errorsUnknown, true);
+  });
+
+  it('carries partial coverage through another aggregation and into card text', () => {
+    const nodes = [node('a'), node('b'), node('c')];
+    const s = snap(nodes, [edge('a', 'b', { requestRate: 1000, errorRate: 0.5, errorCoverage: 0.1 }), edge('a', 'c', { requestRate: 100, errorRate: 0 })]);
+    const stats = scopeStats(s, { roles: new Map(nodes.map(n => [n.id, 'member'])) });
+    assert.equal(stats.errorRate, 0.25);
+    assert.equal(stats.errorCoverage, 200 / 1100);
+    assert.match(cardSubtitle({ kind: 'service', requestRate: 1000, errorRate: 0.5, errorCoverage: 0.1 }), /50% err \(10% covered\)/);
+  });
   it('survive sanitising and say so on the card', () => {
     const s = sanitize({ nodes: [{ id: 'app-b', kind: 'service', requestRate: 10, errorsUnknown: true }], edges: [{ from: 'app-a', to: 'app-b', requestRate: 10, errorsUnknown: true }] });
     assert.equal(s.nodes.find(n => n.id === 'app-b').errorsUnknown, true);
     assert.equal(s.edges[0].errorsUnknown, true);
-    assert.equal(cardSubtitle({ kind: 'service', requestRate: 10, errorRate: 0, errorsUnknown: true, latencyP95Ms: 0 }), 'service · 10.0/s · err ?');
+    assert.equal(cardSubtitle({ kind: 'service', requestRate: 10, errorRate: 0, errorsUnknown: true, latencyP95Ms: 0 }), 'service · err ? · 10.0/s');
   });
   it('make a grouped line unknown only when every member is', () => {
     const s = snap([node('a', { labels: { team: 'x' } }), node('b', { labels: { team: 'y' } }), node('c', { labels: { team: 'y' } })],
@@ -429,6 +471,19 @@ describe('journeys', () => {
     assert.equal(why.health, 'failing');
     assert.equal(why.subject, 'orders->payments');
     assert.equal(why.more, 1); // payments itself
+    const entry = scopeStats(s, journeyOf(s, 'checkout'));
+    assert.equal(entry.errorRate, 0, 'successful entry calls coexist with a failing downstream dependency');
+    assert.equal(entry.requestRate, 1, 'internal downstream calls are not additional entries');
+  });
+
+  it('counts entry fan-out as calls rather than deduplicated transactions', () => {
+    const s = snap([node('web', j('shop')), node('api', j('shop')), node('worker', j('shop'))], [
+      edge('web', 'api', { requestRate: 10 }), edge('web', 'worker', { requestRate: 10 }),
+      edge('api', 'worker', { requestRate: 200, errorRate: 0.5 }),
+    ]);
+    const summary = scopeStats(s, journeyOf(s, 'shop'));
+    assert.equal(summary.requestRate, 20);
+    assert.equal(summary.errorRate, 0);
   });
 
   it('is picked on its own bar, never offered as a grouping (a service lists several)', () => {
@@ -582,4 +637,3 @@ describe('filters', () => {
       ['journey checkout', 'depends on orders', 'failing', 'Redis', 'team catalog']);
   });
 });
-

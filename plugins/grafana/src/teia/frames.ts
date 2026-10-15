@@ -1,5 +1,5 @@
 import { DataFrame } from '@grafana/data';
-import type { TeiaChange, TeiaEdge, TeiaFinding, TeiaMeasure, TeiaNode, TeiaReason, TeiaSnapshot, TeiaSource } from './teia-ui';
+import type { TeiaChange, TeiaEdge, TeiaEvidence, TeiaFinding, TeiaMeasure, TeiaNode, TeiaReason, TeiaSnapshot, TeiaSource } from './teia-ui';
 
 type Row = Record<string, unknown>;
 type Role = 'nodes' | 'edges' | 'findings' | 'sources' | 'changes' | 'coverage';
@@ -76,6 +76,42 @@ function health(errorRate: number, rate: number): TeiaNode['health'] {
   return errorRate >= 0.05 ? 'failing' : errorRate >= 0.01 ? 'degraded' : 'healthy';
 }
 
+/** Do not parse a unit-bearing string or a missing cell as a measured zero.
+ * Canonical columns take precedence even when invalid, so aliases cannot mask
+ * a broken query. Keep the input state for diagnostics after normalization. */
+function metric(r: Row, key: string, alias?: string, max = Infinity): { value: number; status: 'measured' | 'missing' | 'null' | 'invalid' } {
+  const field = Object.hasOwn(r, key) ? key : alias || key;
+  const v = r[field];
+  if (v === undefined || v === '') { return { value: 0, status: 'missing' }; }
+  if (v === null) { return { value: 0, status: 'null' }; }
+  const n = typeof v === 'number' || (typeof v === 'string' && v.trim()) ? Number(v) : NaN;
+  return Number.isFinite(n) && n >= 0 && n <= max ? { value: n, status: 'measured' } : { value: 0, status: 'invalid' };
+}
+
+function traffic(r: Row, node: boolean) {
+  const rate = metric(r, 'requestRate', 'secondarystat');
+  const errors = metric(r, 'errorRate', node ? 'arc__failed' : undefined, 1);
+  const p50 = metric(r, 'latencyP50Ms');
+  const p95 = metric(r, 'latencyP95Ms');
+  const coverage = metric(r, 'errorCoverage', undefined, 1);
+  const errorsUnknown = bool(r.errorsUnknown) || errors.status !== 'measured' ||
+    (Object.hasOwn(r, 'errorCoverage') && (coverage.status !== 'measured' || coverage.value === 0));
+  let judged = oneOf(r.health, HEALTH, errorsUnknown ? 'unknown' : health(errors.value, rate.value));
+  const rank = ['unknown', 'healthy', 'degraded', 'failing'];
+  for (const reason of jsonList<TeiaReason>(r.reasons)) {
+    if (reason && rank.indexOf(reason.health) > rank.indexOf(judged)) { judged = reason.health; }
+  }
+  return {
+    requestRate: rate.value, errorRate: errors.value, errorsUnknown,
+    errorCoverage: errorsUnknown ? 0 : coverage.status === 'measured' ? coverage.value : 1,
+    health: judged,
+    latencyP50Ms: p50.value, latencyP95Ms: p95.value,
+    latencyApproximate: bool(r.latencyApproximate),
+    latencyCoverage: has(r, 'latencyCoverage') ? metric(r, 'latencyCoverage', undefined, 1).value : undefined,
+    metricStatus: { requestRate: rate.status, errorRate: errors.status, latencyP50Ms: p50.status, latencyP95Ms: p95.status },
+  };
+}
+
 function labelsOf(v: unknown): Record<string, string> {
   try {
     const parsed: unknown = typeof v === 'string' && v ? JSON.parse(v) : v;
@@ -108,19 +144,14 @@ function jsonList<T>(v: unknown): T[] {
 function toNode(r: Row): TeiaNode {
   // Plain Node Graph frames (e.g. Tempo) carry a rate in secondarystat and
   // the failed share in arc__failed.
-  const rate = has(r, 'requestRate') ? num(r.requestRate) : num(r.secondarystat);
-  const errorRate = has(r, 'errorRate') ? num(r.errorRate) : num(r.arc__failed);
   return {
     id: str(r.id),
     kind: str(r.kind) || 'service',
     tech: str(r.tech) || undefined,
-    visibility: oneOf(r.visibility, VISIBILITY, 'full'),
-    health: oneOf(r.health, HEALTH, health(errorRate, rate)),
-    requestRate: rate,
-    errorRate,
-    errorsUnknown: bool(r.errorsUnknown),
-    latencyP50Ms: num(r.latencyP50Ms),
-    latencyP95Ms: num(r.latencyP95Ms),
+    visibility: oneOf(r.visibility, VISIBILITY, 'partial'),
+    ...traffic(r, true),
+    evidence: jsonList<TeiaEvidence>(r.evidence),
+    trafficDirection: str(r.trafficDirection) || undefined,
     reasons: jsonList<TeiaReason>(r.reasons),
     measures: jsonList<TeiaMeasure>(r.measures),
     sources: list(r.sources),
@@ -134,8 +165,6 @@ function toNode(r: Row): TeiaNode {
 const hasIntent = (r: Row): boolean => has(r, 'state') || has(r, 'declared');
 
 function toEdge(r: Row, drift: boolean): TeiaEdge {
-  const rate = has(r, 'requestRate') ? num(r.requestRate) : num(r.secondarystat);
-  const errorRate = num(r.errorRate);
   const declared = has(r, 'declared') ? bool(r.declared) : false;
   const observed = has(r, 'observed') ? bool(r.observed) : true;
   const derived: TeiaEdge['state'] = !drift ? 'ok' : declared ? (observed ? 'ok' : 'stale') : 'ghost';
@@ -143,17 +172,13 @@ function toEdge(r: Row, drift: boolean): TeiaEdge {
     from: str(r.source),
     to: str(r.target),
     state: oneOf(r.state, STATES, derived),
-    health: oneOf(r.health, HEALTH, health(errorRate, rate)),
+    ...traffic(r, false),
+    evidence: jsonList<TeiaEvidence>(r.evidence),
     protocol: str(r.protocol) || undefined,
     port: num(r.port) || undefined,
     reason: str(r.reason) || undefined,
     declared,
     observed,
-    requestRate: rate,
-    errorRate,
-    errorsUnknown: bool(r.errorsUnknown),
-    latencyP50Ms: num(r.latencyP50Ms),
-    latencyP95Ms: num(r.latencyP95Ms),
     reasons: jsonList<TeiaReason>(r.reasons),
     measures: jsonList<TeiaMeasure>(r.measures),
     signals: list(r.signals),
@@ -176,7 +201,29 @@ function toFinding(r: Row): TeiaFinding {
 }
 
 function toSource(r: Row): TeiaSource {
-  return { name: str(r.name), type: str(r.type), state: str(r.state), message: str(r.message), nodes: num(r.nodes), edges: num(r.edges) };
+  return { name: str(r.name), type: str(r.type), state: str(r.state), message: str(r.message), nodes: num(r.nodes), edges: num(r.edges),
+    lastSuccessAt: timestamp(r.lastSuccessAt), retained: bool(r.retained) };
+}
+
+function timestamp(v: unknown): string {
+  return typeof v === 'string' && !v.startsWith('0001') && Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : '';
+}
+
+/** Only supplied metadata establishes time. Grafana's requested range and
+ * conversion time cannot prove the period or age of the returned data. */
+function temporal(records: Row[]): Pick<TeiaSnapshot, 'timeMode' | 'generatedAt' | 'period' | 'observedAt'> {
+  const current = records.filter(r => r.timeMode === 'current').length;
+  const oldest = (key: string) => {
+    const values = records.map(r => timestamp(r[key]));
+    return values.length && values.every(Boolean) ? values.sort()[0] : '';
+  };
+  const from = oldest('periodFrom'), to = oldest('periodTo');
+  const samePeriod = from && to && records.every(r => timestamp(r.periodFrom) === from && timestamp(r.periodTo) === to) && from <= to;
+  return {
+    timeMode: current === records.length && current > 0 ? 'current' : current > 0 ? 'mixed' : 'query',
+    generatedAt: oldest('snapshotAt'), observedAt: oldest('observedAt'),
+    period: samePeriod ? { from, to } : undefined,
+  };
 }
 
 function toChange(r: Row): TeiaChange {
@@ -210,10 +257,17 @@ export function coverageOf(nodes: TeiaNode[], edges: TeiaEdge[]): TeiaSnapshot['
 /** Turns the panel's data frames into the snapshot the map renders. */
 export function framesToSnapshot(series: DataFrame[], round: number): { snapshot?: TeiaSnapshot; changes: TeiaChange[] } {
   const byRole: Partial<Record<Role, Row[]>> = {};
+  const metadata: Row[] = [];
   for (const frame of series) {
     const role = roleOf(frame);
     if (role) {
-      byRole[role] = [...(byRole[role] ?? []), ...rows(frame)];
+      const data = rows(frame);
+      byRole[role] = [...(byRole[role] ?? []), ...data];
+      if (role === 'nodes' || role === 'edges') {
+        const custom: unknown = frame.meta?.custom?.teia;
+        const meta: Row = custom && typeof custom === 'object' && !Array.isArray(custom) ? custom as Row : {};
+        metadata.push(...(data.length ? data.map(row => ({ ...meta, ...row })) : Object.keys(meta).length ? [meta] : []));
+      }
     }
   }
   if (!byRole.nodes && !byRole.edges) {
@@ -246,7 +300,7 @@ export function framesToSnapshot(series: DataFrame[], round: number): { snapshot
   return {
     snapshot: {
       round,
-      generatedAt: new Date().toISOString(),
+      ...temporal(metadata),
       nodes,
       edges,
       findings: (byRole.findings ?? []).map(toFinding).filter((f) => f.title),

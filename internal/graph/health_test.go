@@ -29,6 +29,37 @@ func TestHealthNeedsAnInterpretableMeasure(t *testing.T) {
 	}
 }
 
+func TestNodeErrorCoverageDescribesMeasuredTraffic(t *testing.T) {
+	g := Build([]Result{result("metrics", "prometheus", source.Observation{Edges: []source.EdgeObservation{
+		{From: "a", To: "c", RequestRate: 100, ErrorRate: 0.5},
+		{From: "b", To: "c", RequestRate: 900, NoErrors: true},
+	}})}, nil, nil)
+	ApplyHealth(g, DefaultHealth)
+	n := g.Nodes["c"]
+	if n.ErrorRate != 0.5 || n.ErrorCoverage != 0.1 || n.ErrorsUnknown || n.Health != model.HealthFailing {
+		t.Fatalf("preserve measured error rate and its coverage: %+v", n)
+	}
+}
+
+func TestLatencySummaryKeepsCoverageAndApproximation(t *testing.T) {
+	g := Build([]Result{result("metrics", "prometheus", source.Observation{Edges: []source.EdgeObservation{
+		{From: "a", To: "c", RequestRate: 100, LatencyP50Ms: 10, LatencyP95Ms: 1000},
+		{From: "b", To: "c", RequestRate: 300, LatencyP95Ms: 3000},
+		{From: "d", To: "c", RequestRate: 600},
+	}})}, nil, nil)
+	ApplyHealth(g, DefaultHealth)
+	n := g.Nodes["c"]
+	if n.LatencyP95Ms != 2500 || n.LatencyP50Ms != 10 || !n.LatencyApproximate || n.LatencyCoverage != 0.4 || n.TrafficDirection != "incoming" {
+		t.Fatalf("do not dilute missing p50/p95 or present a combined percentile: %+v", n)
+	}
+	if len(n.Reasons) != 1 || !n.Reasons[0].Approximate {
+		t.Fatalf("latency reason must carry the qualification: %+v", n.Reasons)
+	}
+	if g.Nodes["a"].TrafficDirection != "outgoing" {
+		t.Fatal("root traffic is outgoing calls, not incoming user requests")
+	}
+}
+
 func TestRetentionKeepsEdgesButNotOldTraffic(t *testing.T) {
 	for _, declared := range []bool{false, true} {
 		memory := &Memory{Retention: time.Minute}

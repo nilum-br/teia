@@ -309,6 +309,9 @@ func TestLatencyComesFromHistograms(t *testing.T) {
 	if math.Abs(e.LatencyP50Ms-30) > 1e-9 || math.Abs(e.LatencyP95Ms-150) > 1e-9 {
 		t.Errorf("p50/p95 = %v/%v ms, want 30/150", e.LatencyP50Ms, e.LatencyP95Ms)
 	}
+	if !e.LatencyApproximate {
+		t.Fatal("combining HTTP and gRPC percentiles must be identified as an approximation")
+	}
 }
 
 func TestFailingLatencyKeepsTheEdges(t *testing.T) {

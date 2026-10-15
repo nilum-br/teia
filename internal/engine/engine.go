@@ -160,20 +160,22 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 	statuses := make([]model.SourceStatus, len(e.sources))
 	for i, src := range e.sources {
 		a := answers[i]
-		results[i] = graph.Result{Source: src, Observation: a.obs, Err: a.err}
+		results[i] = graph.Result{Source: src, Observation: a.obs, Err: a.err, CollectedAt: now}
 		statuses[i] = status(src, a.obs, a.err, a.took)
 		last := e.lastGood[i]
 		switch {
 		case a.err == nil:
 			e.lastGood[i] = goodObservation{obs: a.obs, at: now}
+			statuses[i].LastSuccessAt = now
 		case !last.at.IsZero() && now.Sub(last.at) <= e.opts.Retention:
 			// Keep what the source knew for a while: a bad flows file would
 			// otherwise turn every ok edge into a ghost, and a failed
 			// inventory every name back into an address.
 			age := now.Sub(last.at).Round(time.Second)
-			results[i] = graph.Result{Source: src, Observation: topologyOnly(last.obs)}
+			results[i] = graph.Result{Source: src, Observation: topologyOnly(last.obs), CollectedAt: last.at, Retained: true}
 			statuses[i] = status(src, last.obs, nil, a.took)
 			statuses[i].State = model.SourceError
+			statuses[i].LastSuccessAt, statuses[i].Retained = last.at, true
 			statuses[i].Message = fmt.Sprintf("failed: %v; using the last good observation from %s ago", a.err, age)
 		default:
 			e.lastGood[i] = goodObservation{}
@@ -207,6 +209,7 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 	snap := model.Snapshot{
 		Round:       prev.Round + 1,
 		GeneratedAt: now,
+		TimeMode:    "current",
 		Nodes:       g.SortedNodes(),
 		Edges:       g.SortedEdges(),
 		Findings:    advisor.Advise(advisor.Input{Graph: g, Statuses: statuses}, fromSources),
@@ -275,6 +278,7 @@ func topologyOnly(obs source.Observation) source.Observation {
 		edge := &obs.Edges[i]
 		edge.RequestRate, edge.ErrorRate = 0, 0
 		edge.LatencyP50Ms, edge.LatencyP95Ms = 0, 0
+		edge.LatencyApproximate = false
 		edge.NoErrors = true
 		edge.Measures = nil
 	}

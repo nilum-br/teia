@@ -2,6 +2,7 @@ package graph
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -39,8 +40,9 @@ var DefaultHealth = HealthThresholds{
 type Signals struct {
 	RequestRate, ErrorRate, LatencyP95Ms float64
 	// ErrorsUnknown: failures were not measured, so ErrorRate is not judged.
-	ErrorsUnknown bool
-	Measures      []model.Measure
+	ErrorsUnknown      bool
+	LatencyApproximate bool
+	Measures           []model.Measure
 }
 
 // Judge returns the health of these signals, and a reason for every one past
@@ -60,6 +62,10 @@ func (t HealthThresholds) Judge(s Signals) (model.Health, []model.Reason) {
 	}
 	if r, ok := limit(model.CauseLatency, s.LatencyP95Ms, t.LatencyDegradedMs, t.LatencyFailingMs); ok {
 		r.Summary = "p95 " + model.FormatMs(s.LatencyP95Ms) + ", over " + model.FormatMs(r.Limit)
+		if s.LatencyApproximate {
+			r.Approximate = true
+			r.Summary = "p95 approximation " + model.FormatMs(s.LatencyP95Ms) + ", over " + model.FormatMs(r.Limit)
+		}
 		reasons = append(reasons, r)
 	}
 	sortReasons(reasons)
@@ -147,7 +153,12 @@ func ApplyHealth(g *Graph, t HealthThresholds) {
 	// counted is the traffic of the calls whose failures were measured;
 	// timed that of the calls that measured latency, and their latencies
 	// weighted by it.
-	type sum struct{ rate, counted, failed, timed, p50, p95 float64 }
+	type sum struct {
+		rate, counted, failed, timed, timed50, p50, p95 float64
+		latencies                                       int
+		approximate                                     bool
+		evidence                                        []model.Evidence
+	}
 	in, out := map[string]*sum{}, map[string]*sum{}
 	add := func(m map[string]*sum, id string, e *model.Edge) {
 		s, ok := m[id]
@@ -156,19 +167,25 @@ func ApplyHealth(g *Graph, t HealthThresholds) {
 			m[id] = s
 		}
 		s.rate += e.RequestRate
+		s.evidence = append(s.evidence, e.Evidence...)
 		if !e.ErrorsUnknown {
 			s.counted += e.RequestRate
 			s.failed += e.RequestRate * e.ErrorRate
 		}
 		if e.LatencyP95Ms > 0 {
 			s.timed += e.RequestRate
-			s.p50 += e.RequestRate * e.LatencyP50Ms
 			s.p95 += e.RequestRate * e.LatencyP95Ms
+			s.latencies++
+			s.approximate = s.approximate || e.LatencyApproximate
+		}
+		if e.LatencyP50Ms > 0 {
+			s.timed50 += e.RequestRate
+			s.p50 += e.RequestRate * e.LatencyP50Ms
 		}
 	}
 	for _, e := range g.Edges {
 		e.Health, e.Reasons = t.Judge(Signals{RequestRate: e.RequestRate, ErrorRate: e.ErrorRate, ErrorsUnknown: e.ErrorsUnknown,
-			LatencyP95Ms: e.LatencyP95Ms, Measures: e.Measures})
+			LatencyP95Ms: e.LatencyP95Ms, LatencyApproximate: e.LatencyApproximate, Measures: e.Measures})
 		if e.RequestRate > 0 {
 			add(in, e.To, e)
 			add(out, e.From, e)
@@ -176,26 +193,43 @@ func ApplyHealth(g *Graph, t HealthThresholds) {
 	}
 	for id, n := range g.Nodes {
 		s := in[id]
+		n.TrafficDirection = "incoming"
 		if s == nil {
 			s = out[id]
+			n.TrafficDirection = "outgoing"
 		}
 		if s == nil || s.rate == 0 {
+			n.TrafficDirection = ""
 			// No traffic to judge, but a measure may still say something.
 			n.Health, n.Reasons = t.Judge(Signals{Measures: n.Measures})
 			continue
 		}
 		n.RequestRate = s.rate
+		n.Evidence = append(n.Evidence, s.evidence...)
 		n.ErrorRate, n.ErrorsUnknown = 0, s.counted == 0
+		n.ErrorCoverage = s.counted / s.rate
 		if s.counted > 0 {
 			n.ErrorRate = s.failed / s.counted
 		}
 		// A node's latency is how long it takes to answer, so only the calls
 		// it serves count, never the ones it makes.
 		if s := in[id]; s != nil && s.timed > 0 {
-			n.LatencyP50Ms, n.LatencyP95Ms = s.p50/s.timed, s.p95/s.timed
+			n.LatencyP95Ms = s.p95 / s.timed
+			n.LatencyCoverage = s.timed / s.rate
+			n.LatencyApproximate = s.latencies > 1 || s.approximate
+			if s.timed50 > 0 {
+				n.LatencyP50Ms = s.p50 / s.timed50
+			}
 		}
 		n.Health, n.Reasons = t.Judge(Signals{RequestRate: n.RequestRate, ErrorRate: n.ErrorRate, ErrorsUnknown: n.ErrorsUnknown,
-			LatencyP95Ms: n.LatencyP95Ms, Measures: n.Measures})
+			LatencyP95Ms: n.LatencyP95Ms, LatencyApproximate: n.LatencyApproximate, Measures: n.Measures})
+		for i := range n.Reasons {
+			r := &n.Reasons[i]
+			if r.Cause == model.CauseErrors && n.ErrorCoverage > 0 && n.ErrorCoverage < 1 {
+				r.Coverage = n.ErrorCoverage
+				r.Summary += ", measured on " + model.FormatPercent(n.ErrorCoverage) + " of traffic"
+			}
+		}
 	}
 	explain(g)
 }
@@ -298,7 +332,11 @@ func (m *Memory) Retain(g *Graph, now time.Time) {
 		m.edges = map[string]rememberedEdge{}
 	}
 	for key, e := range g.Edges {
-		if e.Observed {
+		current := len(e.Evidence) == 0
+		for _, ev := range e.Evidence {
+			current = current || (!ev.Retained && slices.Contains(ev.Metrics, "topology"))
+		}
+		if e.Observed && current {
 			m.edges[key] = rememberedEdge{edge: *e, seen: now}
 		}
 	}
@@ -330,8 +368,13 @@ func (m *Memory) Retain(g *Graph, now time.Time) {
 			}
 		}
 		// Retain the relationship, never replay old rates or latency as live.
+		e.Evidence = append([]model.Evidence(nil), r.edge.Evidence...)
+		for i := range e.Evidence {
+			e.Evidence[i].Retained = true
+		}
 		e.RequestRate, e.ErrorRate, e.ErrorsUnknown = 0, 0, true
 		e.LatencyP50Ms, e.LatencyP95Ms = 0, 0
+		e.LatencyApproximate = false
 		e.Health, e.Reasons = model.HealthUnknown, nil
 		for _, id := range []string{e.From, e.To} {
 			if _, ok := g.Nodes[id]; !ok {

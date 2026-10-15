@@ -128,6 +128,9 @@ type Reason struct {
 	Value   float64 `json:"value"`
 	Limit   float64 `json:"limit"` // the limit it crossed, in Value's unit
 	Summary string  `json:"summary"`
+	// Coverage qualifies a rate computed over only part of the traffic.
+	Coverage    float64 `json:"coverage,omitempty"`
+	Approximate bool    `json:"approximate,omitempty"`
 	// What is the measure behind a saturation, backlog or locks reason.
 	What string `json:"what,omitempty"`
 	// Via names the dependency this most likely comes from: a slow or
@@ -190,6 +193,18 @@ func FormatSeconds(s float64) string {
 // FormatPercent writes a share (0..1) as a percentage with one decimal.
 func FormatPercent(share float64) string { return fmt.Sprintf("%.1f%%", share*100) }
 
+// Evidence records collection separately from observation time. An absent
+// ObservedAt means the adapter cannot establish the original sample's age.
+type Evidence struct {
+	Source        string    `json:"source"`
+	Signal        string    `json:"signal"`
+	CollectedAt   time.Time `json:"collectedAt,omitzero"`
+	ObservedAt    time.Time `json:"observedAt,omitzero"`
+	WindowSeconds float64   `json:"windowSeconds"`
+	Retained      bool      `json:"retained,omitempty"`
+	Metrics       []string  `json:"metrics"`
+}
+
 // Node is a workload, datastore or external endpoint.
 type Node struct {
 	ID   string   `json:"id"`
@@ -204,11 +219,21 @@ type Node struct {
 	// ErrorsUnknown: traffic was seen, but no signal measured its failures,
 	// so ErrorRate says nothing and the node is not judged healthy for it.
 	ErrorsUnknown bool `json:"errorsUnknown,omitempty"`
+	// ErrorCoverage is the share of traffic whose errors were measured.
+	// ErrorRate describes only this subset, not unmeasured traffic.
+	ErrorCoverage float64 `json:"errorCoverage"`
 	// LatencyP50Ms and LatencyP95Ms summarise how long the calls it serves
 	// take, in milliseconds: its callers' percentiles weighted by their
 	// traffic, an approximation (percentiles do not add up exactly).
 	LatencyP50Ms float64 `json:"latencyP50Ms,omitempty"`
 	LatencyP95Ms float64 `json:"latencyP95Ms,omitempty"`
+	// LatencyApproximate marks a weighted summary of multiple percentiles,
+	// not the percentile of a combined distribution.
+	LatencyApproximate bool    `json:"latencyApproximate,omitempty"`
+	LatencyCoverage    float64 `json:"latencyCoverage"`
+	// TrafficDirection identifies whether incoming or outgoing calls supply
+	// the node's traffic summary. Neither counts unique user transactions.
+	TrafficDirection string `json:"trafficDirection,omitempty"`
 	// Measures are readings beyond traffic (connections in use...).
 	Measures []Measure `json:"measures,omitempty"`
 	// Reasons explain a health other than healthy, worst first.
@@ -216,6 +241,7 @@ type Node struct {
 	Sources   []string          `json:"sources"`
 	Addresses []string          `json:"addresses,omitempty"`
 	Labels    map[string]string `json:"labels,omitempty"`
+	Evidence  []Evidence        `json:"evidence,omitempty"`
 }
 
 // EdgeState is the result of comparing declared and observed communication.
@@ -253,12 +279,14 @@ type Edge struct {
 	// LatencyP50Ms and LatencyP95Ms are how long calls take as the caller
 	// sees them, in milliseconds, when a signal measures durations (the
 	// histograms of the service graph, a mesh or Hubble; sampled spans).
-	LatencyP50Ms float64 `json:"latencyP50Ms,omitempty"`
-	LatencyP95Ms float64 `json:"latencyP95Ms,omitempty"`
+	LatencyP50Ms       float64 `json:"latencyP50Ms,omitempty"`
+	LatencyP95Ms       float64 `json:"latencyP95Ms,omitempty"`
+	LatencyApproximate bool    `json:"latencyApproximate,omitempty"`
 	// Measures are readings beyond traffic (sessions waiting on locks...).
 	Measures []Measure `json:"measures,omitempty"`
 	// Reasons explain a health other than healthy, worst first.
-	Reasons []Reason `json:"reasons,omitempty"`
+	Reasons  []Reason   `json:"reasons,omitempty"`
+	Evidence []Evidence `json:"evidence,omitempty"`
 }
 
 // Key identifies an edge inside a graph.
@@ -329,14 +357,16 @@ const (
 
 // SourceStatus reports what a source did in the last discovery round.
 type SourceStatus struct {
-	Name     string        `json:"name"`
-	Type     string        `json:"type"`
-	State    SourceState   `json:"state"`
-	Message  string        `json:"message,omitempty"`
-	Explores []string      `json:"explores,omitempty"` // node IDs this source can look inside
-	Nodes    int           `json:"nodes"`
-	Edges    int           `json:"edges"`
-	Duration time.Duration `json:"duration"`
+	Name          string        `json:"name"`
+	Type          string        `json:"type"`
+	State         SourceState   `json:"state"`
+	Message       string        `json:"message,omitempty"`
+	Explores      []string      `json:"explores,omitempty"` // node IDs this source can look inside
+	Nodes         int           `json:"nodes"`
+	Edges         int           `json:"edges"`
+	Duration      time.Duration `json:"duration"`
+	LastSuccessAt time.Time     `json:"lastSuccessAt,omitzero"`
+	Retained      bool          `json:"retained,omitempty"`
 }
 
 // Coverage summarises how complete the picture is.
@@ -384,6 +414,7 @@ type Change struct {
 type Snapshot struct {
 	Round       int64          `json:"round"`
 	GeneratedAt time.Time      `json:"generatedAt"`
+	TimeMode    string         `json:"timeMode"` // current: a discovery snapshot, not a historical query
 	Nodes       []Node         `json:"nodes"`
 	Edges       []Edge         `json:"edges"`
 	Findings    []Finding      `json:"findings"`

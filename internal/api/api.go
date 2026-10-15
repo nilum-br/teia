@@ -82,7 +82,7 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 	})
 	mux.HandleFunc("GET /api/v1/graph", func(w http.ResponseWriter, _ *http.Request) {
 		s := snap()
-		send(w, map[string]any{"generatedAt": s.GeneratedAt, "nodes": s.Nodes, "edges": s.Edges})
+		send(w, map[string]any{"generatedAt": s.GeneratedAt, "timeMode": s.TimeMode, "nodes": s.Nodes, "edges": s.Edges})
 	})
 	mux.HandleFunc("GET /api/v1/findings", func(w http.ResponseWriter, _ *http.Request) {
 		send(w, snap().Findings)

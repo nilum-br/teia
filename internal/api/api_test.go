@@ -61,6 +61,39 @@ func TestUnencodableResponseIsAnError(t *testing.T) {
 	}
 }
 
+func TestGrafanaPreservesCoverageApproximationAndCollectionTime(t *testing.T) {
+	eng := newFakeEngine()
+	eng.snap.TimeMode = "current"
+	ev := model.Evidence{Source: "metrics", Signal: "traces", CollectedAt: eng.snap.GeneratedAt,
+		WindowSeconds: 300, Metrics: []string{"requestRate", "latency"}}
+	eng.snap.Nodes[0].ErrorCoverage = .1
+	eng.snap.Nodes[0].LatencyApproximate = true
+	eng.snap.Nodes[0].Evidence = []model.Evidence{ev}
+	eng.snap.Edges = []model.Edge{{From: "web", To: "orders", LatencyP95Ms: 2500, LatencyApproximate: true, Evidence: []model.Evidence{ev}}}
+	h := Handler(eng, Options{})
+	for _, endpoint := range []string{"nodes", "edges"} {
+		rec := get(h, "/api/v1/grafana/"+endpoint, nil)
+		var rows []map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil || len(rows) != 1 {
+			t.Fatalf("%s: %s (%v)", endpoint, rec.Body.String(), err)
+		}
+		r := rows[0]
+		if r["timeMode"] != "current" || r["snapshotAt"] != "2026-10-01T12:00:00Z" || r["latencyApproximate"] != true {
+			t.Errorf("%s metadata = %+v", endpoint, r)
+		}
+		if endpoint == "nodes" && r["errorCoverage"] != .1 {
+			t.Errorf("error coverage lost: %+v", r)
+		}
+		var evidence []map[string]any
+		if err := json.Unmarshal([]byte(r["evidence"].(string)), &evidence); err != nil || len(evidence) != 1 {
+			t.Fatalf("evidence: %v %v", evidence, err)
+		}
+		if _, forged := evidence[0]["observedAt"]; forged || evidence[0]["windowSeconds"] != float64(300) {
+			t.Errorf("unknown original time must stay absent: %+v", evidence)
+		}
+	}
+}
+
 func TestAuth(t *testing.T) {
 	h := Handler(newFakeEngine(), Options{Token: "s3cret"})
 	bearer := map[string]string{"Authorization": "Bearer s3cret"}

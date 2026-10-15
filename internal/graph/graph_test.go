@@ -458,6 +458,37 @@ func TestRememberedEdgesForgetMomentaryMeasures(t *testing.T) {
 	}
 }
 
+func TestRetainedEvidenceKeepsTimeAndDoesNotRenewRetention(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	r := result("metrics", "prometheus", source.Observation{Edges: []source.EdgeObservation{{
+		From: "web", To: "orders", Signal: source.SignalTraces, RequestRate: 10,
+		ObservedAt: now.Add(-time.Hour), Window: 5 * time.Minute,
+	}}})
+	r.CollectedAt = now
+	first := BuildAt([]Result{r}, nil, nil, now)
+	ev := first.Edges["web->orders"].Evidence[0]
+	if !ev.ObservedAt.Equal(now.Add(-time.Hour)) || ev.WindowSeconds != 300 || !ev.CollectedAt.Equal(now) {
+		t.Fatalf("collection must not replace original sample time: %+v", ev)
+	}
+	m := &Memory{Retention: time.Minute}
+	m.Retain(first, now)
+	later := Build(nil, nil, nil)
+	m.Retain(later, now.Add(50*time.Second))
+	e := later.Edges["web->orders"]
+	if e == nil || !e.Evidence[0].Retained || !e.Evidence[0].CollectedAt.Equal(now) || e.RequestRate != 0 {
+		t.Fatalf("retained evidence = %+v", e)
+	}
+	// Reusing retained topology must not reset the last genuinely observed time.
+	// A current capacity/backlog reading on that edge does not observe calls.
+	e.Evidence = append(e.Evidence, model.Evidence{Source: "exporter", CollectedAt: now.Add(55 * time.Second), Metrics: []string{"backlog"}})
+	m.Retain(later, now.Add(55*time.Second))
+	expired := Build(nil, nil, nil)
+	m.Retain(expired, now.Add(61*time.Second))
+	if len(expired.Edges) != 0 {
+		t.Fatal("retained topology renewed its own lifetime")
+	}
+}
+
 func TestReadingsGoToTheNodeTheyMeasure(t *testing.T) {
 	g := Build([]Result{
 		result("docker", "docker", source.Observation{Nodes: []source.NodeObservation{

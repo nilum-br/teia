@@ -7,6 +7,8 @@ export interface TeiaReason {
   value: number;
   limit: number;
   summary: string;
+  coverage?: number;
+  approximate?: boolean;
   /** The measure behind a saturation, backlog or locks reason. */
   what?: string;
   /** The dependency it most likely comes from, or who holds the lock. */
@@ -22,7 +24,20 @@ export interface TeiaMeasure {
   via?: string;
 }
 
+export interface TeiaEvidence {
+  source: string;
+  signal: string;
+  collectedAt?: string;
+  observedAt?: string;
+  windowSeconds: number;
+  retained?: boolean;
+  metrics: string[];
+}
+
+export interface TeiaTimeRange { from: string; to: string; }
+
 export interface TeiaNode {
+  evidence?: TeiaEvidence[];
   id: string;
   kind: string;
   tech?: string;
@@ -32,9 +47,15 @@ export interface TeiaNode {
   errorRate?: number;
   /** Traffic was seen but no signal measured its failures. */
   errorsUnknown?: boolean;
+  /** Fraction of this traffic with measured errors; errorRate describes that subset. */
+  errorCoverage?: number;
+  metricStatus?: Record<string, 'measured' | 'missing' | 'null' | 'invalid'>;
   /** Call durations in milliseconds, when a signal measures them. */
   latencyP50Ms?: number;
   latencyP95Ms?: number;
+  latencyApproximate?: boolean;
+  latencyCoverage?: number;
+  trafficDirection?: string;
   reasons?: TeiaReason[];
   measures?: TeiaMeasure[];
   sources: string[];
@@ -43,6 +64,7 @@ export interface TeiaNode {
 }
 
 export interface TeiaEdge {
+  evidence?: TeiaEvidence[];
   from: string;
   to: string;
   state: 'ok' | 'ghost' | 'stale';
@@ -55,8 +77,12 @@ export interface TeiaEdge {
   requestRate?: number;
   errorRate?: number;
   errorsUnknown?: boolean;
+  errorCoverage?: number;
+  metricStatus?: Record<string, 'measured' | 'missing' | 'null' | 'invalid'>;
   latencyP50Ms?: number;
   latencyP95Ms?: number;
+  latencyApproximate?: boolean;
+  latencyCoverage?: number;
   reasons?: TeiaReason[];
   measures?: TeiaMeasure[];
   signals: string[];
@@ -75,6 +101,8 @@ export interface TeiaFinding {
 }
 
 export interface TeiaSource {
+  lastSuccessAt?: string;
+  retained?: boolean;
   name: string;
   type: string;
   state: string;
@@ -94,6 +122,9 @@ export interface TeiaChange {
 }
 
 export interface TeiaSnapshot {
+  timeMode?: 'current' | 'query' | 'mixed';
+  period?: TeiaTimeRange;
+  observedAt?: string;
   round: number;
   generatedAt: string;
   nodes: TeiaNode[];
@@ -107,6 +138,7 @@ export interface TeiaSnapshot {
 }
 
 export interface TeiaMountOptions {
+  requestedRange?: TeiaTimeRange;
   mode?: 'page' | 'panel';
   api?: string;
   stream?: boolean;
@@ -129,7 +161,7 @@ export interface TeiaController {
   /** Reports the host's own query state; an empty message clears it. */
   setStatus(error?: string): void;
   /** Applies panel options, unless the viewer already chose otherwise on the map. */
-  setOptions(options: { groupBy?: string; flow?: boolean; journey?: string; journeyKey?: string; values?: boolean }): void;
+  setOptions(options: { groupBy?: string; flow?: boolean; journey?: string; journeyKey?: string; values?: boolean; requestedRange?: TeiaTimeRange }): void;
   setTheme(theme: 'dark' | 'light'): void;
   destroy(): void;
 }

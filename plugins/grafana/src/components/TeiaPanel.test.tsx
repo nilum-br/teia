@@ -1,6 +1,6 @@
 import React from 'react';
 import { render } from '@testing-library/react';
-import { LoadingState, PanelProps, toDataFrame } from '@grafana/data';
+import { dateTime, LoadingState, PanelProps, toDataFrame } from '@grafana/data';
 import { journeyOf, TeiaPanel } from './TeiaPanel';
 import { TeiaOptions } from '../types';
 
@@ -59,10 +59,76 @@ describe('TeiaPanel', () => {
     expect(shadow(container).querySelector('#empty')!.hasAttribute('hidden')).toBe(true);
   });
 
+  it('qualifies mixed error coverage in the frame, line details and coverage rings', () => {
+    const mixed = [
+      toDataFrame({ refId: 'nodes', fields: [
+        { name: 'id', values: ['web', 'a', 'b'] },
+        { name: 'labels', values: ['{"journey":"shop"}', '{"journey":"shop","team":"backend"}', '{"journey":"shop","team":"backend"}'] },
+        { name: 'requestRate', values: [1000, 100, 900] },
+      ] }),
+      toDataFrame({ refId: 'edges', fields: [
+        { name: 'source', values: ['web', 'web'] }, { name: 'target', values: ['a', 'b'] },
+        { name: 'requestRate', values: [100, 900] }, { name: 'errorRate', values: [0.5, null] },
+        { name: 'latencyP95Ms', values: [1000, 3000] },
+      ] }),
+    ];
+    const p = props({ data: { series: mixed, state: LoadingState.Done } as never,
+      options: { teiaUrl: '', groupBy: 'team', journey: 'shop', journeyKey: '', flow: false, values: true } });
+    const { container } = render(<TeiaPanel {...p} />);
+    const root = shadow(container);
+    expect(root.querySelector('.frame-stats')!.textContent).toContain('50% err (10% covered)');
+    expect(root.querySelector('.frame-stats')!.textContent).toContain('≈ p95');
+    expect(root.querySelector('#rings')!.textContent).toContain('0%visibility');
+    (root.querySelector('.edge path.hit') as SVGElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(root.querySelector('#pane-details')!.textContent).toContain('50% errors · measured on 10% of traffic');
+    expect(root.querySelector('#pane-details')!.textContent).toContain('p95 approximation');
+    expect(root.querySelector('#pane-details')!.textContent).not.toContain('5.0%');
+  });
+
   it('remembers choices per dashboard and panel', () => {
     const { container } = render(<TeiaPanel {...props()} />);
     (shadow(container).querySelector('#flowBtn') as HTMLButtonElement).click();
     expect(localStorage.getItem('teia.panel-dash-1-7.flow')).toBe('true');
+  });
+
+  it('keeps current snapshots explicit across dashboard ranges, pause and query errors', () => {
+    const current = series.map(frame => ({ ...frame, meta: { custom: { teia: {
+      timeMode: 'current', snapshotAt: '2026-10-15T12:00:00Z',
+    } } } }));
+    const range = (days: number) => ({ from: dateTime('2026-10-15T12:00:00Z').subtract(days, 'days'),
+      to: dateTime('2026-10-15T12:00:00Z'), raw: { from: `now-${days}d`, to: 'now' } });
+    const p = props({ data: { series: current, state: LoadingState.Done } as never, timeRange: range(1) });
+    const { container, rerender } = render(<TeiaPanel {...p} />);
+    const root = shadow(container);
+    const banner = root.querySelector('#timeContext')!;
+    expect(banner.textContent).toContain('Current state');
+    expect(banner.textContent).toContain('dashboard range does not change this snapshot');
+    expect(banner.textContent).toContain('original observation time unknown');
+    const original = banner.textContent;
+    rerender(<TeiaPanel {...{ ...p, timeRange: range(30) }} />);
+    expect(banner.textContent).toBe(original);
+    expect(banner.getAttribute('title')).toContain('2026-09-15');
+    (root.querySelector('#liveBtn') as HTMLButtonElement).click();
+    rerender(<TeiaPanel {...{ ...p, data: { series: [], state: LoadingState.Error, errors: [{ message: 'down' }] } as never }} />);
+    expect(banner.textContent).toBe(original);
+    expect(root.querySelector('#live')!.textContent).toContain('down');
+  });
+
+  it('shows an unknown effective period and preserves original evidence timestamps', () => {
+    const data = [toDataFrame({ refId: 'nodes', fields: [
+      { name: 'id', values: ['old'] },
+      { name: 'evidence', values: [JSON.stringify([{ source: 'metrics', signal: 'metrics', collectedAt: '2026-10-15T12:00:00Z',
+        observedAt: '2026-10-14T10:00:00Z', windowSeconds: 300, retained: true, metrics: ['topology'] }])] },
+    ] })];
+    const { container } = render(<TeiaPanel {...props({ data: { series: data, state: LoadingState.Done } as never })} />);
+    const root = shadow(container);
+    expect(root.querySelector('#timeContext')!.textContent).toContain('effective period unknown');
+    expect(root.querySelector('#timeContext')!.textContent).toContain('collection time unknown');
+    (root.querySelector('.node') as SVGElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const detail = root.querySelector('#pane-details')!.textContent;
+    expect(detail).toContain('2026-10-14T10:00:00.000Z');
+    expect(detail).toContain('retained topology');
+    expect(detail).toContain('Query lookback: 5 min');
   });
 
   it('shows a failed query instead of stale silence', () => {

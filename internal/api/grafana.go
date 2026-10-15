@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/nilum-br/teia/internal/model"
 )
@@ -34,59 +35,70 @@ var (
 )
 
 type grafanaNode struct {
-	ID            string  `json:"id"`
-	Title         string  `json:"title"`
-	Subtitle      string  `json:"subtitle"`
-	MainStat      string  `json:"mainstat"`
-	SecondaryStat string  `json:"secondarystat"`
-	Color         string  `json:"color"`
-	Kind          string  `json:"kind"`
-	Tech          string  `json:"tech"`
-	Health        string  `json:"health"`
-	Visibility    string  `json:"visibility"`
-	RequestRate   float64 `json:"requestRate"`
-	ErrorRate     float64 `json:"errorRate"`
-	ErrorsUnknown bool    `json:"errorsUnknown"`
-	LatencyP50Ms  float64 `json:"latencyP50Ms"`
-	LatencyP95Ms  float64 `json:"latencyP95Ms"`
-	Reasons       string  `json:"reasons"`  // JSON array of model.Reason
-	Measures      string  `json:"measures"` // JSON array of model.Measure
-	DetailWhy     string  `json:"detail__why"`
-	Sources       string  `json:"sources"`
-	Addresses     string  `json:"addresses"`
-	Labels        string  `json:"labels"` // JSON object
-	Findings      int     `json:"findings"`
-	DetailSources string  `json:"detail__sources"`
+	TimeMode           string    `json:"timeMode"`
+	SnapshotAt         time.Time `json:"snapshotAt"`
+	Evidence           string    `json:"evidence"`
+	ID                 string    `json:"id"`
+	Title              string    `json:"title"`
+	Subtitle           string    `json:"subtitle"`
+	MainStat           string    `json:"mainstat"`
+	SecondaryStat      string    `json:"secondarystat"`
+	Color              string    `json:"color"`
+	Kind               string    `json:"kind"`
+	Tech               string    `json:"tech"`
+	Health             string    `json:"health"`
+	Visibility         string    `json:"visibility"`
+	RequestRate        float64   `json:"requestRate"`
+	ErrorRate          float64   `json:"errorRate"`
+	ErrorsUnknown      bool      `json:"errorsUnknown"`
+	ErrorCoverage      float64   `json:"errorCoverage"`
+	LatencyP50Ms       float64   `json:"latencyP50Ms"`
+	LatencyP95Ms       float64   `json:"latencyP95Ms"`
+	LatencyApproximate bool      `json:"latencyApproximate"`
+	LatencyCoverage    float64   `json:"latencyCoverage"`
+	TrafficDirection   string    `json:"trafficDirection"`
+	Reasons            string    `json:"reasons"`  // JSON array of model.Reason
+	Measures           string    `json:"measures"` // JSON array of model.Measure
+	DetailWhy          string    `json:"detail__why"`
+	Sources            string    `json:"sources"`
+	Addresses          string    `json:"addresses"`
+	Labels             string    `json:"labels"` // JSON object
+	Findings           int       `json:"findings"`
+	DetailSources      string    `json:"detail__sources"`
 }
 
 type grafanaEdge struct {
-	ID              string  `json:"id"`
-	Source          string  `json:"source"`
-	Target          string  `json:"target"`
-	MainStat        string  `json:"mainstat"`
-	SecondaryStat   string  `json:"secondarystat"`
-	Color           string  `json:"color"`
-	StrokeDasharray string  `json:"strokeDasharray"`
-	Thickness       float64 `json:"thickness"`
-	State           string  `json:"state"`
-	Health          string  `json:"health"`
-	Protocol        string  `json:"protocol"`
-	Port            int     `json:"port"`
-	Reason          string  `json:"reason"`
-	Declared        bool    `json:"declared"`
-	Observed        bool    `json:"observed"`
-	RequestRate     float64 `json:"requestRate"`
-	ErrorRate       float64 `json:"errorRate"`
-	ErrorsUnknown   bool    `json:"errorsUnknown"`
-	LatencyP50Ms    float64 `json:"latencyP50Ms"`
-	LatencyP95Ms    float64 `json:"latencyP95Ms"`
-	Reasons         string  `json:"reasons"`  // JSON array of model.Reason
-	Measures        string  `json:"measures"` // JSON array of model.Measure
-	DetailWhy       string  `json:"detail__why"`
-	Signals         string  `json:"signals"`
-	Sources         string  `json:"sources"`
-	DetailState     string  `json:"detail__state"`
-	DetailSources   string  `json:"detail__sources"`
+	TimeMode           string    `json:"timeMode"`
+	SnapshotAt         time.Time `json:"snapshotAt"`
+	Evidence           string    `json:"evidence"`
+	ID                 string    `json:"id"`
+	Source             string    `json:"source"`
+	Target             string    `json:"target"`
+	MainStat           string    `json:"mainstat"`
+	SecondaryStat      string    `json:"secondarystat"`
+	Color              string    `json:"color"`
+	StrokeDasharray    string    `json:"strokeDasharray"`
+	Thickness          float64   `json:"thickness"`
+	State              string    `json:"state"`
+	Health             string    `json:"health"`
+	Protocol           string    `json:"protocol"`
+	Port               int       `json:"port"`
+	Reason             string    `json:"reason"`
+	Declared           bool      `json:"declared"`
+	Observed           bool      `json:"observed"`
+	RequestRate        float64   `json:"requestRate"`
+	ErrorRate          float64   `json:"errorRate"`
+	ErrorsUnknown      bool      `json:"errorsUnknown"`
+	LatencyP50Ms       float64   `json:"latencyP50Ms"`
+	LatencyP95Ms       float64   `json:"latencyP95Ms"`
+	LatencyApproximate bool      `json:"latencyApproximate"`
+	Reasons            string    `json:"reasons"`  // JSON array of model.Reason
+	Measures           string    `json:"measures"` // JSON array of model.Measure
+	DetailWhy          string    `json:"detail__why"`
+	Signals            string    `json:"signals"`
+	Sources            string    `json:"sources"`
+	DetailState        string    `json:"detail__state"`
+	DetailSources      string    `json:"detail__sources"`
 }
 
 func grafanaNodes(s model.Snapshot) []grafanaNode {
@@ -109,9 +121,12 @@ func grafanaNodes(s model.Snapshot) []grafanaNode {
 			main = fmt.Sprintf("%.2f req/s", n.RequestRate)
 		}
 		out = append(out, grafanaNode{
+			TimeMode: "current", SnapshotAt: s.GeneratedAt, Evidence: jsonList(n.Evidence),
 			ID: n.ID, Title: n.ID, Subtitle: subtitle(n), MainStat: main, SecondaryStat: secondary,
 			Color: healthColor[n.Health], Kind: string(n.Kind), Tech: n.Tech, Health: string(n.Health), Visibility: string(n.Visibility),
 			RequestRate: n.RequestRate, ErrorRate: n.ErrorRate, ErrorsUnknown: n.ErrorsUnknown, LatencyP50Ms: n.LatencyP50Ms, LatencyP95Ms: n.LatencyP95Ms,
+			ErrorCoverage:      n.ErrorCoverage,
+			LatencyApproximate: n.LatencyApproximate, LatencyCoverage: n.LatencyCoverage, TrafficDirection: n.TrafficDirection,
 			Reasons: jsonList(n.Reasons), Measures: jsonList(n.Measures), DetailWhy: whyText(n.Reasons),
 			Sources: strings.Join(n.Sources, ","), Addresses: strings.Join(n.Addresses, ","), Labels: string(labels),
 			Findings: findings[n.ID], DetailSources: strings.Join(n.Sources, ", "),
@@ -124,12 +139,14 @@ func grafanaEdges(s model.Snapshot) []grafanaEdge {
 	out := make([]grafanaEdge, 0, len(s.Edges))
 	for _, e := range s.Edges {
 		ge := grafanaEdge{
+			TimeMode: "current", SnapshotAt: s.GeneratedAt, Evidence: jsonList(e.Evidence),
 			ID: e.Key(), Source: e.From, Target: e.To, MainStat: string(e.State),
 			Color: healthColor[e.Health], StrokeDasharray: stateDash[e.State], Thickness: 1,
 			State: string(e.State), Health: string(e.Health), Protocol: e.Protocol, Port: e.Port, Reason: e.Reason,
 			Declared: e.Declared, Observed: e.Observed, RequestRate: e.RequestRate, ErrorRate: e.ErrorRate, ErrorsUnknown: e.ErrorsUnknown,
 			LatencyP50Ms: e.LatencyP50Ms, LatencyP95Ms: e.LatencyP95Ms,
-			Reasons: jsonList(e.Reasons), Measures: jsonList(e.Measures), DetailWhy: whyText(e.Reasons),
+			LatencyApproximate: e.LatencyApproximate,
+			Reasons:            jsonList(e.Reasons), Measures: jsonList(e.Measures), DetailWhy: whyText(e.Reasons),
 			Signals: strings.Join(e.Signals, ","), Sources: strings.Join(e.Sources, ","),
 			DetailState: string(e.State), DetailSources: strings.Join(e.Sources, ", "),
 		}
@@ -142,7 +159,11 @@ func grafanaEdges(s model.Snapshot) []grafanaEdge {
 			ge.Thickness = 2
 		}
 		if e.LatencyP95Ms > 0 {
-			ge.SecondaryStat = strings.TrimPrefix(ge.SecondaryStat+" · p95 "+model.FormatMs(e.LatencyP95Ms), " · ")
+			label := "p95 "
+			if e.LatencyApproximate {
+				label = "p95 approximation "
+			}
+			ge.SecondaryStat = strings.TrimPrefix(ge.SecondaryStat+" · "+label+model.FormatMs(e.LatencyP95Ms), " · ")
 		}
 		if e.State == model.EdgeStale {
 			ge.Color = healthColor[model.HealthUnknown]
@@ -181,18 +202,20 @@ func grafanaFindings(s model.Snapshot) []grafanaFinding {
 }
 
 type grafanaSource struct {
-	Name    string `json:"name"`
-	Type    string `json:"type"`
-	State   string `json:"state"`
-	Message string `json:"message"`
-	Nodes   int    `json:"nodes"`
-	Edges   int    `json:"edges"`
+	Name          string    `json:"name"`
+	Type          string    `json:"type"`
+	State         string    `json:"state"`
+	Message       string    `json:"message"`
+	Nodes         int       `json:"nodes"`
+	Edges         int       `json:"edges"`
+	LastSuccessAt time.Time `json:"lastSuccessAt,omitzero"`
+	Retained      bool      `json:"retained"`
 }
 
 func grafanaSources(s model.Snapshot) []grafanaSource {
 	out := make([]grafanaSource, 0, len(s.Sources))
 	for _, src := range s.Sources {
-		out = append(out, grafanaSource{Name: src.Name, Type: src.Type, State: string(src.State), Message: src.Message, Nodes: src.Nodes, Edges: src.Edges})
+		out = append(out, grafanaSource{Name: src.Name, Type: src.Type, State: string(src.State), Message: src.Message, Nodes: src.Nodes, Edges: src.Edges, LastSuccessAt: src.LastSuccessAt, Retained: src.Retained})
 	}
 	return out
 }

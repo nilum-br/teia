@@ -10,7 +10,7 @@ import TeiaUI, { TeiaController } from '../teia/teia-ui';
  * serves on its own; here it is fed by the panel queries (refreshing with the
  * dashboard), or streams from teia directly when a teia URL is set.
  */
-export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, width, height, id, replaceVariables }) => {
+export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, width, height, id, replaceVariables, timeRange }) => {
   const host = useRef<HTMLDivElement>(null);
   const ui = useRef<TeiaController | null>(null);
   const round = useRef(0);
@@ -20,6 +20,7 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, wi
   // repeat across dashboards, dashboard uids do not.
   const storageKey = `panel-${replaceVariables('${__dashboard.uid}') || 'local'}-${id}`;
   const journey = journeyOf(replaceVariables(options.journey || ''));
+  const from = timeRange?.from.toISOString(), to = timeRange?.to.toISOString();
 
   useEffect(() => {
     if (!host.current) {
@@ -49,6 +50,10 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, wi
   }, [mode]);
 
   useEffect(() => {
+    ui.current?.setOptions({ requestedRange: from && to ? { from, to } : undefined });
+  }, [from, to, options.teiaUrl, storageKey]);
+
+  useEffect(() => {
     ui.current?.setOptions({ groupBy: options.groupBy, flow: options.flow, journey, journeyKey: options.journeyKey ?? '', values: options.values });
   }, [options.groupBy, options.flow, journey, options.journeyKey, options.values]);
 
@@ -76,4 +81,3 @@ export function journeyOf(value: string): string {
   const v = value.trim();
   return v === '*' || v === 'All' || v === '$__all' || v.startsWith('$') || v.startsWith('{') ? '' : v;
 }
-

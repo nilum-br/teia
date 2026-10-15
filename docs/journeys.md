@@ -67,10 +67,21 @@ Inside the frame, the journey reads left to right:
 - its datastores, queues and third parties end it, in one lane;
 - the frame's header gives its name, its health and what enters it (traffic, p95 and errors).
 
-The current header has known limitations: its latency is a weighted summary of entry-edge percentiles, not
-end-to-end journey p95, and unknown entry errors can be displayed as zero or dilute an aggregate. The headline
-health considers dependencies, whereas the traffic summary considers entry calls. See T01/T02 and the
-[reproduced findings](landscape.md#reproduced-correctness-gaps) before interpreting these as whole-journey metrics.
+The header counts **entry calls**, including fan-out from entry services; it does not count unique user
+transactions. Its health is the worst health in the scope, including dependencies, while its traffic/errors
+describe entry edges. Successful entry calls can coexist with an unhealthy downstream dependency.
+
+Errors use only measured traffic as their denominator: 100 req/s at 50% errors plus 900 req/s with unknown
+errors reads **50% errors, 10% covered**, never an unqualified 5%. All-unknown inputs remain unknown.
+Latency combines available entry-edge percentiles using measured traffic weights. Multiple inputs carry
+`≈ p95` / **p95 approximation** and a coverage qualifier in the details; this is neither a percentile of the
+combined distribution nor end-to-end journey latency. Zero-rate samples cannot contribute a traffic weight.
+Prometheus presets aggregate compatible histogram buckets before quantiles; later merges of different mapped
+series or node/group summaries have only percentiles available and are marked approximate.
+
+The time row distinguishes current state from query data. Collection time, source lookback and original
+observation time are separate; unavailable timestamps stay unknown. The Grafana picker does not turn Teia's
+current snapshot into history. See the [frame/time contract](../plugins/grafana/README.md#time-and-evidence-contract).
 
 Everything outside the frame becomes a port, a small chip beyond its edge:
 

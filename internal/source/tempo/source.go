@@ -134,6 +134,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
+		edges[k].Window = s.cfg.Window
 		obs.Edges = append(obs.Edges, *edges[k])
 	}
 	obs.Message = fmt.Sprintf("sampled %d traces from %d services", len(traces), searched)

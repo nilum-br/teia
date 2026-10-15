@@ -4,6 +4,13 @@ Reviewed on **15 October 2026**, using teia `62ef24b`, official product document
 repository/catalog. This compares documented capabilities; it is not proof that a competitor lacks every feature
 not mentioned. Priorities are our assessment.
 
+**Implementation follow-up, 15 October 2026:** T01 regressions now cover and fix R1/R2 below. T02 adds partial
+latency coverage and explicit percentile approximations in the model, UI and Grafana. T03 adds current-state
+labelling and separates collection time, lookback and supplied observation timestamps; original sample age
+remains unknown where adapters do not expose it. The tables and reproductions below describe the reviewed
+`62ef24b` baseline, not reopened defects. See [the live task status](roadmap.md#prioritized-implementation-backlog)
+for verification and remaining work. These fixes alone do not establish overall superiority or usability parity.
+
 **Verdict:** teia covers more of our architecture-contract and coverage-diagnosis problem than a graph panel alone.
 It is not yet demonstrably better overall in investigation, installation, usability or production maturity.
 The strongest next investment is trustworthy measurements and a shorter path from a failing relationship to

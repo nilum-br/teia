@@ -17,6 +17,8 @@ type Result struct {
 	Source      source.Source
 	Observation source.Observation
 	Err         error
+	CollectedAt time.Time
+	Retained    bool
 }
 
 // Graph is the merged view the advisor works on.
@@ -227,6 +229,7 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 				node.Addresses = appendUnique(node.Addresses, addr)
 			}
 			node.Measures = mergeMeasures(node.Measures, n.Measures, resolve)
+			node.Evidence = append(node.Evidence, evidence(r, srcType, 0, time.Time{}, measureNames(n.Measures)))
 			if n.SelfReported {
 				selfReported[id] = true
 			}
@@ -272,6 +275,18 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 				}
 			} else {
 				e.Observed = true
+				metrics := []string{"topology"}
+				if o.RequestRate > 0 {
+					metrics = append(metrics, "requestRate")
+				}
+				if o.RequestRate > 0 && !o.NoErrors {
+					metrics = append(metrics, "errorRate")
+				}
+				if o.LatencyP95Ms > 0 {
+					metrics = append(metrics, "latency")
+				}
+				metrics = append(metrics, measureNames(o.Measures)...)
+				e.Evidence = append(e.Evidence, evidence(r, o.Signal, o.Window, o.ObservedAt, metrics))
 				e.Measures = mergeMeasures(e.Measures, o.Measures, resolve)
 				if o.Signal != "" {
 					e.Signals = appendUnique(e.Signals, o.Signal)
@@ -290,6 +305,7 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 				// it, so histograms (with a rate) win over sampled spans.
 				if o.LatencyP95Ms > 0 && (e.LatencyP95Ms == 0 || o.RequestRate > latencyRate[key]) {
 					e.LatencyP50Ms, e.LatencyP95Ms = o.LatencyP50Ms, o.LatencyP95Ms
+					e.LatencyApproximate = o.LatencyApproximate
 					latencyRate[key] = o.RequestRate
 				}
 			}
@@ -450,16 +466,29 @@ func attachReadings(g *Graph, results []Result, resolve func(string) string) {
 			continue
 		}
 		for _, rd := range r.Observation.Readings {
-			if !attach(g, rd, resolve) {
+			if !attach(g, rd, resolve, evidence(r, r.Source.Type(), 0, time.Time{}, measureNames(rd.Measures))) {
 				g.Unmatched = append(g.Unmatched, Unmatched{Source: r.Source.Name(), Origin: rd.Origin, Candidates: rd.Candidates, To: rd.To})
 			}
 		}
 	}
 }
 
+func evidence(r Result, signal string, window time.Duration, observed time.Time, metrics []string) model.Evidence {
+	return model.Evidence{Source: r.Source.Name(), Signal: signal, CollectedAt: r.CollectedAt,
+		ObservedAt: observed, WindowSeconds: window.Seconds(), Retained: r.Retained, Metrics: metrics}
+}
+
+func measureNames(measures []model.Measure) []string {
+	names := make([]string, 0, len(measures))
+	for _, m := range measures {
+		names = appendUnique(names, string(m.Cause)+": "+m.What)
+	}
+	return names
+}
+
 // attach gives one reading's measures to its node or edge, and says whether
 // one took them.
-func attach(g *Graph, rd source.Reading, resolve func(string) string) bool {
+func attach(g *Graph, rd source.Reading, resolve func(string) string, ev model.Evidence) bool {
 	from := ""
 	for _, c := range rd.Candidates {
 		if id := resolve(c); g.Nodes[id] != nil && !g.Ignored[id] {
@@ -473,11 +502,13 @@ func attach(g *Graph, rd source.Reading, resolve func(string) string) bool {
 	if len(rd.To) == 0 {
 		n := g.Nodes[from]
 		n.Measures = mergeMeasures(n.Measures, rd.Measures, resolve)
+		n.Evidence = append(n.Evidence, ev)
 		return true
 	}
 	for _, t := range rd.To {
 		if e := g.Edges[from+"->"+resolve(t)]; e != nil {
 			e.Measures = mergeMeasures(e.Measures, rd.Measures, resolve)
+			e.Evidence = append(e.Evidence, ev)
 			return true
 		}
 	}

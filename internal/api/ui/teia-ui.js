@@ -226,7 +226,7 @@ details summary { cursor: pointer; color: var(--accent); font-size: 12px; margin
 .scope .clear { border: 0; background: none; color: var(--accent); cursor: pointer; font-size: 12px; white-space: nowrap; }
 .filter-panel { position: absolute; z-index: 30; left: 12px; top: 112px; width: min(760px, calc(100% - 24px)); max-height: min(70vh, calc(100% - 130px)); overflow: auto;
   background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px 16px; }
-.teia.panel .filter-panel { top: 92px; }
+.time-context { flex-basis: 100%; color: var(--muted); font-size: 11px; line-height: 1.4; }
 .filter-panel .top { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
 .filter-panel .top input { flex: 1; background: var(--bg); border: 1px solid var(--line-2); border-radius: 10px; padding: 7px 10px; outline: none; }
 .filter-panel .top input:focus { border-color: var(--accent); }
@@ -383,6 +383,7 @@ button.label { cursor: pointer; }
       </div>
     </div>
   </div>
+  <div class="time-context" id="timeContext"></div>
 </header>
 <nav class="scope" id="scope" aria-label="Filters"></nav>
 <div class="filter-panel" id="filterPanel" role="dialog" aria-label="Filter the map" hidden></div>
@@ -524,6 +525,26 @@ button.label { cursor: pointer; }
   const finite = v => (typeof v === 'number' && Number.isFinite(v)) ? v : 0;
   const strings = v => Array.isArray(v) ? v.filter(s => typeof s === 'string') : [];
   const text = v => typeof v === 'string' ? v : '';
+  const timestamp = v => typeof v === 'string' && !v.startsWith('0001') && Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : '';
+  const evidence = v => (Array.isArray(v) ? v : []).filter(e => e && typeof e.source === 'string').map(e => ({
+    source: e.source, signal: text(e.signal), collectedAt: timestamp(e.collectedAt), observedAt: timestamp(e.observedAt),
+    windowSeconds: Math.max(0, finite(e.windowSeconds)), retained: e.retained === true, metrics: strings(e.metrics),
+  }));
+  function temporalText(snap, opts = {}, now = Date.now()) {
+    if (!snap) return 'Waiting for time information';
+    const mode = snap.timeMode || (opts.api ? 'current' : 'query');
+    const age = at => fmtSec(Math.max(0, (now - Date.parse(at)) / 1000)) + ' ago';
+    const collected = timestamp(snap.generatedAt);
+    const observed = timestamp(snap.observedAt);
+    const windows = [...new Set([...snap.nodes, ...snap.edges].flatMap(x => (x.evidence || []).map(e => e.windowSeconds)).filter(w => w > 0))].sort((a, b) => a - b);
+    const parts = [mode === 'current' ? 'Current state' : mode === 'mixed' ? 'Mixed time modes' : 'Query data'];
+    if (mode !== 'current') parts.push(snap.period ? `${snap.period.from} – ${snap.period.to}` : 'effective period unknown');
+    parts.push(collected ? `snapshot collected ${age(collected)}` : 'collection time unknown');
+    if (windows.length) parts.push(`source lookbacks ${windows.map(fmtSec).join(', ')}`);
+    parts.push(observed ? `original observation ${age(observed)}` : 'original observation time unknown');
+    if (mode === 'current' && (opts.mode === 'panel' || opts.requestedRange)) parts.push('dashboard range does not change this snapshot');
+    return parts.join(' · ');
+  }
   // measures are readings beyond traffic: connections in use, sessions
   // waiting on locks, consumer lag.
   const measures = v => (Array.isArray(v) ? v : [])
@@ -532,7 +553,7 @@ button.label { cursor: pointer; }
   // reasons keeps the ones the map knows how to draw, worst first.
   const reasons = v => (Array.isArray(v) ? v : [])
     .filter(r => r && has(REASON, r.cause) && (r.health === 'degraded' || r.health === 'failing'))
-    .map(r => ({ cause: r.cause, health: r.health, value: finite(r.value), limit: finite(r.limit), summary: text(r.summary), what: text(r.what), via: text(r.via) }))
+    .map(r => ({ cause: r.cause, health: r.health, value: finite(r.value), limit: finite(r.limit), summary: text(r.summary), what: text(r.what), via: text(r.via), coverage: finite(r.coverage), approximate: r.approximate === true }))
     .sort((a, b) => HEALTH_RANK[b.health] - HEALTH_RANK[a.health]);
 
   // sanitize turns whatever arrived (teia's API, a Grafana data frame, a
@@ -550,7 +571,7 @@ button.label { cursor: pointer; }
         visibility: oneOf(n.visibility, ['full', 'partial', 'none'], 'partial'),
         requestRate: finite(n.requestRate), errorRate: finite(n.errorRate), errorsUnknown: n.errorsUnknown === true,
         latencyP50Ms: finite(n.latencyP50Ms), latencyP95Ms: finite(n.latencyP95Ms),
-        reasons: reasons(n.reasons), measures: measures(n.measures),
+        reasons: reasons(n.reasons), measures: measures(n.measures), evidence: evidence(n.evidence),
         sources: strings(n.sources), addresses: strings(n.addresses),
         labels: n.labels && typeof n.labels === 'object' ? n.labels : {},
       });
@@ -567,7 +588,7 @@ button.label { cursor: pointer; }
         health: oneOf(e.health, ['healthy', 'degraded', 'failing', 'unknown'], 'unknown'),
         requestRate: finite(e.requestRate), errorRate: finite(e.errorRate), errorsUnknown: e.errorsUnknown === true,
         latencyP50Ms: finite(e.latencyP50Ms), latencyP95Ms: finite(e.latencyP95Ms),
-        reasons: reasons(e.reasons), measures: measures(e.measures),
+        reasons: reasons(e.reasons), measures: measures(e.measures), evidence: evidence(e.evidence),
         declared: !!e.declared, observed: e.observed !== false,
         signals: strings(e.signals), sources: strings(e.sources),
       });
@@ -575,7 +596,9 @@ button.label { cursor: pointer; }
     const cov = s.coverage && typeof s.coverage === 'object' ? s.coverage : {};
     return {
       round: Number.isFinite(s.round) ? s.round : 0,
-      generatedAt: typeof s.generatedAt === 'string' ? s.generatedAt : new Date().toISOString(),
+      generatedAt: timestamp(s.generatedAt), observedAt: timestamp(s.observedAt),
+      timeMode: oneOf(s.timeMode, ['current', 'query', 'mixed'], ''),
+      period: timestamp(s.period?.from) && timestamp(s.period?.to) && s.period.from <= s.period.to ? { from: timestamp(s.period.from), to: timestamp(s.period.to) } : undefined,
       nodes, edges,
       findings: (Array.isArray(s.findings) ? s.findings : []).filter(f => f && typeof f.title === 'string').map(f => ({
         ...f, severity: oneOf(f.severity, ['critical', 'warning', 'info'], 'info'), subject: String(f.subject || ''),
@@ -627,19 +650,23 @@ button.label { cursor: pointer; }
     return [...keys.entries()].filter(([, c]) => c > 1).map(([k]) => k).sort();
   }
 
-  // latencySum folds the latencies of several edges or nodes into one, each
-  // weighted by its traffic: an approximation, since percentiles do not add
-  // up, but the one Grafana and Kiali make too. Members that measured no
-  // latency do not count.
+  // Percentile summaries are approximations, never combined distributions
+  // or end-to-end journey latency. Weight only measured, positive traffic.
   function latencySum() {
-    let weight = 0, p50 = 0, p95 = 0;
+    let total = 0, weight = 0, weight50 = 0, p50 = 0, p95 = 0, count = 0, approximate = false;
     return {
       add(x) {
-        if (!(x.latencyP95Ms > 0)) return;
-        const w = Math.max(x.requestRate || 0, 1e-9);
-        weight += w; p50 += w * (x.latencyP50Ms || 0); p95 += w * x.latencyP95Ms;
+        const rate = Math.max(0, finite(x.requestRate));
+        total += rate;
+        const coverage = typeof x.latencyCoverage === 'number' ? Math.max(0, Math.min(1, finite(x.latencyCoverage))) : 1;
+        const w = rate * coverage;
+        if (!(x.latencyP95Ms > 0 && w > 0)) return;
+        weight += w; p95 += w * x.latencyP95Ms; count++;
+        if (x.latencyP50Ms > 0) { weight50 += w; p50 += w * x.latencyP50Ms; }
+        approximate ||= !!x.latencyApproximate;
       },
-      result: () => weight > 0 ? { latencyP50Ms: p50 / weight, latencyP95Ms: p95 / weight } : { latencyP50Ms: 0, latencyP95Ms: 0 },
+      result: () => ({ latencyP50Ms: weight50 > 0 ? p50 / weight50 : 0, latencyP95Ms: weight > 0 ? p95 / weight : 0,
+        latencyApproximate: count > 1 || approximate, latencyCoverage: total > 0 ? weight / total : 0 }),
     };
   }
 
@@ -670,6 +697,36 @@ button.label { cursor: pointer; }
   const fmtRate = r => r >= 100 ? r.toFixed(0) : r >= 10 ? r.toFixed(1) : r.toFixed(2);
   const pct = v => (v * 100).toFixed(v > 0 && v < 0.1 ? 1 : 0) + '%';
 
+  // Error rates describe the measured subset. Missing traffic must not
+  // dilute that rate, and nested groups must preserve the denominator.
+  const errorCoverage = x => x.errorsUnknown ? 0 : typeof x.errorCoverage === 'number'
+    ? Math.max(0, Math.min(1, finite(x.errorCoverage))) : 1;
+  function errorStats(items) {
+    let requestRate = 0, measured = 0, failed = 0;
+    for (const x of items) {
+      const rate = Math.max(0, finite(x.requestRate)), known = rate * errorCoverage(x);
+      requestRate += rate; measured += known; failed += known * finite(x.errorRate);
+    }
+    return { requestRate, errorRate: measured > 0 ? failed / measured : 0, errorsUnknown: measured === 0,
+      errorCoverage: requestRate > 0 ? measured / requestRate : 0 };
+  }
+  function errorText(x, short = false) {
+    const coverage = errorCoverage(x);
+    if (!coverage || !(x.requestRate > 0)) return short ? 'err ?' : 'failures not measured';
+    const value = pct(x.errorRate) + (short ? ' err' : ' errors');
+    return coverage < 1 ? value + (short ? ` (${pct(coverage)} covered)` : ` · measured on ${pct(coverage)} of traffic`) : value;
+  }
+  function latencyText(x, short = false) {
+    if (!(x.latencyP95Ms > 0)) return 'latency not measured';
+    const label = x.latencyApproximate ? (short ? '≈ p95 ' : 'p95 approximation ') : 'p95 ';
+    const value = label + fmtMs(x.latencyP95Ms);
+    if (short) return value;
+    const p50 = x.latencyP50Ms > 0 ? ` · p50 ${x.latencyApproximate ? 'approx. ' : ''}${fmtMs(x.latencyP50Ms)}` : '';
+    const coverage = typeof x.latencyCoverage === 'number' && x.latencyCoverage < 1
+      ? x.latencyCoverage > 0 ? ` · measured on ${pct(x.latencyCoverage)} of traffic` : ' · traffic coverage unknown' : '';
+    return value + p50 + coverage + (x.latencyApproximate ? ' · summary of percentiles, not a combined distribution' : '');
+  }
+
   // compact writes 1200 as 1.2k and 45000 as 45k.
   function compact(n) {
     if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
@@ -681,8 +738,8 @@ button.label { cursor: pointer; }
   // what crossed its limit, and where it most likely comes from.
   function reasonTag(r, more = 0) {
     const what = {
-      errors: () => `${pct(r.value)} errors`,
-      latency: () => `p95 ${fmtMs(r.value)}`,
+      errors: () => `${pct(r.value)} errors${r.coverage > 0 && r.coverage < 1 ? ` (${pct(r.coverage)} covered)` : ''}`,
+      latency: () => `${r.approximate ? '≈ ' : ''}p95 ${fmtMs(r.value)}`,
       saturation: () => `${pct(r.value)} ${r.what || 'used'}`,
       backlog: () => `${compact(r.value)} ${r.what || 'waiting'}`,
       lag: () => `${fmtSec(r.value)} ${r.what || 'behind'}`,
@@ -717,9 +774,11 @@ button.label { cursor: pointer; }
     const what = n.group ? `${n.members.length} workload${n.members.length === 1 ? '' : 's'}` : techLabel(n);
     const stats = [];
     if (n.requestRate > 0) stats.push(`${fmtRate(n.requestRate)}/s`);
-    if (n.latencyP95Ms > 0) stats.push(fmtMs(n.latencyP95Ms));
-    if (n.errorsUnknown && n.requestRate > 0 && !n.group) stats.push('err ?');
-    else if (n.errorRate > 0.0005 && !n.group) stats.push(`${pct(n.errorRate)} err`);
+    if (n.latencyP95Ms > 0) stats.push((n.latencyApproximate ? '≈ ' : '') + fmtMs(n.latencyP95Ms));
+    if (n.requestRate > 0 && !n.group) {
+      if (errorCoverage(n) < 1) stats.unshift(errorText(n, true));
+      else if (n.errorRate > 0.0005) stats.push(errorText(n, true));
+    }
     let text = [what, ...stats].join(' · ');
     if (text.length > max && stats.length) text = stats.join(' · ');
     return text.length > max ? text.slice(0, max - 1) + '…' : text;
@@ -1097,14 +1156,14 @@ button.label { cursor: pointer; }
     const inside = id => scope.roles.has(id);
     const nodes = new Map(snap.nodes.map(n => [n.id, n]));
     const called = new Set(snap.edges.map(e => e.to));
-    let rate = 0, failed = 0, timed = 0, p95 = 0;
+    const latency = latencySum();
     const into = snap.edges.filter(e => inside(e.to) && (inside(e.from) ? !called.has(e.from) : !isResource(nodes.get(e.to))));
     for (const e of into) {
-      rate += e.requestRate;
-      if (!e.errorsUnknown) failed += e.requestRate * e.errorRate;
-      if (e.latencyP95Ms > 0) { timed += e.requestRate; p95 += e.requestRate * e.latencyP95Ms; }
+      latency.add(e);
     }
-    return { parts: scope.roles.size, rate, errorRate: rate > 0 ? failed / rate : 0, p95: timed > 0 ? p95 / timed : 0 };
+    const errors = errorStats(into);
+    const timing = latency.result();
+    return { parts: scope.roles.size, ...errors, ...timing, rate: errors.requestRate, p95: timing.latencyP95Ms };
   }
 
   // journeyNames lists the journeys the label names, for the selector.
@@ -1133,6 +1192,7 @@ button.label { cursor: pointer; }
         nodes.set(g, gn);
       }
       gn.members.push(n);
+      gn.evidence = [...(gn.evidence || []), ...(n.evidence || [])];
       if (HEALTH_RANK[n.health] > HEALTH_RANK[gn.health]) gn.health = n.health;
       if (n.visibility === 'full' || (n.visibility === 'partial' && gn.visibility === 'none')) gn.visibility = n.visibility;
       gn.requestRate += n.requestRate || 0;
@@ -1147,12 +1207,12 @@ button.label { cursor: pointer; }
       const id = from + '->' + to;
       let ve = edges.get(id);
       if (!ve) {
-        ve = { id, from, to, members: [], requestRate: 0, failed: 0, latency: latencySum(), reasons: [], measures: [], errorsUnknown: true, signals: new Set(), states: new Set(), declared: false, observed: false, health: 'unknown', protocol: e.protocol, reason: e.reason, port: e.port, sources: new Set() };
+        ve = { id, from, to, members: [], requestRate: 0, latency: latencySum(), reasons: [], measures: [], signals: new Set(), states: new Set(), declared: false, observed: false, health: 'unknown', protocol: e.protocol, reason: e.reason, port: e.port, sources: new Set() };
         edges.set(id, ve);
       }
       ve.members.push(e);
+      ve.evidence = [...(ve.evidence || []), ...(e.evidence || [])];
       ve.requestRate += e.requestRate;
-      ve.failed += e.requestRate * e.errorRate;
       ve.latency.add(e);
       ve.measures.push(...e.measures);
       if (e.reasons.length) ve.reasons.push(...e.reasons.map(r => (from === e.from && to === e.to ? r : { ...r, subject: `${e.from}→${e.to}` })));
@@ -1160,17 +1220,22 @@ button.label { cursor: pointer; }
       e.sources.forEach(s => ve.sources.add(s));
       ve.states.add(e.state);
       ve.declared ||= e.declared; ve.observed ||= e.observed;
-      ve.errorsUnknown &&= !!e.errorsUnknown; // likewise for unmeasured failures
       if (HEALTH_RANK[e.health] > HEALTH_RANK[ve.health]) ve.health = e.health;
     }
     for (const ve of edges.values()) {
-      ve.errorRate = ve.requestRate > 0 ? ve.failed / ve.requestRate : 0;
+      Object.assign(ve, errorStats(ve.members));
       Object.assign(ve, ve.latency.result());
+      if (ve.members.length === 1) {
+        const member = ve.members[0];
+        // A single sampled edge can have latency without a request rate.
+        ve.latencyP50Ms = member.latencyP50Ms; ve.latencyP95Ms = member.latencyP95Ms;
+        ve.latencyApproximate = !!member.latencyApproximate;
+      }
       delete ve.latency;
       ve.reasons.sort((a, b) => HEALTH_RANK[b.health] - HEALTH_RANK[a.health]);
       ve.state = ve.states.has('ghost') ? 'ghost' : ve.states.has('ok') ? 'ok' : 'stale';
       ve.signals = [...ve.signals]; ve.sources = [...ve.sources];
-      delete ve.states; delete ve.failed;
+      delete ve.states;
     }
     for (const n of nodes.values()) {
       if (!n.group) continue;
@@ -1594,11 +1659,14 @@ button.label { cursor: pointer; }
       name.textContent = single ? f0.journeys[0] : scopeName();
       layerFrame.append(name);
       const stats = [...(single ? ['journey'] : []), `${st.parts}${scope.truncated ? '+' : ''} parts`];
-      if (st.rate > 0) stats.push(`in ${fmtRate(st.rate)}/s`);
-      if (st.p95 > 0) stats.push(`p95 ${fmtMs(st.p95)}`);
-      if (st.rate > 0) stats.push(`${pct(st.errorRate)} err`);
+      if (st.rate > 0) stats.push(`entry calls ${fmtRate(st.rate)}/s`);
+      if (st.p95 > 0) stats.push(latencyText(st, true));
+      if (st.rate > 0) stats.push(errorText(st, true));
       const line = sv('text', { class: 'frame-stats num', x: fr.x0 + 42, y: fr.y0 + 50 });
       line.textContent = stats.join(' · ');
+      const hint = sv('title');
+      hint.textContent = `Entry-edge calls, not unique user transactions. ${errorText(st)}. ${latencyText(st)}. Health includes downstream dependencies; this is not end-to-end journey latency.`;
+      line.append(hint);
       layerFrame.append(line);
       // the ports
       for (const c of f.chips) drawPort(c, fr);
@@ -1717,7 +1785,7 @@ button.label { cursor: pointer; }
         p.alert.append(sv('circle', { r: 9 }));
         const t = sv('text', { y: 3.6 }); t.textContent = fs.length; p.alert.append(t);
       }
-      const traffic = n.requestRate > 0 ? `, ${fmtRate(n.requestRate)} requests per second${n.latencyP95Ms > 0 ? `, p95 ${fmtMs(n.latencyP95Ms)}` : ''}, ${n.errorsUnknown ? 'failures not measured' : pct(n.errorRate) + ' errors'}` : '';
+      const traffic = n.requestRate > 0 ? `, ${fmtRate(n.requestRate)} requests per second${n.latencyP95Ms > 0 ? `, ${latencyText(n)}` : ''}, ${errorText(n)}` : '';
       drawWhy(p.why, n.reasons);
       const because = n.reasons.length ? `, because of ${n.reasons.map(r => r.summary || reasonTag(r)).join('; ')}` : '';
       const label = `${n.title}, ${n.group ? 'group' : CATEGORY[cat]?.label || n.kind}${n.tech ? ' (' + techLabel(n) + ')' : ''}, ${healthText(n)}${because}${traffic}, ${n.visibility} visibility${fs.length ? `, ${fs.length} next step${fs.length > 1 ? 's' : ''}` : ''}`;
@@ -1870,7 +1938,7 @@ button.label { cursor: pointer; }
     function lineValue(e) {
       const parts = [];
       if (e.requestRate > 0) parts.push(`${fmtRate(e.requestRate)}/s`);
-      if (e.latencyP95Ms > 0) parts.push(fmtMs(e.latencyP95Ms));
+      if (e.latencyP95Ms > 0) parts.push((e.latencyApproximate ? '≈ ' : '') + fmtMs(e.latencyP95Ms));
       return parts.join(' · ');
     }
 
@@ -1882,9 +1950,8 @@ button.label { cursor: pointer; }
       const e = g._edge;
       const parts = [e.protocol || (e.signals[0] || 'tcp')];
       if (e.requestRate > 0) parts.push(`${fmtRate(e.requestRate)} req/s`);
-      if (e.latencyP95Ms > 0) parts.push(`p95 ${fmtMs(e.latencyP95Ms)}`);
-      if (e.errorsUnknown && e.requestRate > 0) parts.push('failures not measured');
-      if (e.errorRate > 0.0005) parts.push(`${pct(e.errorRate)} errors`);
+      if (e.latencyP95Ms > 0) parts.push(latencyText(e, true));
+      if (e.requestRate > 0) parts.push(errorText(e));
       if (state.snap.drift && e.state !== 'ok') parts.push(STATE_LABEL[e.state]);
       const p = mid(g);
       const lbl = sv('g', { class: 'elabel', transform: `translate(${p.x},${p.y - 18})` });
@@ -1944,7 +2011,7 @@ button.label { cursor: pointer; }
         if (p.t >= 1) {
           p.t -= 1;
           // each lap, a share of the dots turns red, in proportion to errors
-          const errLap = Math.random() < Math.min(0.9, (p.edge.errorRate || 0) * 4);
+          const errLap = Math.random() < Math.min(0.9, (p.edge.errorRate || 0) * errorCoverage(p.edge) * 4);
           if (errLap !== p.err) { p.err = errLap; paintParticle(p); }
         }
       }
@@ -2147,6 +2214,8 @@ button.label { cursor: pointer; }
     }
 
     function renderLive() {
+      $('#timeContext').textContent = temporalText(state.snap, opts);
+      $('#timeContext').title = opts.requestedRange ? `Dashboard requests ${opts.requestedRange.from} – ${opts.requestedRange.to}. Collection time is not the age of the original measurement.` : 'Collection time is not the age of the original measurement. A source lookback is its query window.';
       const l = $('#live');
       if (state.error) { l.className = 'live error'; l.querySelector('span').textContent = state.error; return; }
       l.className = 'live ' + (!state.live ? 'paused' : state.connected ? 'on' : '');
@@ -2154,7 +2223,7 @@ button.label { cursor: pointer; }
       const ago = since ? Math.max(0, Math.round((Date.now() - since) / 1000)) : 0;
       l.querySelector('span').textContent = !state.live ? 'paused'
         : !state.connected ? (opts.api ? 'reconnecting…' : 'waiting for data…')
-          : opts.api ? `live · round ${state.snap?.round ?? '–'} · ${ago}s ago` : `updated ${ago}s ago`;
+          : opts.api ? `live · round ${state.snap?.round ?? '–'} · ${ago}s ago` : `received ${ago}s ago`;
     }
 
     function renderLegend() {
@@ -2282,7 +2351,10 @@ button.label { cursor: pointer; }
       const panel = $('#filterPanel');
       panel.hidden = !open;
       $('#filterBtn')?.setAttribute('aria-expanded', String(open));
-      if (open) { renderFilterPanel(); panel.querySelector('input')?.focus(); }
+      if (open) {
+        panel.style.top = `${$('#scope').getBoundingClientRect().bottom - app.getBoundingClientRect().top}px`;
+        renderFilterPanel(); panel.querySelector('input')?.focus();
+      }
     }
     function toggleEdgeState(st) { state.states[st] = !state.states[st]; store.set('states', state.states); renderAll(); if (filterPanelOpen()) renderFilterPanel(); }
     function toggleSignal(sg) {
@@ -2443,6 +2515,15 @@ button.label { cursor: pointer; }
       return el('button', { type: 'button', class: 'rel', onclick }, el('i', { class: 'dot', style: `background:${css('--' + health)}` }), label, el('span', {}, sub));
     }
 
+    function evidenceBlock(item) {
+      const entries = [...new Map((item.evidence || []).map(e => [JSON.stringify(e), e])).values()];
+      return [el('h3', {}, 'Evidence and time'), ...(entries.length ? entries.map(e => el('p', { class: 'explain' },
+        `${e.source} · ${e.signal || 'source'} · ${e.metrics.join(', ') || 'inventory'}${e.retained ? ' · retained topology' : ''}. ` +
+        `Collected: ${e.collectedAt || 'unknown'}. Original observation: ${e.observedAt || 'unknown'}. ` +
+        (e.windowSeconds > 0 ? `Query lookback: ${fmtSec(e.windowSeconds)}.` : 'Query lookback not supplied.')))
+        : [el('p', { class: 'explain' }, 'Source timing was not supplied; the age of these measurements is unknown.')])];
+    }
+
     function renderDetails() {
       const pane = $('#pane-details');
       const sel = state.selected;
@@ -2459,6 +2540,7 @@ button.label { cursor: pointer; }
           const inside = n.internal ? `, talking to each other through ${n.internal} communication${n.internal === 1 ? '' : 's'}` : '';
           parts.push(el('p', { class: 'explain' }, `${n.members.length} workload${n.members.length === 1 ? '' : 's'} with ${n.labelKey}=${n.title}${inside}. Double-click the card to expand it.`));
           parts.push(el('button', { type: 'button', class: 'btn', onclick: () => toggleGroup(n.id) }, 'Expand group'));
+          if (n.latencyP95Ms > 0) parts.push(el('p', { class: 'explain' }, latencyText(n)));
           parts.push(el('h3', {}, 'Members'));
           parts.push(...n.members.map(m => rel(m.id, m.kind, m.health, () => { state.expanded.add(n.title); renderMap(); focusNode(m.id); })));
         } else {
@@ -2471,8 +2553,8 @@ button.label { cursor: pointer; }
           parts.push(el('p', { class: 'explain' }, VIS_EXPLAIN[n.visibility]));
           const kv = el('dl', { class: 'kv' });
           const row = (k, v) => kv.append(el('dt', {}, k), el('dd', {}, v));
-          if (n.requestRate > 0) row('traffic in', `${fmtRate(n.requestRate)} req/s · ${n.errorsUnknown ? 'failures not measured' : pct(n.errorRate) + ' errors'}`);
-          if (n.latencyP95Ms > 0) row('latency', `p50 ${fmtMs(n.latencyP50Ms)} · p95 ${fmtMs(n.latencyP95Ms)} (what its callers wait for)`);
+          if (n.requestRate > 0) row(n.trafficDirection ? `${n.trafficDirection} calls` : 'traffic', `${fmtRate(n.requestRate)} req/s · ${errorText(n)}`);
+          if (n.latencyP95Ms > 0) row('latency', latencyText(n));
           row('component', `${CATEGORY[categoryOf(n)]?.label || n.kind}${n.tech ? ' · ' + techLabel(n) : ''}`);
           for (const m of n.measures) row(m.what, measureText(m));
           row('known from', n.sources.join(', ') || '—');
@@ -2490,6 +2572,7 @@ button.label { cursor: pointer; }
             }, el('b', {}, k + '='), String(v)))));
           }
         }
+        parts.push(...evidenceBlock(n));
         const out = [...currentView.edges.values()].filter(e => e.from === n.id);
         const inn = [...currentView.edges.values()].filter(e => e.to === n.id);
         const relEdge = (e, other) => rel(other, `${e.requestRate > 0 ? fmtRate(e.requestRate) + '/s · ' : ''}${state.snap.drift ? STATE_LABEL[e.state] : e.protocol || ''}`, e.state === 'stale' ? 'unknown' : e.health, () => select({ type: 'edge', id: e.id }));
@@ -2520,15 +2603,15 @@ button.label { cursor: pointer; }
       row('protocol', [e.protocol || '—', e.port ? ':' + e.port : ''].join(''));
       if (e.requestRate > 0) {
         row('traffic', `${fmtRate(e.requestRate)} req/s`);
-        row('errors', e.errorsUnknown ? 'not measured in the current round (see Sources and Next steps)' : pct(e.errorRate));
+        row('errors', errorText(e));
       }
-      if (e.latencyP95Ms > 0) row('latency', `p50 ${fmtMs(e.latencyP50Ms)} · p95 ${fmtMs(e.latencyP95Ms)}`);
+      if (e.latencyP95Ms > 0) row('latency', latencyText(e));
       for (const m of e.measures) row(m.what, measureText(m));
       if (state.snap.drift) row('reason', e.reason || (e.declared ? '—' : 'not declared'));
       row('seen by', e.signals.map(s => has(SIGNAL, s) ? SIGNAL[s].label : s).join(', ') || (e.observed ? '—' : 'nobody yet'));
       if (e.sources.length) row('sources', e.sources.join(', '));
       if (e.members.length > 1) row('aggregates', `${e.members.length} communications`);
-      parts.push(kv);
+      parts.push(kv, ...evidenceBlock(e));
       const fs = state.snap.findings.filter(f => e.members.some(m => f.subject === m.from + '->' + m.to) || (e.state === 'ghost' && f.subject === e.from && f.rule === 'undeclared-flow'));
       if (fs.length) { parts.push(el('h3', {}, 'Next steps')); parts.push(...fs.map(f => findingCard(f, true))); }
       pane.replaceChildren(...parts);
@@ -2560,7 +2643,8 @@ button.label { cursor: pointer; }
       const pane = $('#pane-sources');
       if (!state.snap.sources.length) { pane.replaceChildren(el('p', { class: 'muted' }, 'No source details in this data.')); return; }
       pane.replaceChildren(el('h3', {}, 'Signals teia reads'), ...state.snap.sources.map(s => el('div', { class: 'src' },
-        el('div', {}, s.name, el('small', {}, `${s.type} · ${s.message || `${s.nodes} nodes, ${s.edges} edges`}`)),
+        el('div', {}, s.name, el('small', {}, `${s.type} · ${s.message || `${s.nodes} nodes, ${s.edges} edges`}`),
+          el('small', {}, `Last successful collection: ${timestamp(s.lastSuccessAt) || 'unknown'}${s.retained ? ' · retained topology' : ''}`)),
         el('span', { class: 'state ' + s.state }, s.state))));
     }
 
@@ -2861,7 +2945,9 @@ button.label { cursor: pointer; }
       update(snap, changes) { apply(snap, true); if (changes) pushActivity(changes, state.activity.length > 0); },
       // setStatus reports the host's own query state (the panel's data.state).
       setStatus(error) { state.error = error || ''; renderLive(); },
-      setOptions({ groupBy, flow, journey, journeyKey, values } = {}) {
+      setOptions(options = {}) {
+        const { groupBy, flow, journey, journeyKey, values } = options;
+        if (has(options, 'requestedRange')) { opts.requestedRange = options.requestedRange; renderLive(); }
         // A journey from the host (a dashboard variable) is the viewer's
         // choice; it applies when it changes, keeping filters picked since.
         if (journey != null && journey !== hostJourney) { hostJourney = journey; setJourney(journey); }

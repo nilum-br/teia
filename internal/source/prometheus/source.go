@@ -334,7 +334,7 @@ func (s *Source) runPreset(ctx context.Context, p *Preset, window string, obs *s
 	for _, r := range requests {
 		rateBy[seriesKey(r.Metric)] += r.Value
 	}
-	var p50, p95 map[string]float64
+	var p50, p95 map[string]latencyEstimate
 	if p.Latency != nil && !p.NoRate {
 		if p50, latencyErr = s.latency(ctx, p, window, 0.5, rateBy); latencyErr == nil {
 			p95, latencyErr = s.latency(ctx, p, window, 0.95, rateBy)
@@ -398,8 +398,9 @@ func (s *Source) runPreset(ctx context.Context, p *Preset, window string, obs *s
 			source.NodeObservation{ID: e.From, Kind: kindOr(e.FromKind), SelfReported: e.FromSelf, Labels: nodeLabels(p, e.FromSelf, e.FromNS)},
 			source.NodeObservation{ID: e.To, Kind: kindOr(e.ToKind), SelfReported: e.ToSelf, Labels: nodeLabels(p, e.ToSelf, e.ToNS)},
 		)
-		edge := source.EdgeObservation{From: e.From, To: e.To, Protocol: e.Protocol, Signal: p.Signal,
-			LatencyP50Ms: p50[k], LatencyP95Ms: p95[k]}
+		edge := source.EdgeObservation{From: e.From, To: e.To, Protocol: e.Protocol, Signal: p.Signal, Window: s.cfg.Window,
+			LatencyP50Ms: p50[k].value, LatencyP95Ms: p95[k].value,
+			LatencyApproximate: p50[k].approximate || p95[k].approximate}
 		if !p.NoRate {
 			edge.RequestRate = a.rate
 			edge.NoErrors = p.Failures == nil // connections counted, not their failures
@@ -425,16 +426,24 @@ func (s *Source) runPreset(ctx context.Context, p *Preset, window string, obs *s
 	return len(edges), latencyErr, nil
 }
 
+type latencyEstimate struct {
+	value       float64
+	approximate bool
+}
+
 // latency returns the q-quantile of call durations per edge key, in
 // milliseconds. An edge made of several series (HTTP and gRPC, two
 // destination services) gets their quantiles weighted by each series'
 // request rate: an approximation, since quantiles do not add up.
-func (s *Source) latency(ctx context.Context, p *Preset, window string, q float64, rateBy map[string]float64) (map[string]float64, error) {
+func (s *Source) latency(ctx context.Context, p *Preset, window string, q float64, rateBy map[string]float64) (map[string]latencyEstimate, error) {
 	series, err := s.client.Query(ctx, p.Latency(window, q))
 	if err != nil {
 		return nil, err
 	}
-	type weighted struct{ sum, weight float64 }
+	type weighted struct {
+		sum, weight float64
+		count       int
+	}
 	by := map[string]*weighted{}
 	for _, r := range series {
 		e := p.Map(r.Metric).Edge
@@ -451,10 +460,11 @@ func (s *Source) latency(ctx context.Context, p *Preset, window string, q float6
 		weight := math.Max(rateBy[seriesKey(r.Metric)], 1e-9)
 		w.sum += r.Value * weight
 		w.weight += weight
+		w.count++
 	}
-	out := make(map[string]float64, len(by))
+	out := make(map[string]latencyEstimate, len(by))
 	for key, w := range by {
-		out[key] = w.sum / w.weight * 1000
+		out[key] = latencyEstimate{value: w.sum / w.weight * 1000, approximate: w.count > 1}
 	}
 	return out, nil
 }

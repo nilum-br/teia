@@ -72,7 +72,7 @@ describe('framesToSnapshot', () => {
     });
     const { snapshot } = framesToSnapshot([plainEdges], 1);
     expect(snapshot!.edges[0].requestRate).toBe(4);
-    expect(snapshot!.edges[0].health).toBe('healthy');
+    expect(snapshot!.edges[0]).toMatchObject({ health: 'unknown', errorsUnknown: true, errorCoverage: 0 });
   });
 
   it('replaces values it does not know with safe ones', () => {
@@ -103,7 +103,7 @@ describe('framesToSnapshot', () => {
     });
     const { snapshot } = framesToSnapshot([odd, oddEdges, findings], 1);
     expect(snapshot!.nodes.map((n) => n.id)).toEqual(['a', 'b']);
-    expect(snapshot!.nodes[0]).toMatchObject({ health: 'unknown', visibility: 'full', labels: { team: 'x', n: '2' } });
+    expect(snapshot!.nodes[0]).toMatchObject({ health: 'unknown', visibility: 'partial', labels: { team: 'x', n: '2' } });
     expect(snapshot!.edges).toHaveLength(1);
     expect(snapshot!.edges[0]).toMatchObject({ state: 'ok', health: 'unknown' });
     expect(snapshot!.findings).toEqual([expect.objectContaining({ title: 'do this', severity: 'info' })]);
@@ -127,6 +127,26 @@ describe('framesToSnapshot', () => {
     expect(framesToSnapshot([], 1).snapshot).toBeUndefined();
   });
 
+  it('preserves supplied time without substituting conversion time or dashboard range', () => {
+    const frame = toDataFrame({ refId: 'nodes', fields: [{ name: 'id', values: ['a'] }] });
+    expect(framesToSnapshot([frame], 1).snapshot).toMatchObject({ generatedAt: '', observedAt: '', timeMode: 'query' });
+    frame.meta = { custom: { teia: { timeMode: 'current', snapshotAt: '2026-10-15T12:00:00Z' } } };
+    expect(framesToSnapshot([frame], 99).snapshot).toMatchObject({ generatedAt: '2026-10-15T12:00:00.000Z', timeMode: 'current' });
+    const emptyEdges = toDataFrame({ refId: 'edges', fields: [{ name: 'source', values: [] }, { name: 'target', values: [] }] });
+    expect(framesToSnapshot([frame, emptyEdges], 99).snapshot).toMatchObject({ generatedAt: '2026-10-15T12:00:00.000Z', timeMode: 'current' });
+    frame.meta = { custom: { teia: { snapshotAt: '2026-10-15T12:00:00Z', observedAt: '2026-10-14T10:00:00Z',
+      periodFrom: '2026-10-14T00:00:00Z', periodTo: '2026-10-15T00:00:00Z' } } };
+    expect(framesToSnapshot([frame], 100).snapshot).toMatchObject({ timeMode: 'query', observedAt: '2026-10-14T10:00:00.000Z',
+      period: { from: '2026-10-14T00:00:00.000Z', to: '2026-10-15T00:00:00.000Z' } });
+  });
+
+  it('makes mixed modes and incomplete timestamps explicit', () => {
+    const current = toDataFrame({ refId: 'nodes', fields: [{ name: 'id', values: ['a'] },
+      { name: 'timeMode', values: ['current'] }, { name: 'snapshotAt', values: ['2026-10-15T12:00:00Z'] }] });
+    const unknown = toDataFrame({ refId: 'edges', fields: [{ name: 'source', values: ['a'] }, { name: 'target', values: ['b'] }] });
+    expect(framesToSnapshot([current, unknown], 1).snapshot).toMatchObject({ generatedAt: '', timeMode: 'mixed', period: undefined });
+  });
+
   it('computes coverage when the data has none', () => {
     const c = coverageOf(
       [
@@ -137,5 +157,38 @@ describe('framesToSnapshot', () => {
       []
     );
     expect(c.visibility).toBe(0.5);
+  });
+
+  it('does not infer first-hand visibility or error health from rate alone', () => {
+    const rateOnly = toDataFrame({ fields: [{ name: 'id', values: ['a'] }, { name: 'secondarystat', values: [10] }] });
+    const { snapshot } = framesToSnapshot([rateOnly], 1);
+    expect(snapshot!.nodes[0]).toMatchObject({ health: 'unknown', visibility: 'partial', errorsUnknown: true, errorCoverage: 0 });
+    expect(snapshot!.coverage.visibility).toBe(0);
+  });
+
+  it.each([
+    [undefined, 'missing', true], [null, 'null', true], ['', 'missing', true],
+    [NaN, 'invalid', true], [Infinity, 'invalid', true], [-1, 'invalid', true],
+    [2, 'invalid', true], ['0 errors', 'invalid', true], [false, 'invalid', true],
+    [0, 'measured', false], ['0', 'measured', false],
+  ])('keeps error input %p distinct from measured zero', (value, status, unknown) => {
+    const frame = toDataFrame({ refId: 'edges', fields: [
+      { name: 'source', values: ['a'] }, { name: 'target', values: ['b'] },
+      { name: 'requestRate', values: [10] }, { name: 'errorRate', values: [value] },
+    ] });
+    const e = framesToSnapshot([frame], 1).snapshot!.edges[0];
+    expect(e).toMatchObject({ errorsUnknown: unknown, health: unknown ? 'unknown' : 'healthy', metricStatus: { errorRate: status } });
+  });
+
+  it('does not hide an invalid canonical metric behind an alias and retains other health reasons', () => {
+    const frame = toDataFrame({ refId: 'nodes', fields: [
+      { name: 'id', values: ['a'] }, { name: 'requestRate', values: ['10 req/s'] },
+      { name: 'secondarystat', values: [10] }, { name: 'errorRate', values: [0] },
+      { name: 'errorsUnknown', values: [true] },
+      { name: 'reasons', values: ['[{"cause":"backlog","health":"failing","summary":"queue stalled"}]'] },
+    ] });
+    expect(framesToSnapshot([frame], 1).snapshot!.nodes[0]).toMatchObject({
+      requestRate: 0, errorsUnknown: true, health: 'failing', metricStatus: { requestRate: 'invalid' },
+    });
   });
 });
