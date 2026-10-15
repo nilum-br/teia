@@ -1605,7 +1605,7 @@ button.label { cursor: pointer; }
     });
     const projected = sanitize({ ...base, nodes, edges, findings: [], changes: [], journeys: undefined, drift: false,
       coverage: { visibility: 0, declared: 0, observed: 0 } });
-    projected.operationContext = { id, traceId, operation: scope?.operation || 'unavailable in this capture', unavailable: !scope || (!!traceId && !traces.length) };
+    projected.operationContext = { id, traceId, operation: scope?.operation || (base.slice ? 'not sampled in this slice' : 'unavailable in this capture'), unavailable: !scope || (!!traceId && !traces.length) };
     return projected;
   }
   Object.assign(core, { groupingPath, neighbourOrder, mapReasons, safeLinks, investigateSnapshot, compareSnapshots, operationsOf, operationSnapshot });
@@ -3655,23 +3655,21 @@ button.label { cursor: pointer; }
     function renderOperations(pane) {
       const operations = state.baseSnapshot?.operations;
       pane.append(el('h3', {}, 'Investigate a sampled operation'), el('p', {}, 'Operations use span ancestry and normalized route/RPC attributes. Ownership journeys remain a separate topological view. Sample outcomes and durations do not establish service health, request rates or total traffic coverage.'));
-      // A slice keeps only some calls of each trace; an operation follows the whole trace.
-      const sliced = state.slice || (state.baseSnapshot?.slice ? sliceText(state.baseSnapshot.slice.selector) : '');
-      if (sliced) {
-        pane.append(el('p', {}, `The map shows only calls with ${sliceLabel(sliced)}. Operations follow whole sampled traces, which a slice does not split, so none are listed for it.`));
-        if (state.slice && opts.api) pane.append(el('button', { type: 'button', class: 'btn', onclick: () => setSlice('').then(() => {
-          if (state.workspace === 'operations' && $('#investigateDialog').open) { openWorkspace('operations'); $('#operationSelect')?.focus(); }
-        }) }, 'Show every call'));
-        pane.append(el('p', { id: 'workspaceStatus', role: 'status' }));
-        return;
-      }
+      // In a slice: the traces whose entry carried it, and in them its calls.
+      const sliced = state.baseSnapshot?.slice ? sliceText(state.baseSnapshot.slice.selector) : state.slice;
+      if (sliced) pane.append(el('p', {}, `Only calls with ${sliceLabel(sliced)}: the sampled traces whose entry carried it, and in them the calls that did. Counts, outcomes and durations are those of these traces.`));
       if (!operations?.scopes.length) {
-        pane.append(el('p', {}, 'No attributed operations in this capture. Connect Tempo and instrument http.route + method, RPC service/method, or teia.operation. Missing metadata is not evidence that no requests occurred.'));
+        pane.append(el('p', {}, sliced ? `No sampled entry carried ${sliceLabel(sliced)} in this capture. Missing metadata is not evidence that no requests occurred.`
+          : 'No attributed operations in this capture. Connect Tempo and instrument http.route + method, RPC service/method, or teia.operation. Missing metadata is not evidence that no requests occurred.'));
       }
-      if (operations) pane.append(...operations.sources.map(source => el('p', {}, `${source.source}: ${source.status} · ${source.fetchedTraces}/${source.requestedTraces} requested traces returned · ${source.failedTraces} failures${source.truncated ? ' · truncated' : ''} · ${source.queryPeriod?.from || '?'} – ${source.queryPeriod?.to || '?'}`)),
+      if (operations) pane.append(...operations.sources.map(source => el('p', {}, source.status === 'excluded'
+        ? `${source.source}: excluded · it cannot split its traces by the selected dimensions, so its operations are left out of this slice`
+        : `${source.source}: ${source.status} · ${source.fetchedTraces}/${source.requestedTraces} requested traces returned · ${source.failedTraces} failures${source.truncated ? ' · truncated' : ''} · ${source.queryPeriod?.from || '?'} – ${source.queryPeriod?.to || '?'}`)),
         el('p', {}, `${operations.unattributed.length} spans without an attributed operation. Sampling policy and traffic denominator are unknown.`));
       const scopes = operations?.scopes || [];
-      const select = choice('Operation', 'operationSelect', [['','Choose an operation'], ...scopes.map(s => [s.id, `${s.entryService} · ${s.operation} · ${s.source}`])], state.operation.id);
+      // The operation on the map may be absent here (another slice): offer the choice again.
+      const current = scopes.some(s => s.id === state.operation.id) ? state.operation.id : '';
+      const select = choice('Operation', 'operationSelect', [['','Choose an operation'], ...scopes.map(s => [s.id, `${s.entryService} · ${s.operation} · ${s.source}`])], current);
       const details = el('section', { id: 'operationDetails' });
       const refresh = () => {
         const scope = scopes.find(s => s.id === $('#operationSelect').value); details.replaceChildren();
@@ -3845,9 +3843,6 @@ button.label { cursor: pointer; }
       state.slice = next;
       // An update held while paused belongs to the previous selection.
       state.pending = null;
-      // A slice carries no sampled operations (they follow whole traces), so
-      // an operation shown on the map closes when a slice is chosen.
-      if (next) state.operation = { id: '', traceId: '' };
       state.positions = stored(posKey(), {});
       topologyKey = '';
       state.fitted = false;
@@ -4081,8 +4076,6 @@ button.label { cursor: pointer; }
         state.signals = new Set(strings(view.signals).filter(s => has(SIGNAL, s)));
       }
     } catch { /* invalid shared views leave the normal dashboard controls available */ }
-    // A slice carries no sampled operations: a link naming both opens the slice.
-    if (state.slice) state.operation = { id: '', traceId: '' };
     state.positions = stored(posKey(), {});
     if (opts.theme) host.dataset.theme = opts.theme;
 

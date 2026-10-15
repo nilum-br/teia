@@ -103,8 +103,9 @@ func (s Selector) supportedBy(dims []string) bool {
 // edge of a source that splits by every selected dimension keeps only its
 // matching slices, measured as that subset; edges without a match are
 // dropped. Observed edges of other sources are dropped and their source is
-// reported as excluded. Inventory, declarations and readings stay as they are:
-// Prune later removes what no selected call touches.
+// reported as excluded. Sampled operations keep the selected traces and
+// calls, or are marked excluded with the source. Inventory, declarations and
+// readings stay as they are: Prune later removes what no selected call touches.
 func Results(results []graph.Result, sel Selector) (out []graph.Result, contributed, excluded []string) {
 	out = make([]graph.Result, 0, len(results))
 	for _, r := range results {
@@ -132,6 +133,13 @@ func Results(results []graph.Result, sel Selector) (out []graph.Result, contribu
 			}
 			edges = append(edges, narrow(e, matched))
 			kept = true
+		}
+		if obs.Operations != nil {
+			if supported {
+				obs.Operations = operations(obs.Operations, sel)
+			} else {
+				obs.Operations = excludedOperations(obs.Operations)
+			}
 		}
 		if r.Err == nil && dropped {
 			excluded = append(excluded, r.Source.Name())
@@ -161,6 +169,127 @@ func narrow(e source.EdgeObservation, matched []source.Slice) source.EdgeObserva
 	e.Measures = nil
 	e.Slices = matched
 	return e
+}
+
+// operations narrows a source's sampled operations to the traces whose entry
+// span carried the selection and, inside them, to the spans and calls that
+// carried it too: the calls the slice's edges come from. Counts, root outcomes
+// and durations are recomputed from the kept entry spans.
+func operations(c *model.OperationContract, sel Selector) *model.OperationContract {
+	out := *c
+	out.Sources = slices.Clone(c.Sources)
+	out.Scopes, out.Unattributed = []model.OperationScope{}, []model.OperationUnattributed{}
+	for _, u := range c.Unattributed {
+		if sel.matches(u.Dimensions) {
+			out.Unattributed = append(out.Unattributed, u)
+		}
+	}
+	for _, scope := range c.Scopes {
+		if kept, ok := operationScope(scope, sel); ok {
+			out.Scopes = append(out.Scopes, kept)
+		}
+	}
+	return &out
+}
+
+// excludedOperations keeps the status of a source that cannot split its
+// traces by the selection, marked excluded, and none of its operations.
+func excludedOperations(c *model.OperationContract) *model.OperationContract {
+	out := *c
+	out.Sources = slices.Clone(c.Sources)
+	for i := range out.Sources {
+		out.Sources[i].Status = "excluded"
+	}
+	out.Scopes, out.Unattributed = []model.OperationScope{}, []model.OperationUnattributed{}
+	return &out
+}
+
+// operationScope keeps one operation's selected traces, spans and calls; it
+// reports false when no sampled entry carried the selection.
+func operationScope(scope model.OperationScope, sel Selector) (model.OperationScope, bool) {
+	kinds := map[string]model.NodeKind{}
+	for _, n := range scope.Nodes {
+		kinds[n.ID] = n.Kind
+	}
+	kindOf := func(id string) model.NodeKind {
+		if kind, ok := kinds[id]; ok {
+			return kind
+		}
+		return model.KindService
+	}
+	out := scope
+	out.SampledRootCount, out.IncompleteTraceCount, out.RootOutcomes = 0, 0, model.OperationOutcomes{}
+	out.SampleRootDurationsMs, out.Traces = []float64{}, []model.OperationTrace{}
+	nodes := map[string]model.NodeKind{}
+	kept := map[string]bool{} // trace ID and span ID of every selected span
+	gaps := map[string]bool{}
+	for _, t := range scope.Traces {
+		if !sel.matches(t.Dimensions) {
+			continue
+		}
+		trace := t
+		trace.SpanIDs, trace.Spans = []string{}, []model.OperationSpan{}
+		for _, sp := range t.Spans {
+			if !sel.matches(sp.Dimensions) {
+				continue
+			}
+			trace.SpanIDs = append(trace.SpanIDs, sp.SpanID)
+			trace.Spans = append(trace.Spans, sp)
+			kept[t.TraceID+"\x00"+sp.SpanID] = true
+			if sp.NodeID != "" {
+				nodes[sp.NodeID] = kindOf(sp.NodeID)
+			}
+		}
+		out.Traces = append(out.Traces, trace)
+		out.SampledRootCount++
+		if t.RootDurationMs != nil {
+			out.SampleRootDurationsMs = append(out.SampleRootDurationsMs, *t.RootDurationMs)
+		}
+		switch t.RootOutcome {
+		case "ok":
+			out.RootOutcomes.OK++
+		case "error":
+			out.RootOutcomes.Error++
+		default:
+			out.RootOutcomes.Unknown++
+		}
+		if t.StructuralStatus == "gaps-detected" && !gaps[t.TraceID] {
+			gaps[t.TraceID] = true
+			out.IncompleteTraceCount++
+		}
+	}
+	if out.SampledRootCount == 0 {
+		return out, false
+	}
+	out.Edges = []model.OperationEdge{}
+	for _, e := range scope.Edges {
+		edge := e
+		edge.Calls, edge.TraceIDs = []model.OperationCall{}, []string{}
+		for _, call := range e.Calls {
+			if !kept[call.TraceID+"\x00"+call.SpanID] {
+				continue
+			}
+			edge.Calls = append(edge.Calls, call)
+			if !slices.Contains(edge.TraceIDs, call.TraceID) {
+				edge.TraceIDs = append(edge.TraceIDs, call.TraceID)
+			}
+		}
+		if len(edge.Calls) == 0 {
+			continue
+		}
+		out.Edges = append(out.Edges, edge)
+		for _, id := range []string{e.From, e.To} {
+			if _, ok := nodes[id]; !ok {
+				nodes[id] = kindOf(id)
+			}
+		}
+	}
+	out.Nodes = make([]model.OperationNode, 0, len(nodes))
+	for id, kind := range nodes {
+		out.Nodes = append(out.Nodes, model.OperationNode{ID: id, Kind: kind})
+	}
+	sort.Slice(out.Nodes, func(i, j int) bool { return out.Nodes[i].ID < out.Nodes[j].ID })
+	return out, true
 }
 
 // aggregate combines the slices a selection matched (for instance every

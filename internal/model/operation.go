@@ -38,7 +38,9 @@ type OperationSource struct {
 	QueriedServices   int              `json:"queriedServices"`
 	AvailableServices int              `json:"availableServices"`
 	Truncated         bool             `json:"truncated"`
-	Status            string           `json:"status"` // sampled, partial, unavailable
+	// Status is sampled, partial or unavailable; in a slice, excluded when the
+	// source cannot split its traces by the selected dimensions.
+	Status string `json:"status"`
 }
 
 type OperationScope struct {
@@ -96,6 +98,9 @@ type OperationTrace struct {
 	Spans                []OperationSpan `json:"spans"`
 	StructuralStatus     string          `json:"structuralStatus"` // linked-sample or gaps-detected, never complete
 	Truncated            bool            `json:"truncated"`
+	// Dimensions are the business dimension values the entry span carried,
+	// itself or from its closest ancestor; a slice keeps the traces they match.
+	Dimensions map[string]string `json:"dimensions,omitempty"`
 }
 
 type OperationSpan struct {
@@ -106,6 +111,9 @@ type OperationSpan struct {
 	StartedAt    time.Time           `json:"startedAt,omitzero"`
 	EndedAt      time.Time           `json:"endedAt,omitzero"`
 	Links        []OperationSpanLink `json:"links"`
+	// Dimensions are this span's own business dimension values, or inherited
+	// from its closest ancestor: those of the call it stands for.
+	Dimensions map[string]string `json:"dimensions,omitempty"`
 }
 
 type OperationSpanLink struct {
@@ -119,6 +127,8 @@ type OperationUnattributed struct {
 	SpanID  string `json:"spanId"`
 	NodeID  string `json:"nodeId"`
 	Reason  string `json:"reason"`
+	// Dimensions place the span in a slice, as for attributed spans.
+	Dimensions map[string]string `json:"dimensions,omitempty"`
 }
 
 func EmptyOperations() *OperationContract {

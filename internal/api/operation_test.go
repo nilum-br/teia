@@ -40,18 +40,36 @@ func TestOperationEndpointAndEmptyTopologyFramePreserveSamplingContract(t *testi
 	}
 }
 
-// Operations follow whole traces: a slice is refused instead of being
-// answered with every journey's operations.
-func TestOperationEndpointRefusesSlices(t *testing.T) {
-	engine := newFakeEngine()
-	engine.snap.Operations = model.EmptyOperations()
-	h := Handler(engine, Options{})
-	for query, want := range map[string]int{"": http.StatusOK, "?slice=": http.StatusOK, "?slice=journey:checkout": http.StatusBadRequest, "?slice=journey": http.StatusBadRequest} {
-		if rec := get(h, "/api/v1/operations"+query, nil); rec.Code != want {
-			t.Errorf("%q: status %d, want %d (%s)", query, rec.Code, want, rec.Body)
+// With ?slice= the operations are the sliced round's, never the whole
+// platform's; a bad selection or an engine that cannot slice says so.
+func TestOperationEndpointFollowsSlices(t *testing.T) {
+	eng := &slicingEngine{fakeEngine: newFakeEngine()}
+	eng.snap.Operations = model.EmptyOperations()
+	eng.snap.Operations.Sources = []model.OperationSource{{Source: "tempo", Status: "sampled"}}
+	eng.operations = model.EmptyOperations()
+	eng.operations.Sources = []model.OperationSource{{Source: "tempo", Status: "excluded"}}
+	h := Handler(eng, Options{})
+	status := func(path string) string {
+		var contract model.OperationContract
+		rec := get(h, path, nil)
+		if err := json.Unmarshal(rec.Body.Bytes(), &contract); err != nil || rec.Code != http.StatusOK || len(contract.Sources) != 1 {
+			t.Fatalf("%s: %d %s", path, rec.Code, rec.Body)
 		}
+		return contract.Sources[0].Status
 	}
-	if rec := get(h, "/api/v1/operations?slice=journey:checkout", nil); !strings.Contains(rec.Body.String(), "not split by dimension") {
-		t.Errorf("the refusal must say why: %s", rec.Body)
+	if got := status("/api/v1/operations"); got != "sampled" {
+		t.Errorf("whole round = %q", got)
+	}
+	if got := status("/api/v1/operations?slice="); got != "sampled" {
+		t.Errorf("an empty selection is the whole round, got %q", got)
+	}
+	if got := status("/api/v1/operations?slice=journey:checkout"); got != "excluded" || eng.asked[len(eng.asked)-1] != "journey:checkout" {
+		t.Errorf("sliced round = %q, asked %v", got, eng.asked)
+	}
+	if rec := get(h, "/api/v1/operations?slice=journey", nil); rec.Code != http.StatusBadRequest {
+		t.Errorf("a malformed selection: %d", rec.Code)
+	}
+	if rec := get(Handler(newFakeEngine(), Options{}), "/api/v1/operations?slice=journey:checkout", nil); rec.Code != http.StatusNotImplemented {
+		t.Errorf("an engine that cannot slice must say so, got %d", rec.Code)
 	}
 }

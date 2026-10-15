@@ -15,6 +15,8 @@ import (
 type slicingEngine struct {
 	*fakeEngine
 	asked []string
+	// operations, when set, are the sliced round's own.
+	operations *model.OperationContract
 }
 
 func (s *slicingEngine) Sliced(sel slice.Selector) model.Snapshot {
@@ -22,6 +24,9 @@ func (s *slicingEngine) Sliced(sel slice.Selector) model.Snapshot {
 	snap := s.snap
 	snap.Nodes = []model.Node{{ID: "app-a"}}
 	snap.Slice = &model.SliceScope{Selector: sel, Matched: true, Metrics: "scoped"}
+	if s.operations != nil {
+		snap.Operations = s.operations
+	}
 	return snap
 }
 

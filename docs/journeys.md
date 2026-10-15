@@ -230,9 +230,9 @@ sources:
   trace slices carry a sample count and sampled p50/p95, with no rate or errors. The edge itself remains the total
   of every call, and its details list the values seen on it.
 - `?slice=journey:checkout` (or `journey:checkout,tenant:acme`) on teia's page, or on `/api/v1/snapshot`, `graph`,
-  `journeys`, `findings`, `coverage`, `stream`, the Grafana frames and the flow matrix, rebuilds the round from the
-  selected calls only. Nodes no selected call touches disappear, including ports; health, journeys and findings are
-  judged on those calls. Exporter readings on nodes (memory, connections) stay node-wide.
+  `journeys`, `findings`, `coverage`, `operations`, `stream`, the Grafana frames and the flow matrix, rebuilds
+  the round from the selected calls only. Nodes no selected call touches disappear, including ports; health,
+  journeys and findings are judged on those calls. Exporter readings on nodes (memory, connections) stay node-wide.
 - Declared flows are not per journey: a selected call keeps its declaration, but a flow only declared (or made by
   other journeys) between two services the slice reaches is left out rather than shown as stale.
 - Several matching slices (every tenant of one journey) add their rates; their p95s are weighted by traffic and
@@ -259,8 +259,9 @@ without merging their intermediate calls. Labels, global health and global traff
 operation attribution or operation measurements.
 
 The mode reports sampled roots and incomplete traces; sampling coverage and total traffic remain unknown.
-A slice does not split operations: they follow whole traces, so a sliced snapshot carries none, and choosing
-a slice closes an operation shown on the map.
+In a slice, an operation keeps the sampled traces whose entry carried the selection and, in them, the calls
+that did; an operation shown on the map stays open when the slice changes, and says when the slice did not
+sample it.
 The shared [operation acceptance fixture](../internal/journey/testdata/operation-contract.json) verifies
 separate checkout/browse calls, an incomplete checkout trace and an orphan that ownership cannot attribute.
 Declared journey documents, journey-specific notifications and operation metric aggregation remain separate

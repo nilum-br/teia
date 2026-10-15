@@ -295,8 +295,9 @@ const maxSliced = 64
 // every selected dimension value. Health, journeys and findings are judged
 // on those calls alone; the round number and time are the last round's.
 // A selection nothing matched gives an empty snapshot with Matched false.
-// Sampled operations follow whole traces, which a slice does not split, so
-// a sliced snapshot carries none rather than every journey's operations.
+// Sampled operations keep the traces whose entry carried the selection, and
+// in them the calls that did; a source that cannot split its traces is
+// listed as excluded.
 func (e *Engine) Sliced(sel slice.Selector) model.Snapshot {
 	key := sel.String()
 	e.mu.RLock()
@@ -325,6 +326,7 @@ func (e *Engine) Sliced(sel slice.Selector) model.Snapshot {
 		Sources:     statuses,
 		Coverage:    graph.ComputeCoverage(g),
 		Dimensions:  base.Dimensions,
+		Operations:  operationContract(narrowed, g),
 		Slice: &model.SliceScope{
 			Selector: map[string]string(sel), Metrics: "scoped",
 			Sources: contributed, Excluded: excluded,

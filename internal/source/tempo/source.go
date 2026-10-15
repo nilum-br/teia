@@ -82,6 +82,12 @@ func (e *deniedError) Error() string { return fmt.Sprintf("HTTP %d", e.status) }
 
 func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	var obs source.Observation
+	// Every round says which dimensions it can split by, even one without
+	// traces, so a slice does not treat this source as unable to split.
+	for dim := range s.cfg.Dimensions {
+		obs.Dimensions = append(obs.Dimensions, dim)
+	}
+	sort.Strings(obs.Dimensions)
 	// Searching each service can take seconds. Use one window for the whole
 	// round rather than silently moving the period as each request starts.
 	window := s.window()
@@ -94,7 +100,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		return obs, err
 	}
 	if len(services) == 0 {
-		obs.Operations = operationSamples(s.name, window, nil, 0, 0, 0, 0, false)
+		obs.Operations = operationSamples(s.name, window, nil, s.cfg.Dimensions, 0, 0, 0, 0, false)
 		obs.Degraded = true
 		obs.Message = "no services with traces in the window"
 		return obs, nil
@@ -123,7 +129,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	for _, t := range traces {
 		p.pair(t.spans)
 	}
-	obs.Operations = operationSamples(s.name, window, traces, len(ids), failed, searched, len(services), limited || searched < len(services))
+	obs.Operations = operationSamples(s.name, window, traces, s.cfg.Dimensions, len(ids), failed, searched, len(services), limited || searched < len(services))
 	edges, self, targets := p.edges, p.self, p.targets
 	for key, ms := range p.durations {
 		edges[key].LatencyP50Ms, edges[key].LatencyP95Ms = quantile(ms, 0.5), quantile(ms, 0.95)
@@ -136,10 +142,6 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		e := edges[sl.edge]
 		e.Slices = append(e.Slices, sl.slice)
 	}
-	for dim := range s.cfg.Dimensions {
-		obs.Dimensions = append(obs.Dimensions, dim)
-	}
-	sort.Strings(obs.Dimensions)
 	for id := range self {
 		obs.Nodes = append(obs.Nodes, source.NodeObservation{ID: id, Kind: model.KindService, SelfReported: true,
 			Labels: map[string]string{source.SignalLabel(source.SignalTraces): "true"}})

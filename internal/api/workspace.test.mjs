@@ -82,3 +82,15 @@ test('operation projection excludes global health, rates, other operations and a
   assert.equal(operationSnapshot(base, operations.scopes[0].id, 'missing-trace').nodes.length, 0);
   assert.equal(base.nodes[0].health, 'failing');
 });
+
+test('an operation a slice did not sample says so instead of reading as missing data', () => {
+  const operations = JSON.parse(readFileSync(new URL('../journey/testdata/operation-runtime.json', import.meta.url)));
+  const [kept, ...others] = operations.scopes;
+  const slice = { selector: { journey: 'checkout' }, matched: true, metrics: 'scoped', sources: ['tempo'] };
+  const sliced = sanitize({ nodes: kept.nodes.map(n => ({ id: n.id })), edges: [], operations: { ...operations, scopes: [kept] }, slice });
+  assert.equal(operationSnapshot(sliced, kept.id).operationContext.unavailable, false);
+  const absent = operationSnapshot(sliced, others[0].id).operationContext;
+  assert.deepEqual([absent.operation, absent.unavailable], ['not sampled in this slice', true]);
+  const whole = sanitize({ nodes: [], edges: [], operations: { ...operations, scopes: [] } });
+  assert.equal(operationSnapshot(whole, kept.id).operationContext.operation, 'unavailable in this capture');
+});
