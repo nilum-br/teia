@@ -127,12 +127,13 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.22.0
           cache: npm
           cache-dependency-path: plugins/grafana/package-lock.json
       - name: map component tests (teia-ui.js, shared with teia's own UI)
         working-directory: .
         run: node --test internal/api/teia-ui.test.mjs
+      - run: npm install --global npm@12.2.0
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run lint
@@ -154,9 +155,9 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         with:
-          version: v4.3.0
+          version: v4.3.1
       - name: lint defaults and all optional resources
         run: |
           helm lint charts/teia --strict

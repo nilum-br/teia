@@ -278,7 +278,7 @@ services:
   # Prometheus and puts them on catalog-cache, not on the exporter.
   catalog-cache-exporter:
     <<: *infra
-    image: oliver006/redis_exporter:v1.93.0
+    image: oliver006/redis_exporter:v1.94.0
     environment:
       REDIS_ADDR: redis://catalog-cache:6379
     depends_on: [catalog-cache]
@@ -349,7 +349,7 @@ services:
   # the checkout (dist/ and the synced src/teia/teia-ui.js) to the checkout's
   # owner, so no root-owned files are left behind on Linux.
   teia-panel:
-    image: node:24.21.0-trixie
+    image: node:24.22.0-trixie
     restart: "no"
     labels:
       teia.ignore: "true"
@@ -358,11 +358,12 @@ services:
       - sh
       - -c
       - |
+        set -e
         owner=$$(stat -c %u:%g .)
         trap 'chown -R "$$owner" dist src/teia/teia-ui.js 2>/dev/null || true' EXIT
         cat /repo/certs/*.crt > /tmp/extra-ca.pem 2>/dev/null || true
         export NODE_EXTRA_CA_CERTS=/tmp/extra-ca.pem
-        npm ci --no-audit --no-fund && npm run build
+        npm install --global npm@12.2.0 && npm ci --no-audit --no-fund && npm run build
         # Grafana keeps a plugin's files for an hour under its version: each
         # lab build gets its own, so a browser never runs the build before.
         node -e "const f='dist/plugin.json',p=JSON.parse(require('fs').readFileSync(f));p.info.version+='-lab.'+Date.now().toString(36);require('fs').writeFileSync(f,JSON.stringify(p,null,2))"

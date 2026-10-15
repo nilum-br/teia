@@ -137,4 +137,4 @@ affinity: {}
 
 # The image `helm test` runs to call /healthz.
 test:
-  image: busybox:1.37.0
+  image: busybox:1.38.0
