@@ -36,6 +36,8 @@ var (
 
 type grafanaNode struct {
 	Operations         string    `json:"operations,omitempty"` // JSON operation contract on first row
+	Slice              string    `json:"slice,omitempty"`      // JSON slice scope on first row, when sliced
+	Dimensions         string    `json:"dimensions,omitempty"` // JSON dimension values seen, on first row
 	Identity           string    `json:"identity"`             // JSON array of identity resolutions
 	HistoryID          string    `json:"historyId,omitempty"`  // every historical row identifies its capture
 	History            string    `json:"history,omitempty"`    // JSON replay metadata on first node row
@@ -162,6 +164,9 @@ func grafanaNodes(s model.Snapshot) []grafanaNode {
 		metadata, _ := json.Marshal(s.History)
 		out[0].History = string(metadata)
 	}
+	if len(out) > 0 {
+		out[0].Slice, out[0].Dimensions = sliceMetadata(s)
+	}
 	return out
 }
 
@@ -277,6 +282,8 @@ type grafanaCoverage struct {
 	grafanaTemporal
 	History    string `json:"history,omitempty"`
 	Operations string `json:"operations,omitempty"`
+	Slice      string `json:"slice,omitempty"`
+	Dimensions string `json:"dimensions,omitempty"`
 }
 
 func grafanaCoverageOf(s model.Snapshot) grafanaCoverage {
@@ -289,7 +296,22 @@ func grafanaCoverageOf(s model.Snapshot) grafanaCoverage {
 		metadata, _ := json.Marshal(s.History)
 		row.History = string(metadata)
 	}
+	row.Slice, row.Dimensions = sliceMetadata(s)
 	return row
+}
+
+// sliceMetadata tells a panel fed by frames which slice they hold, if any, and
+// which dimension values it can offer: frames alone cannot say they were sliced.
+func sliceMetadata(s model.Snapshot) (slice, dimensions string) {
+	if s.Slice != nil {
+		scope, _ := json.Marshal(s.Slice)
+		slice = string(scope)
+	}
+	if len(s.Dimensions) > 0 {
+		values, _ := json.Marshal(s.Dimensions)
+		dimensions = string(values)
+	}
+	return slice, dimensions
 }
 
 type grafanaChange struct {

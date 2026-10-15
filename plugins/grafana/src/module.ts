@@ -39,6 +39,13 @@ export const plugin = new PanelPlugin<TeiaOptions>(TeiaPanel)
         defaultValue: true,
       })
       .addTextInput({
+        path: 'sliceVariable',
+        name: 'Slice variable',
+        description:
+          'Dashboard variable your teia queries pass as ?slice=${slice:percentencode} (nodes, edges, findings, coverage). The Calls of buttons on the panel set it; leave empty to turn them off. A teia API URL slices directly instead.',
+        defaultValue: 'slice',
+      })
+      .addTextInput({
         path: 'frameMapping',
         name: 'Column mapping (JSON)',
         description: 'Optional nodes/edges column aliases, also configurable in the panel setup. Rates must be requests/s, errors fractions 0–1 and latency milliseconds; convert units in the query.',

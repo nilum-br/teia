@@ -2834,13 +2834,17 @@ button.label { cursor: pointer; }
     // what a slice in use shows: only those calls, with their own metrics.
     function sliceBar() {
       const sl = state.snap?.slice, dims = state.snap?.dimensions || {};
+      // teia's API slices directly; a host that feeds frames (a Grafana panel)
+      // picks through its own controls, or only labels the slice it was given.
+      const pickable = !!opts.api || typeof opts.onSliceChange === 'function';
       if (state.slice) {
         const label = sliceLabel(state.slice);
         const out = [el('span', { class: 'fchip slice' }, 'Calls of ' + label,
-          el('button', { type: 'button', 'aria-label': 'Show every call', title: 'Show every call', onclick: () => setSlice('') }, '✕'))];
+          pickable ? el('button', { type: 'button', 'aria-label': 'Show every call', title: 'Show every call', onclick: () => setSlice('') }, '✕') : null)];
         if (sl && !sl.matched) out.push(el('span', { class: 'caption slice-note' }, 'no call carried this selection'));
         else if (sl) out.push(el('span', { class: 'caption slice-note', title: 'Rates, errors and latencies come only from these calls. Node readings from exporters stay node-wide.' }, 'metrics of these calls only'));
         if (sl?.excluded.length) out.push(el('span', { class: 'caption slice-note', title: 'These sources cannot split their connections by the selected dimensions, so their connections are left out of the slice.' }, 'without ' + sl.excluded.join(', ')));
+        if (!pickable) return out;
         for (const [k, vs] of Object.entries(dims)) {
           const current = Object.fromEntries(state.slice.split(',').map(p => p.split(':')))[k];
           if (current === undefined) continue;
@@ -2849,7 +2853,7 @@ button.label { cursor: pointer; }
         return out;
       }
       const entries = Object.entries(dims);
-      if (!entries.length || !opts.api) return [];
+      if (!entries.length || !pickable) return [];
       const out = [el('span', { class: 'caption', title: 'Show only the calls whose own telemetry carried this value, with their own metrics' }, 'Calls of')];
       for (const [k, vs] of entries) for (const v of vs.slice(0, 6)) {
         out.push(el('button', { type: 'button', class: 'jtab', title: `Only the calls with ${k} = ${v}`, onclick: () => setSlice(k + ':' + v) }, `${k}: ${v}`));
@@ -3764,6 +3768,12 @@ button.label { cursor: pointer; }
         (snap.history?.id !== state.snap?.history?.id || snap.timeMode !== state.snap?.timeMode);
       if (!force && !hostReplayChanged && !state.live && state.snap) { state.pending = raw; renderLive(); return; }
       if (hostReplayChanged) { state.activity = []; renderActivity(); }
+      // Frames from a host hold the slice their queries asked for: the data,
+      // not a choice made here, says which calls the map shows.
+      if (!opts.api) {
+        const held = base.slice ? sliceText(base.slice.selector) : '';
+        if (held !== state.slice) { state.slice = held; state.positions = stored(posKey(), {}); topologyKey = ''; state.fitted = false; }
+      }
       const sig = signature(snap);
       const changed = sig !== state.sig;
       const isNew = !state.snap || snap.round !== state.snap.round;
@@ -3853,10 +3863,14 @@ button.label { cursor: pointer; }
       }
       syncSharedURL();
       if (es) { es.close(); es = null; }
-      if (!opts.api) return Promise.resolve();
-      const loaded = load(aborter.signal, true).catch(error => { state.error = error.message; renderLive(); }).finally(() => { state.fitted = fit(); connect(); });
       $('#announce').textContent = next ? `Only calls with ${next.replaceAll(',', ', ')}` : 'Whole map';
-      return loaded;
+      if (!opts.api) {
+        // A host that feeds frames asks its queries for the slice (a dashboard
+        // variable); the frames that come back say which slice they hold.
+        if (typeof opts.onSliceChange === 'function') { opts.onSliceChange(next); renderScope(); }
+        return Promise.resolve();
+      }
+      return load(aborter.signal, true).catch(error => { state.error = error.message; renderLive(); }).finally(() => { state.fitted = fit(); connect(); });
     }
 
     function connect() {
@@ -4105,7 +4119,8 @@ button.label { cursor: pointer; }
       // setStatus reports the host's own query state (the panel's data.state).
       setStatus(error) { state.error = error || ''; renderLive(); },
       setOptions(options = {}) {
-        for (const key of ['inputFrames', 'fieldMapping', 'onMappingChange']) if (has(options, key)) opts[key] = options[key];
+        for (const key of ['inputFrames', 'fieldMapping', 'onMappingChange', 'onSliceChange']) if (has(options, key)) opts[key] = options[key];
+        if (has(options, 'onSliceChange') && state.snap) renderScope();
         const { groupBy, flow, journey, journeyKey, values } = options;
         if (has(options, 'requestedRange')) { opts.requestedRange = options.requestedRange; renderLive(); }
         // A journey from the host (a dashboard variable) is the viewer's

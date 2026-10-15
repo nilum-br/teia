@@ -192,8 +192,10 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 			send(w, grafanaEdges(s))
 		}
 	})
-	mux.HandleFunc("GET /api/v1/grafana/findings", func(w http.ResponseWriter, _ *http.Request) {
-		send(w, grafanaFindings(snap()))
+	mux.HandleFunc("GET /api/v1/grafana/findings", func(w http.ResponseWriter, r *http.Request) {
+		if s, ok := snapOf(w, r); ok {
+			send(w, grafanaFindings(s))
+		}
 	})
 	mux.HandleFunc("GET /api/v1/grafana/sources", func(w http.ResponseWriter, _ *http.Request) {
 		send(w, grafanaSources(snap()))

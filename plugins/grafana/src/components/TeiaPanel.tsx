@@ -1,5 +1,6 @@
 import React, { use, useEffect, useRef } from 'react';
 import { LoadingState, PanelProps, ThemeContext } from '@grafana/data';
+import { getTemplateSrv, locationService } from '@grafana/runtime';
 import { TeiaOptions } from '../types';
 import { framesToSnapshot } from '../teia/frames';
 import { applyMapping, describeFrames, parseMapping, validateMapping, type FrameMapping } from '../teia/mapping';
@@ -22,6 +23,10 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, on
   const storageKey = `panel-${replaceVariables('${__dashboard.uid}') || 'local'}-${id}`;
   const journey = journeyOf(replaceVariables(options.journey || ''));
   const from = timeRange?.from.toISOString(), to = timeRange?.to.toISOString();
+  // Queries reach teia through the data source, so a slice travels as a
+  // dashboard variable they pass as ?slice=; a teia URL slices directly.
+  const sliceVariable = options.teiaUrl ? '' : (options.sliceVariable ?? 'slice').trim();
+  const canSlice = sliceVariable !== '' && hasVariable(sliceVariable);
 
   useEffect(() => { optionsRef.current = { options, onOptionsChange }; }, [options, onOptionsChange]);
 
@@ -70,6 +75,12 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, on
   }, [options.groupBy, options.flow, journey, options.journeyKey, options.values]);
 
   useEffect(() => {
+    uiRef.current?.setOptions({
+      onSliceChange: canSlice ? (slice: string) => locationService.partial({ [`var-${sliceVariable}`]: slice }, true) : undefined,
+    });
+  }, [canSlice, sliceVariable, options.teiaUrl, storageKey]);
+
+  useEffect(() => {
     if (options.teiaUrl || !uiRef.current) {
       return;
     }
@@ -98,6 +109,16 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, on
 
   return <div ref={hostRef} style={{ width, height }} data-testid="teia-panel" />;
 };
+
+/** hasVariable says whether the dashboard defines the variable a slice is
+ * written to; without it the panel only labels the slice its data holds. */
+export function hasVariable(name: string): boolean {
+  try {
+    return getTemplateSrv().getVariables().some(v => v.name === name);
+  } catch {
+    return false;
+  }
+}
 
 /** journeyOf reads the panel's journey after variables: an "All" choice, or
  * a variable left unresolved, means the whole map. */

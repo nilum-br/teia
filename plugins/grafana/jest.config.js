@@ -2,7 +2,14 @@
 // generally used by snapshots, but can affect specific tests
 process.env.TZ = 'UTC';
 
+const base = require('./.config/jest.config');
+
 module.exports = {
   // Jest configuration provided by Grafana scaffolding
-  ...require('./.config/jest.config'),
+  ...base,
+  moduleNameMapper: {
+    ...base.moduleNameMapper,
+    // The Grafana host provides @grafana/runtime; it is not installed (docs/dependency-status.md).
+    '^@grafana/runtime$': '<rootDir>/src/test/grafana-runtime.ts',
+  },
 };
