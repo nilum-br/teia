@@ -269,3 +269,11 @@ more database explorers.
 
 Issues and PRs welcome; see [CONTRIBUTING.md](CONTRIBUTING.md), and report vulnerabilities privately as described in
 [SECURITY.md](SECURITY.md). Apache-2.0. Built by [Nilum](https://nilum.com.br) and contributors.
+
+### Contributors
+
+<a href="https://github.com/nilum-br/teia/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=nilum-br/teia" alt="Profile pictures of the people who contributed to teia">
+</a>
+
+Generated from GitHub's contributor list by [contrib.rocks](https://contrib.rocks); it updates on its own.
