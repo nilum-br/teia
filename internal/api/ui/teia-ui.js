@@ -3753,12 +3753,14 @@ button.label { cursor: pointer; }
       return true;
     }
 
-    async function load(signal) {
+    // load fetches the current snapshot; force draws it even while live
+    // updates are paused, for a view the user just asked for.
+    async function load(signal, force = false) {
       if (state.historyId) { await replay(state.historyId); return; }
       const get = path => fetch(opts.api + path, { signal, headers: { Accept: 'application/json' } }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
       const [snap, changes] = await Promise.all([get('snapshot' + sliceQuery()), get('changes').catch(() => [])]);
       if (destroyed) return;
-      if (snap.generatedAt && !String(snap.generatedAt).startsWith('0001')) apply(snap, false);
+      if (snap.generatedAt && !String(snap.generatedAt).startsWith('0001')) apply(snap, false, force);
       pushActivity(changes, false);
     }
 
@@ -3815,6 +3817,8 @@ button.label { cursor: pointer; }
       next = String(next || '').trim();
       if (next === state.slice) return;
       state.slice = next;
+      // An update held while paused belongs to the previous selection.
+      state.pending = null;
       state.positions = stored(posKey(), {});
       topologyKey = '';
       state.fitted = false;
@@ -3826,7 +3830,7 @@ button.label { cursor: pointer; }
       syncSharedURL();
       if (es) { es.close(); es = null; }
       if (!opts.api) return;
-      load(aborter.signal).catch(error => { state.error = error.message; renderLive(); }).finally(() => { state.fitted = fit(); connect(); });
+      load(aborter.signal, true).catch(error => { state.error = error.message; renderLive(); }).finally(() => { state.fitted = fit(); connect(); });
       $('#announce').textContent = next ? `Only calls with ${next.replaceAll(',', ', ')}` : 'Whole map';
     }
 
