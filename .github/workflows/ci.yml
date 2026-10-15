@@ -135,6 +135,7 @@ jobs:
         run: node --test internal/api/teia-ui.test.mjs
       - run: npm install --global npm@12.2.0
       - run: npm ci --no-audit --no-fund
+      - run: npm run deps:audit
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run test:ci
@@ -214,7 +215,7 @@ jobs:
       - name: start Grafana with the tested plugin artifact
         run: |
           docker compose up -d --no-deps grafana
-          curl --fail --retry 30 --retry-connrefused --retry-delay 2 http://localhost:3480/api/health
+          curl --fail --retry 30 --retry-all-errors --retry-delay 2 --max-time 5 --retry-max-time 120 http://localhost:3480/api/health
       - uses: actions/setup-node@v7
         with:
           node-version: 26.12.0

@@ -27,8 +27,15 @@ The TypeScript CLI is 7.0.2 via the official
 See [dependency maintenance and compatibility exceptions](../../CONTRIBUTING.md#dependency-maintenance).
 
 `npm run deps:check` compares all locked direct dependencies with current stable npm releases. Major upgrades
-are in scope; root ESLint and Playwright configs are project-owned replacements for the incompatible presets
-left in the managed `.config/` template. Do not reintroduce those obsolete imports during a scaffold refresh.
+are in scope. Root ESLint, Playwright and Webpack configs are project-owned replacements for the incompatible
+or vulnerable integrations left in the managed `.config/` template. Webpack retains Grafana's bundling helpers
+and uses ESLint's API for development rebuilds. Review scaffold updates against these configs.
+
+`npm run deps:audit` audits the complete dependency tree and is a CI gate. The 15 October 2026 remediation
+removed all 26 remaining alerts. The panel consumes Grafana's public `ThemeContext` directly, so it does not
+install the UI/runtime/router compatibility tree. A scoped YAML 5 override removes Istanbul's legacy formatter
+dependency. `npm run test:ci` includes regressions for that YAML loader and Webpack lint reporting; it also checks
+live theme changes without remounting the map. See the maintenance notes above for override removal conditions.
 
 With the lab running, `npm run e2e -- --project=api` validates the installed plugin bundle and the saved
 dashboard's queries for two requested periods. `GRAFANA_URL` defaults to `http://localhost:3480`; optionally set

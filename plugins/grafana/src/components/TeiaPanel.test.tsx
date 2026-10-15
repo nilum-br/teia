@@ -1,6 +1,6 @@
 import React from 'react';
 import { render } from '@testing-library/react';
-import { dateTime, LoadingState, PanelProps, toDataFrame } from '@grafana/data';
+import { createTheme, dateTime, LoadingState, PanelProps, ThemeContext, toDataFrame } from '@grafana/data';
 import { journeyOf, TeiaPanel } from './TeiaPanel';
 import { TeiaOptions } from '../types';
 
@@ -57,6 +57,20 @@ describe('TeiaPanel', () => {
     const ids = [...shadow(container).querySelectorAll('.node')].map((n) => (n as HTMLElement).dataset.id);
     expect(ids.sort()).toEqual(['orders', 'web']);
     expect(shadow(container).querySelector('#empty')!.hasAttribute('hidden')).toBe(true);
+  });
+
+  it('follows Grafana theme changes without remounting the map', () => {
+    const panel = <TeiaPanel {...props()} />;
+    const { container, rerender } = render(
+      <ThemeContext value={createTheme({ colors: { mode: 'dark' } })}>{panel}</ThemeContext>
+    );
+    const host = container.querySelector('[data-testid="teia-panel"]') as HTMLElement;
+    const map = shadow(container).querySelector('.teia');
+    expect(host.dataset.theme).toBe('dark');
+    rerender(<ThemeContext value={createTheme({ colors: { mode: 'light' } })}>{panel}</ThemeContext>);
+    expect(host.dataset.theme).toBe('light');
+    expect(shadow(container).querySelector('.teia')).toBe(map);
+    expect(shadow(container).querySelectorAll('.node')).toHaveLength(2);
   });
 
   it('qualifies mixed error coverage in the frame, line details and coverage rings', () => {

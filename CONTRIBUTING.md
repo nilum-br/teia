@@ -243,6 +243,17 @@ Completed migrations, including breaking changes:
   the full generated clientset also removes its legacy JSON patch v4 implementation from production and test
   imports, on Linux and Windows. The used module set drops from 51 to 32; tidy removes 13 indirect requirements.
   HTTP regressions cover pagination, namespaces, TLS, token-file authentication, timeout, cancellation and RBAC.
+- The panel reads the public `ThemeContext` from `@grafana/data` with React 19's `use`, preserving live theme
+  changes without importing the complete `@grafana/ui`/`runtime` dependency trees. The context is also exported
+  by the minimum supported Grafana 13.2.0. Unused direct Emotion/i18n/schema requirements were removed; SDK-owned
+  requirements remain transitive. A DOM regression checks dark/light changes without remounting the map.
+- The active Webpack config is now `plugins/grafana/webpack.config.ts`, derived from the Grafana scaffold and
+  reusing its bundling helpers. It replaces `eslint-webpack-plugin` (and unpatched micromatch/braces) with the
+  supported ESLint API. Development lint/type checking, live reload, AMD externals, public path, metadata,
+  assets and subresource integrity remain enabled. Review scaffold changes against this owned derivative.
+- The Istanbul coverage-config loader uses a scoped `js-yaml` 5.4.3 override. Its `load` API remains compatible;
+  this removes the old argparse/sprintf-js chain. Regressions exercise YAML inheritance, options and rejection
+  of JavaScript tags; actual Jest coverage generation also passes. Remove this override once the loader updates.
 
 Limits in current upstream packages remain explicit; direct dependencies being current does not mean every
 transitive dependency uses its project's newest major:
@@ -257,18 +268,26 @@ transitive dependency uses its project's newest major:
   shim or SDK fork is introduced merely to change the displayed version.
 - webpack-subresource-integrity's `latest` tag is a release candidate; keep stable 5.1.0 until a stable successor.
 
-Security audit: `govulncheck` found no reachable vulnerabilities in either Go module. npm alerts fell from 31
-to **26 (3 high, 23 moderate)** after a scoped `get-uri → basic-ftp@6.2.3` override, validated by a local FTP transfer
-and plugin build/tests. Remaining roots are [braces](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) and
-[sprintf-js](https://github.com/advisories/GHSA-hp3w-g68c-fv3c) in tooling (no patched releases at review), and
-[react-router 6](https://github.com/advisories/GHSA-wrjc-x8rr-h8h6) in Grafana's compatibility adapter. Do not substitute
-router 8 into a v6 adapter. Grafana UI is externalized in the plugin bundle; assess the host independently.
-These remain tracked risks, not a clean npm audit. Recheck fixes and remove the FTP override when upstream catches up.
+Security remediation on 15 October: **npm audit now reports zero vulnerabilities**, down from 31, then 26
+(3 high, 23 moderate). The vulnerable [braces](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm),
+[sprintf-js](https://github.com/advisories/GHSA-hp3w-g68c-fv3c) and
+[router compatibility](https://github.com/advisories/GHSA-wrjc-x8rr-h8h6) chains are removed from the installed tree,
+without downgrades, audit exclusions or incompatible router substitution. The earlier scoped
+`get-uri → basic-ftp@6.2.3` override remains, validated by a local FTP transfer. Recheck both overrides when
+upstream releases change. This audit covers the plugin's complete npm tree, including development dependencies;
+it does not certify the separately distributed Grafana server or its bundled libraries.
+
+Fresh `govulncheck@latest` scans found no vulnerabilities in either Go module, including the residual SDK
+dependencies above. They are upstream API-version constraints, not known vulnerabilities identified by this scan.
+Removing them would require maintaining kubeconfig/exec authentication or the OTLP transport ourselves. Keep
+the current official SDKs and recheck their releases instead of introducing incomplete replacements.
 
 Dependabot runs weekly for Go, npm, Actions, Docker and Compose; major upgrades are enabled, with Grafana and
 React packages grouped. `npm run deps:check` checks every locked direct dependency against the official registry,
-resolves aliases, rejects prerelease tags as stable candidates and fails when an update is available. All **57**
-direct dependencies matched their current stable release in the second audit. For each update,
+resolves aliases, rejects prerelease tags as stable candidates and fails when an update is available. All **51**
+remaining direct dependencies matched their current stable release after removing six unused/replaced requirements.
+`npm run deps:audit` checks all severities and blocks CI on new advisories; `npm run test:ci` also runs the YAML
+and Webpack lint integration regressions. For each update,
 review prerelease/engine/peer metadata and run `make check`, `make lint`, plugin build, Helm checks and lab e2e.
 Review `npm run deps:check`, `npm audit` and `go list -m -u all` in both modules. Also inspect newer Go module
 paths (`/v2`, `/v3`, etc.): `-u` alone only checks the current module path. Verify the upstream limits above.

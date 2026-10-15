@@ -275,16 +275,23 @@ This is API/DOM validation, not a new interactive visual/accessibility audit.
 - [x] T16.1: migrate to Node 26.12.0 Current throughout the project; replace the unused Node-24-only Grafana E2E
       scaffold, align Node types and enforce the runtime. Three API integration tests cover the actual lab/dashboard.
 - [x] T16.2: migrate to ESLint 10.12.0 with the current React lint implementation, preserving Hooks and project
-      checks; enable future major updates in Dependabot and add `npm run deps:check` (57 direct packages current).
+      checks; enable future major updates in Dependabot and add `npm run deps:check` (now 51 direct packages current).
 - [x] Remove JSON patch v4 from compiled Kubernetes inventory/test dependencies by using client-go's official
       REST transport for pod/service reads. Preserve pagination, namespaces, authentication/TLS, timeout and RBAC;
       the used Linux/Windows module set drops from 51 to 32, with real HTTP transport regression tests.
-- [ ] T16.3: advance kube-openapi with the next compatible stable Kubernetes SDK and remove the FTP override once
-      get-uri adopts the fix. Recheck stable webpack-subresource-integrity releases (latest currently is an RC).
-- [ ] T16.4: remediate residual npm advisories in braces, sprintf-js and Grafana's router compatibility dependency.
-      Audit decreased from 31 to 26 alerts (3 high, 23 moderate); Go govulncheck is clean in both modules.
+- [ ] T16.3: follow the kube-openapi revision selected by the stable Kubernetes SDK; remove the FTP and YAML
+      overrides when get-uri and the Istanbul config loader adopt those versions. Recheck stable
+      webpack-subresource-integrity releases (latest currently is an RC). These are upstream maintenance items.
+- [x] T16.4: remediate residual npm advisories in braces, sprintf-js and Grafana's router compatibility dependency.
+      Audit is now **zero**, from 26 alerts (3 high, 23 moderate). Use the public Grafana data theme context,
+      ESLint's API in an owned Webpack config, and a validated YAML 5 override for the Istanbul loader. No
+      downgrade or audit suppression. CI now gates on `npm run deps:audit`; 34 panel tests (including theme
+      changes), two dependency integration tests and coverage generation pass. Production/development builds
+      and 73 shared UI tests pass. The CI Grafana health wait also retries connection resets during startup.
 - [ ] T16.5: track the older internal API majors still imported by the latest Kubernetes/OpenTelemetry/Grafana
-      packages. Record ownership and concrete migration attempts; do not claim every transitive module is latest.
+      packages. Fresh Go scans include SMD6/YAML2, kube-openapi and backoff5 and find no known vulnerabilities.
+      Both official OTLP protocols still use backoff5; removing SMD6 also means replacing kubeconfig/exec auth.
+      Keep these version constraints distinct from the now-resolved npm advisories; no incomplete SDK forks.
 
 ## Suggested execution order
 

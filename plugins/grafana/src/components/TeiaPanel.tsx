@@ -1,6 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { LoadingState, PanelProps } from '@grafana/data';
-import { useTheme2 } from '@grafana/ui';
+import React, { use, useEffect, useRef } from 'react';
+import { LoadingState, PanelProps, ThemeContext } from '@grafana/data';
 import { TeiaOptions } from '../types';
 import { framesToSnapshot } from '../teia/frames';
 import TeiaUI, { TeiaController } from '../teia/teia-ui';
@@ -14,7 +13,7 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, wi
   const hostRef = useRef<HTMLDivElement>(null);
   const uiRef = useRef<TeiaController | null>(null);
   const roundRef = useRef(0);
-  const theme = useTheme2();
+  const theme = use(ThemeContext);
   const mode = theme.isDark ? 'dark' : 'light';
   // Layout and filters are remembered per dashboard and panel: panel ids
   // repeat across dashboards, dashboard uids do not.

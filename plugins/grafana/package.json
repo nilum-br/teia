@@ -3,15 +3,17 @@
   "version": "0.1.0",
   "scripts": {
     "sync-ui": "node scripts/sync-ui.mjs",
-    "build": "node scripts/sync-ui.mjs && webpack -c ./.config/webpack/webpack.config.ts --env production",
-    "dev": "node scripts/sync-ui.mjs && webpack -w -c ./.config/webpack/webpack.config.ts --env development",
+    "build": "node scripts/sync-ui.mjs && webpack -c ./webpack.config.ts --env production",
+    "dev": "node scripts/sync-ui.mjs && webpack -w -c ./webpack.config.ts --env development",
     "test": "jest --watch --onlyChanged",
-    "test:ci": "node scripts/sync-ui.mjs && jest --passWithNoTests --maxWorkers 4",
+    "test:ci": "node scripts/sync-ui.mjs && npm run test:deps && jest --passWithNoTests --maxWorkers 4",
     "typecheck": "node scripts/sync-ui.mjs && tsc --noEmit",
     "lint": "node scripts/sync-ui.mjs && eslint --cache .",
     "lint:fix": "npm run lint -- --fix && prettier --write --list-different .",
     "e2e": "playwright test",
     "deps:check": "node scripts/check-dependencies.mjs",
+    "deps:audit": "npm audit --audit-level=low",
+    "test:deps": "node --test scripts/dependency-regressions.test.mjs",
     "server": "docker compose up --build",
     "sign": "sign-plugin"
   },
@@ -42,7 +44,6 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-jsdoc": "^65.3.4",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-webpack-plugin": "^6.0.0",
     "fork-ts-checker-webpack-plugin": "^9.1.0",
     "glob": "^13.0.6",
     "globals": "^17.13.0",
@@ -72,12 +73,7 @@
     "node": ">=26.12.0 <27"
   },
   "dependencies": {
-    "@emotion/css": "11.13.5",
     "@grafana/data": "13.2.4",
-    "@grafana/i18n": "13.2.4",
-    "@grafana/runtime": "13.2.4",
-    "@grafana/ui": "13.2.4",
-    "@grafana/schema": "13.2.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
@@ -86,6 +82,9 @@
   "overrides": {
     "get-uri": {
       "basic-ftp": "6.2.3"
+    },
+    "@istanbuljs/load-nyc-config": {
+      "js-yaml": "5.4.3"
     }
   }
 }
