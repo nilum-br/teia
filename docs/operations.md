@@ -106,16 +106,15 @@ span. Limits set `truncated` and source status `partial`. The existing Tempo tra
 ## Local lab
 
 The demo supports `/checkout` and `/browse` on `web`. Checkout calls `orders`; browse calls `catalog` and
-`recommendations`. Requests to `/` retain the existing combined demonstration. Set `OPERATION_ROUTES: "true"`
-on the lab's `loadgen` to alternate `POST /checkout` and `GET /browse`.
+`recommendations`. The lab's `loadgen` alternates `POST /checkout` and `GET /browse` (`OPERATION_ROUTES: "true"`
+in `lab/compose.yaml`; without it, requests to `/` keep the combined demonstration). `web` marks each entry span
+with `business.journey`, which the lab's Tempo source reads as the `journey` dimension, so slices and their
+operations split the two journeys.
 
 To exercise a genuinely shared database, add the following to `catalog` in a local Compose override:
 
 ```yaml
 services:
-  loadgen:
-    environment:
-      OPERATION_ROUTES: "true"
   catalog:
     environment:
       POSTGRES_DSN: postgres://orders:orders@orders-db:5432/orders?sslmode=disable

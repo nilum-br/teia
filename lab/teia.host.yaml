@@ -85,6 +85,8 @@ sources:
   tempo:
     - url: http://localhost:${TEMPO_PORT:-3280}
       window: 10m
+      dimensions:
+        journey: business.journey
 
   queries:
     - name: access-logs

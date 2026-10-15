@@ -1,8 +1,9 @@
 package main
 
 // ROLE=e2e checks, from inside the lab network, that teia finds what each
-// signal should reveal, then follows the advisor (GRANT pg_monitor) and
-// checks that the hidden client shows up. Runs the same on any OS:
+// signal should reveal and splits the two journeys into slices, then follows
+// the advisor (GRANT pg_monitor) and checks that the hidden client shows up.
+// Runs the same on any OS:
 //
 //	docker compose -f lab/compose.yaml run --rm e2e
 
@@ -49,6 +50,18 @@ type snapshot struct {
 	Sources []struct {
 		Name, State, Message string
 	} `json:"sources"`
+	Slice *struct {
+		Matched  bool     `json:"matched"`
+		Excluded []string `json:"excluded"`
+	} `json:"slice"`
+	Operations *struct {
+		Scopes []operationScope `json:"scopes"`
+	} `json:"operations"`
+}
+
+type operationScope struct {
+	EntryService string `json:"entryService"`
+	Operation    string `json:"operation"`
 }
 
 type reason struct {
@@ -155,6 +168,28 @@ func (s *snapshot) finding(rule, subject string) bool {
 	return false
 }
 
+// sliced reports whether the snapshot holds a slice some call carried, and
+// that the sources named could not split by it and were left out.
+func (s *snapshot) sliced(excluded ...string) bool {
+	if s.Slice == nil || !s.Slice.Matched {
+		return false
+	}
+	for _, name := range excluded {
+		if !slices.Contains(s.Slice.Excluded, name) {
+			return false
+		}
+	}
+	return true
+}
+
+// operation reports whether a sampled operation entered at this service.
+func (s *snapshot) operation(entry, name string) bool {
+	if s.Operations == nil {
+		return false
+	}
+	return slices.Contains(s.Operations.Scopes, operationScope{EntryService: entry, Operation: name})
+}
+
 func (s *snapshot) node(id string) bool {
 	for _, n := range s.Nodes {
 		if n.ID == id {
@@ -182,8 +217,8 @@ func (s *snapshot) noPlaceholderNodes() bool {
 	return true
 }
 
-func fetch(ctx context.Context, url string) (*snapshot, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url+"/api/v1/snapshot", nil)
+func fetch(ctx context.Context, target string) (*snapshot, error) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -193,13 +228,13 @@ func fetch(ctx context.Context, url string) (*snapshot, error) {
 	return &s, json.NewDecoder(resp.Body).Decode(&s)
 }
 
-// waitFor polls until every check passes or the deadline expires, then
-// prints the result of each.
-func waitFor(ctx context.Context, url, phase string, checks []check, timeout time.Duration) (*snapshot, bool) {
+// waitFor polls a snapshot endpoint until every check passes or the deadline
+// expires, then prints the result of each.
+func waitFor(ctx context.Context, target, phase string, checks []check, timeout time.Duration) (*snapshot, bool) {
 	deadline := time.Now().Add(timeout)
 	var last *snapshot
 	for {
-		s, err := fetch(ctx, url)
+		s, err := fetch(ctx, target)
 		if err == nil {
 			last = s
 			pass := true
@@ -242,7 +277,8 @@ func e2e(ctx context.Context) error {
 	if err := pgExec(ctx, dsn, "REVOKE pg_monitor FROM teia"); err != nil {
 		return err
 	}
-	before, ok := waitFor(ctx, url, "Every signal contributes (before following the advisor)", []check{
+	snapshotURL := url + "/api/v1/snapshot"
+	before, ok := waitFor(ctx, snapshotURL, "Every signal contributes (before following the advisor)", []check{
 		{"traces: web -> orders seen by prometheus (service graph) and tempo", func(s *snapshot) bool { return s.edge("web", "orders", "prometheus", "tempo") }},
 		{"traces: orders -> orders-db (database seen from its callers)", func(s *snapshot) bool { return s.edge("orders", "orders-db") }},
 		{"mesh: recommendations -> inventory, no OpenTelemetry involved", func(s *snapshot) bool { return s.edge("recommendations", "inventory", "prometheus") }},
@@ -288,6 +324,30 @@ func e2e(ctx context.Context) error {
 		return fmt.Errorf("phase 1 failed")
 	}
 
+	// web's entry spans say which journey each request served and every call
+	// below inherits it, so checkout and browse split through the services and
+	// the database they share. The mesh and service-graph presets and the
+	// access logs cannot split by journey: they are left out, not mixed in.
+	for _, j := range []struct{ journey, own, other, operation, foreign string }{
+		{"checkout", "orders", "catalog", "POST /checkout", "GET /browse"},
+		{"browse", "catalog", "orders", "GET /browse", "POST /checkout"},
+	} {
+		_, ok = waitFor(ctx, snapshotURL+"?slice=journey:"+j.journey, "Slices follow the calls (journey:"+j.journey+")", []check{
+			{fmt.Sprintf("slices: %s calls web -> %s and never web -> %s", j.journey, j.own, j.other), func(s *snapshot) bool {
+				return s.sliced() && s.edge("web", j.own, "tempo") && !s.edge("web", j.other)
+			}},
+			{"slices: prometheus and the access logs cannot split by journey and are left out", func(s *snapshot) bool {
+				return s.sliced("prometheus", "loki/access-logs")
+			}},
+			{fmt.Sprintf("operations: the slice sampled %s and never %s", j.operation, j.foreign), func(s *snapshot) bool {
+				return s.operation("web", j.operation) && !s.operation("web", j.foreign)
+			}},
+		}, 2*time.Minute)
+		if !ok {
+			return fmt.Errorf("slice phase (%s) failed", j.journey)
+		}
+	}
+
 	fmt.Println("\nFollowing the advisor: GRANT pg_monitor TO teia")
 	if err := pgExec(ctx, dsn, "GRANT pg_monitor TO teia"); err != nil {
 		return err
@@ -299,7 +359,7 @@ func e2e(ctx context.Context) error {
 		}
 	}()
 
-	after, ok := waitFor(ctx, url, "The hidden client shows up", []check{
+	after, ok := waitFor(ctx, snapshotURL, "The hidden client shows up", []check{
 		{"database: legacy-reports -> orders-db, seen only from inside postgres", func(s *snapshot) bool { return s.edge("legacy-reports", "orders-db", "postgres/orders-db") }},
 		{"advisor: no longer asks for pg_monitor", func(s *snapshot) bool { return !s.finding("postgres-privilege", "") }},
 		{"advisor: next step is to instrument legacy-reports", func(s *snapshot) bool { return s.finding("no-telemetry", "legacy-reports") }},
@@ -316,7 +376,7 @@ func e2e(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, ok = waitFor(ctx, url, "Why orders is stuck", []check{
+	_, ok = waitFor(ctx, snapshotURL, "Why orders is stuck", []check{
 		{"locks: orders -> orders-db waits on a lock, and teia names who holds it", func(s *snapshot) bool { return s.edgeWhy("orders", "orders-db", "locks") }},
 	}, 2*time.Minute)
 	release()
