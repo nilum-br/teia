@@ -171,7 +171,11 @@ func serve(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		trace.SpanFromContext(ctx).SetAttributes(attribute.String("http.route", operationRoute(r.URL.Path)))
+		span := trace.SpanFromContext(ctx)
+		span.SetAttributes(attribute.String("http.route", operationRoute(r.URL.Path)))
+		if journey := operationJourney(os.Getenv("SERVICE_NAME"), r.URL.Path); journey != "" {
+			span.SetAttributes(attribute.String("business.journey", journey))
+		}
 		for _, d := range operationCalls(calls, os.Getenv("SERVICE_NAME"), r.URL.Path) {
 			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, d.url, nil)
 			resp, err := mesh.outbound(req, d.name, d.client.Do)

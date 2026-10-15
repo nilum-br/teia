@@ -59,7 +59,9 @@ test('stored history replays and a clean shared view restores the same snapshot'
 
 test('saved Grafana history dashboard restores a snapshot independently of the dashboard time range', async ({ page, request }, info) => {
   const listing = await (await request.get(base + '/api/v1/history')).json();
-  const original = listing.snapshots[0];
+  // The newest capture: once history reaches its byte or count limit, the
+  // oldest is pruned every round and could vanish before the panel asks.
+  const original = listing.snapshots.at(-1);
   await expect.poll(async () => (await request.get('/api/dashboards/uid/teia-history')).status(), { timeout: 40_000 }).toBe(200);
   await page.goto('/d-solo/teia-history/teia?panelId=1&var-snapshot=' + encodeURIComponent(original.id) + '&from=now-30d&to=now');
   const root = page.getByTestId('teia-panel');
@@ -114,9 +116,12 @@ for (const surface of ['standalone', 'grafana'] as const) {
     expect(edge).toBeDefined();
     await page.goto(surface === 'standalone' ? base + '/?flow=0&live=0' : '/d-solo/teia-overview/teia?panelId=1&theme=light&refresh=');
     const root = surface === 'standalone' ? page.locator('#teia') : page.getByTestId('teia-panel');
-    // Accessible edge name begins with its stable endpoint pair.
+    // Accessible edge name begins with its stable endpoint pair. When the
+    // layout puts both cards on one row, the connection is a straight
+    // horizontal line whose box has no height, which Playwright reports as
+    // hidden although it is drawn and focusable: wait for it in the tree.
     const target = root.getByRole('button', { name: /^catalog to catalog-db,/ });
-    await expect(target).toBeVisible({ timeout: 30_000 });
+    await expect(target).toBeAttached({ timeout: 30_000 });
     await target.focus(); await page.keyboard.press('Enter');
     await expect(root.locator('#pane-details h2')).toContainText('catalog → catalog-db');
     const link = root.getByRole('link', { name: 'Search traces for these endpoints' });

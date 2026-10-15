@@ -47,12 +47,16 @@ test('comparison reports identity decisions, not their collection times or absen
 });
 
 test('comparison refuses captures that hold different calls', () => {
-  const capture = (journey, nodes) => sanitize({ nodes: nodes.map(id => ({ id })), edges: nodes.slice(1).map(id => ({ from: 'web', to: id })),
+  const capture = (journey, nodes, cluster) => sanitize({ nodes: nodes.map(id => ({ id })), edges: nodes.slice(1).map(id => ({ from: 'web', to: id })), cluster,
     slice: journey ? { selector: { journey }, matched: true, metrics: 'scoped', sources: ['tempo'] } : undefined });
   const whole = capture('', ['web', 'orders', 'catalog']), checkout = capture('checkout', ['web', 'orders']), browse = capture('browse', ['web', 'catalog']);
   const mixed = compareSnapshots(whole, checkout);
   assert.equal(mixed.comparable, false, 'a slice is not the whole map minus what changed');
-  assert.deepEqual(mixed.scope, { before: '', after: 'journey:checkout' });
+  assert.deepEqual(mixed.scope, { before: { cluster: '', slice: '' }, after: { cluster: '', slice: 'journey:checkout' } });
+  // Two clusters running the same apps are two maps, not one map that changed.
+  const east = capture('', ['web', 'orders'], 'east'), west = capture('', ['web', 'orders'], 'west');
+  assert.equal(compareSnapshots(east, west).comparable, false);
+  assert.equal(compareSnapshots(east, capture('', ['web', 'orders', 'catalog'], 'east')).comparable, true);
   assert.deepEqual([mixed.nodes, mixed.edges, mixed.counts], [[], [], { added: 0, removed: 0, changed: 0, unchanged: 0 }]);
   assert.equal(compareSnapshots(checkout, browse).comparable, false);
   const same = compareSnapshots(checkout, capture('checkout', ['web', 'orders', 'db']));
@@ -81,4 +85,16 @@ test('operation projection excludes global health, rates, other operations and a
   assert.equal(operationSnapshot(base, 'missing').nodes.length, 0);
   assert.equal(operationSnapshot(base, operations.scopes[0].id, 'missing-trace').nodes.length, 0);
   assert.equal(base.nodes[0].health, 'failing');
+});
+
+test('an operation a slice did not sample says so instead of reading as missing data', () => {
+  const operations = JSON.parse(readFileSync(new URL('../journey/testdata/operation-runtime.json', import.meta.url)));
+  const [kept, ...others] = operations.scopes;
+  const slice = { selector: { journey: 'checkout' }, matched: true, metrics: 'scoped', sources: ['tempo'] };
+  const sliced = sanitize({ nodes: kept.nodes.map(n => ({ id: n.id })), edges: [], operations: { ...operations, scopes: [kept] }, slice });
+  assert.equal(operationSnapshot(sliced, kept.id).operationContext.unavailable, false);
+  const absent = operationSnapshot(sliced, others[0].id).operationContext;
+  assert.deepEqual([absent.operation, absent.unavailable], ['not sampled in this slice', true]);
+  const whole = sanitize({ nodes: [], edges: [], operations: { ...operations, scopes: [] } });
+  assert.equal(operationSnapshot(whole, kept.id).operationContext.operation, 'unavailable in this capture');
 });

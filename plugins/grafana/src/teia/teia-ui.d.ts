@@ -214,6 +214,19 @@ export interface TeiaSnapshot {
   /** False for data without intent (plain Node Graph frames): no drift to show. */
   drift?: boolean;
   changes?: TeiaChange[];
+  /** Business dimension values seen on calls, by dimension: the slices on offer. */
+  dimensions?: Record<string, string[]>;
+  /** Set when the data holds only the calls that carried a selection of dimension values. */
+  slice?: TeiaSliceScope;
+}
+
+export interface TeiaSliceScope {
+  selector: Record<string, string>;
+  /** False when no call carried the selection: the data is empty, never the whole map. */
+  matched: boolean;
+  metrics: string;
+  sources: string[];
+  excluded?: string[];
 }
 
 export interface TeiaHistory {
@@ -258,6 +271,9 @@ export interface TeiaMountOptions {
   inputFrames?: Array<{ key: string; fields: string[] }>;
   fieldMapping?: TeiaFieldMapping;
   onMappingChange?: (mapping: TeiaFieldMapping) => void;
+  /** Picks a slice (journey:x,tenant:y; '' for every call) for a host that feeds frames, such as a
+   * dashboard variable its queries pass as ?slice=. Without it, sliced data is only labelled. */
+  onSliceChange?: (slice: string) => void;
   requestedRange?: TeiaTimeRange;
   mode?: 'page' | 'panel';
   api?: string;
@@ -281,7 +297,7 @@ export interface TeiaController {
   /** Reports the host's own query state; an empty message clears it. */
   setStatus(error?: string): void;
   /** Applies panel options, unless the viewer already chose otherwise on the map. */
-  setOptions(options: { groupBy?: string; flow?: boolean; journey?: string; journeyKey?: string; values?: boolean; requestedRange?: TeiaTimeRange; inputFrames?: Array<{ key: string; fields: string[] }>; fieldMapping?: TeiaFieldMapping; onMappingChange?: (mapping: TeiaFieldMapping) => void }): void;
+  setOptions(options: { groupBy?: string; flow?: boolean; journey?: string; journeyKey?: string; values?: boolean; requestedRange?: TeiaTimeRange; inputFrames?: Array<{ key: string; fields: string[] }>; fieldMapping?: TeiaFieldMapping; onMappingChange?: (mapping: TeiaFieldMapping) => void; onSliceChange?: (slice: string) => void }): void;
   focus(subject: string): void;
   setTheme(theme: 'dark' | 'light'): void;
   destroy(): void;

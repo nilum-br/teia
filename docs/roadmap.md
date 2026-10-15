@@ -30,6 +30,8 @@ are separate release gates and must not be represented as already passed.
 differentiator easier to use. Bounded focus with a table, visual comparison of captures, guided onboarding,
 contract proposals, sampled operations and identity provenance have implemented deliverables and automated
 validation; see the [investigation guide](investigation.md). Their human-pilot evaluation joins T12.
+[Slices](journeys.md#slices-follow-the-calls) also split sampled operations, and the Grafana panel picks them
+through a dashboard variable its queries pass to teia.
 
 P0 protects the interpretation of data; P1 completes the primary investigation and adoption experience; P2
 extends the product after those foundations. Size is relative scope (S small, M medium, L large), not a delivery
@@ -395,7 +397,7 @@ them from their details.
 
 Limits: two discrete captures, not a time series. "Only before" is absence from the second capture, not proof
 that traffic stopped. The page lists 500 differences; the download keeps all of them. Captures of different
-scopes (a slice against the whole map, or two slices) are not compared.
+scopes (a slice against the whole map, two slices, or two clusters) are not compared.
 
 ### T19: Guide source and query-field onboarding
 
@@ -431,8 +433,8 @@ Limits: publishing the PR remains with the operator and the repository's own rev
       root outcomes and the range of sampled durations without a percentile.
 
 Limits: Tempo only. The sampling policy is unknown, so no rate, coverage or population error share is
-inferred. Asynchronous links are kept but not followed. Slices do not split operations: a sliced snapshot
-carries none. See [sampled operations](operations.md).
+inferred. Asynchronous links are kept but not followed. In a slice, an operation keeps the traces whose entry
+carried it and, in them, the calls that did. See [sampled operations](operations.md).
 
 ### T22: Explain how each identity was resolved
 
@@ -446,15 +448,18 @@ carries none. See [sampled operations](operations.md).
 Limits: the namespace is still not part of a node ID; owners behind NAT or poolers are not inferred. See
 [identity resolution and provenance](identity-resolution.md).
 
-Validation on 15 October 2026, in an isolated lab with checkout/browse routes and a database shared by two
-operations, repeated after merging dimension slices: Go vet, race tests and golangci-lint; 89 shared-core
-tests; 81 panel tests and 2 dependency regressions; TypeScript, lint and build; 67 browser/API cases, with the
-five opt-in candidate, comparison and scale cases skipped; and the end-to-end lab scenario. The browser cases
-include every T17–T22 tool in both themes at 600 and 1600 pixels, the installed Grafana panel, comparison of
-real stored captures, a proposal and a conflict against stored history, a real checkout operation from Tempo
-(`TEIA_OPERATION_LAB=1`), and slices next to operations and comparisons. A lab run with a Tempo span
-attribute as a slice dimension confirmed that a real slice carries no operations and that the workspace says
-so. People have not yet used these tools: their task-based evaluation belongs to the T12 pilot.
+Validation on 15 October 2026, in an isolated lab with checkout/browse routes, a journey dimension and a
+database shared by two operations, repeated after merging clusters: Go vet, race tests and golangci-lint; 91
+shared-core tests; 85 panel tests and 2 dependency regressions; TypeScript, lint and build; 69 browser/API
+cases, with the five opt-in candidate, comparison and scale cases skipped; and the end-to-end lab scenario,
+which checks that each journey's slice holds its own calls and operations. The browser cases include every
+T17–T22 tool in both themes at 600 and 1600 pixels, the installed Grafana panel picking a slice through the
+dashboard variable, comparison of real stored captures, a proposal and a conflict against stored history, and
+a real checkout operation from Tempo (`TEIA_OPERATION_LAB=1`). On Kubernetes (k3s 1.37 in a container), the
+chart installed teia built from this checkout with its inventory and an in-cluster Tempo carrying the journey
+dimension: `helm test` passed, identities showed each source's decision, slices split calls and operations,
+and stored captures compared, at desktop and phone widths. People have not yet used these tools: their
+task-based evaluation belongs to the T12 pilot.
 
 ## Suggested execution order
 
@@ -485,8 +490,10 @@ above rather than treated as separate duplicate work.
 - [x] Grafana panel plugin `nilum-teia-panel` sharing the map component; icon library with technology detection
 - [x] Recycled IPs are never attributed to the wrong workload; annotation `teia.nilum.io/node-id`
 - [x] Binaries for Linux, macOS, Windows (amd64, arm64); multi-arch image; CI on all three OSes; lab end-to-end check in CI
-- [ ] Identity confidence and provenance per resolution; IP history in the Kubernetes inventory (today it knows
-      since when each current address is held, not who held it before)
+- [x] Identity provenance per resolution: method, sources, original times and candidates (T22). No confidence
+      percentage is assigned: the method and its evidence say how far to trust a match.
+- [ ] IP history in the Kubernetes inventory (today it knows since when each current address is held, not who held
+      it before)
 - [x] `teia diff` for reviewable snapshot/declaration changes and accepted Flows fragments (T14).
 - [ ] Automated PR creation/comment publication (future integration).
 - [x] Opt-in persisted snapshots with first/last seen, source evidence, bounded retention and exact replay (T13).

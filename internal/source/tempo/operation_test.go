@@ -58,7 +58,7 @@ func TestOperationAcceptanceSeparatesSharedServicesAndKeepsOrphans(t *testing.T)
 		}
 		traces = append(traces, trace)
 	}
-	got := operationSamples("tempo", operationWindow(fixture.QueryPeriod.To), traces, 4, 0, 4, 4, false)
+	got := operationSamples("tempo", operationWindow(fixture.QueryPeriod.To), traces, nil, 4, 0, 4, 4, false)
 	encodedFixture, _ := json.Marshal(got)
 	expectedJSON, err := os.ReadFile("../../journey/testdata/operation-runtime.json")
 	if err != nil {
@@ -122,7 +122,7 @@ func TestOperationRetriesLinksCyclesAndMissingErrorStatus(t *testing.T) {
 	second := first
 	second.id = "attempt-2"
 	second.links = []model.OperationSpanLink{{TraceID: "async-trace", SpanID: "consumer"}}
-	got := operationSamples("tempo", operationWindow(at.Add(time.Minute)), []sampledTrace{{id: "retries", spans: []span{root, first, second}}}, 1, 0, 1, 1, false)
+	got := operationSamples("tempo", operationWindow(at.Add(time.Minute)), []sampledTrace{{id: "retries", spans: []span{root, first, second}}}, nil, 1, 0, 1, 1, false)
 	scope := got.Scopes[0]
 	if len(scope.Edges) != 1 || len(scope.Edges[0].Calls) != 2 || scope.RootOutcomes.Unknown != 1 || scope.IncompleteTraceCount != 1 || len(scope.Traces[0].Spans[2].Links) != 1 {
 		t.Fatalf("retry attempts/links/errors lost: %+v", scope)
@@ -131,7 +131,7 @@ func TestOperationRetriesLinksCyclesAndMissingErrorStatus(t *testing.T) {
 		t.Fatal("followed an async link as synchronous ancestry")
 	}
 	root.parent = "attempt-1"
-	got = operationSamples("tempo", operationWindow(at.Add(time.Minute)), []sampledTrace{{id: "cycle", spans: []span{root, first}}}, 1, 0, 1, 1, false)
+	got = operationSamples("tempo", operationWindow(at.Add(time.Minute)), []sampledTrace{{id: "cycle", spans: []span{root, first}}}, nil, 1, 0, 1, 1, false)
 	if got.Scopes[0].IncompleteTraceCount != 1 {
 		t.Fatal("parent cycle was not qualified")
 	}
@@ -145,13 +145,45 @@ func TestOperationRequiresNormalizedRouteAndSeparatesOutcomeFromGlobalHealth(t *
 	unsafe.attrs["journey"] = "checkout"
 	valid := operationRoot("valid", "/users/{id}", at)
 	valid.attrs["http.response.status_code"] = "500"
-	got := operationSamples("tempo", operationWindow(at), []sampledTrace{{id: "unsafe", spans: []span{unsafe}}, {id: "valid", spans: []span{valid}}}, 2, 0, 1, 1, false)
+	got := operationSamples("tempo", operationWindow(at), []sampledTrace{{id: "unsafe", spans: []span{unsafe}}, {id: "valid", spans: []span{valid}}}, nil, 2, 0, 1, 1, false)
 	if len(got.Scopes) != 1 || got.Scopes[0].Operation != "POST /users/{id}" || got.Scopes[0].RootOutcomes.Error != 1 || len(got.Unattributed) != 1 {
 		t.Fatalf("normalization/outcome: %+v", got)
 	}
 	encoded, _ := json.Marshal(got)
 	if strings.Contains(string(encoded), "secret") || strings.Contains(string(encoded), "url.full") {
 		t.Fatal("raw request data leaked into operation contract")
+	}
+}
+
+// With dimensions configured, a trace records those of its entry span and
+// every span its own, inherited from the closest ancestor holding them: a call
+// made for another journey inside the trace keeps that journey, as edge slices do.
+func TestOperationSamplesRecordDimensions(t *testing.T) {
+	at := time.Now().UTC().Add(-time.Minute)
+	root := operationRoot("root", "/checkout", at)
+	root.attrs["business.journey"] = "checkout"
+	call := span{id: "call", parent: "root", service: "web", kind: "client", attrs: map[string]string{"peer.service": "orders"}, startedAt: at, endedAt: at.Add(time.Millisecond)}
+	notify := span{id: "notify", parent: "root", service: "web", kind: "client", attrs: map[string]string{"peer.service": "mailer", "business.journey": "notification"}, startedAt: at, endedAt: at.Add(time.Millisecond)}
+	orphan := span{id: "orphan", parent: "gone", service: "worker", kind: "internal", attrs: map[string]string{"business.journey": "checkout"}}
+	traces := []sampledTrace{{id: "t", spans: []span{root, call, notify, orphan}}}
+	got := operationSamples("tempo", operationWindow(at.Add(time.Minute)), traces, map[string]string{"journey": "business.journey"}, 1, 0, 1, 1, false)
+	trace := got.Scopes[0].Traces[0]
+	if trace.Dimensions["journey"] != "checkout" {
+		t.Fatalf("entry dimensions = %v", trace.Dimensions)
+	}
+	spans := map[string]map[string]string{}
+	for _, sp := range trace.Spans {
+		spans[sp.SpanID] = sp.Dimensions
+	}
+	if spans["root"]["journey"] != "checkout" || spans["call"]["journey"] != "checkout" || spans["notify"]["journey"] != "notification" {
+		t.Fatalf("span dimensions = %v", spans)
+	}
+	if len(got.Unattributed) != 1 || got.Unattributed[0].Dimensions["journey"] != "checkout" {
+		t.Fatalf("unattributed = %+v", got.Unattributed)
+	}
+	plain := operationSamples("tempo", operationWindow(at.Add(time.Minute)), traces, nil, 1, 0, 1, 1, false)
+	if plain.Scopes[0].Traces[0].Dimensions != nil || plain.Scopes[0].Traces[0].Spans[0].Dimensions != nil || plain.Unattributed[0].Dimensions != nil {
+		t.Fatal("without configured dimensions nothing is recorded")
 	}
 }
 
@@ -164,7 +196,7 @@ func TestOperationCapsAreExplicitAndBoundNestedRoots(t *testing.T) {
 			spans[i].parent = fmt.Sprint(i - 1)
 		}
 	}
-	got := operationSamples("tempo", operationWindow(at), []sampledTrace{{id: "many", spans: spans}}, 1, 0, 1, 1, false)
+	got := operationSamples("tempo", operationWindow(at), []sampledTrace{{id: "many", spans: spans}}, nil, 1, 0, 1, 1, false)
 	count := 0
 	for _, scope := range got.Scopes {
 		for _, trace := range scope.Traces {
@@ -185,7 +217,7 @@ func TestOperationNestedRootsAtInputLimitRemainBounded(t *testing.T) {
 			spans[i].parent = spans[i-1].id
 		}
 	}
-	got := operationSamples("tempo", operationWindow(at), []sampledTrace{{id: "nested", spans: spans}}, 1, 0, 1, 1, false)
+	got := operationSamples("tempo", operationWindow(at), []sampledTrace{{id: "nested", spans: spans}}, nil, 1, 0, 1, 1, false)
 	if len(got.Scopes) != 1 || len(got.Scopes[0].Traces) != 1 || len(got.Scopes[0].Traces[0].Spans) != maxOperationSpans {
 		t.Fatal("nested roots exceeded the global output budget")
 	}

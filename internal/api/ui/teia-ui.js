@@ -319,6 +319,11 @@ button.label { cursor: pointer; }
 @container teia (max-width: 960px) {
   .search input { width: 160px; }
 }
+/* Slice choices sit in the bar when it has room; narrow maps keep them in Filter. */
+.slice-pick { display: contents; }
+@container teia (max-width: 760px) {
+  .slice-pick { display: none; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .live.on i, .toast, .feed .ev.new { animation: none; }
@@ -1616,7 +1621,7 @@ button.label { cursor: pointer; }
     });
     const projected = sanitize({ ...base, nodes, edges, findings: [], changes: [], journeys: undefined, drift: false,
       coverage: { visibility: 0, declared: 0, observed: 0 } });
-    projected.operationContext = { id, traceId, operation: scope?.operation || 'unavailable in this capture', unavailable: !scope || (!!traceId && !traces.length) };
+    projected.operationContext = { id, traceId, operation: scope?.operation || (base.slice ? 'not sampled in this slice' : 'unavailable in this capture'), unavailable: !scope || (!!traceId && !traces.length) };
     return projected;
   }
   Object.assign(core, { groupingPath, neighbourOrder, mapReasons, safeLinks, investigateSnapshot, compareSnapshots, operationsOf, operationSnapshot });
@@ -1690,11 +1695,12 @@ button.label { cursor: pointer; }
       });
     };
     const count = rows => Object.fromEntries(['added', 'removed', 'changed', 'unchanged'].map(status => [status, rows.filter(row => row.status === status).length]));
-    // A slice holds only the calls that carried its dimensions. Against the
-    // whole map or another slice it differs in scope, not by change.
-    const scopeOf = snap => snap.slice ? sliceText(snap.slice.selector) : '';
+    // A slice holds only the calls that carried its dimensions, and a cluster
+    // only its own components: against another scope a capture differs in
+    // scope, not by change.
+    const scopeOf = snap => ({ cluster: snap.cluster || '', slice: snap.slice ? sliceText(snap.slice.selector) : '' });
     const scope = { before: scopeOf(before), after: scopeOf(after) };
-    if (scope.before !== scope.after) return { comparable: false, scope, nodes: [], edges: [], counts: count([]) };
+    if (scope.before.cluster !== scope.after.cluster || scope.before.slice !== scope.after.slice) return { comparable: false, scope, nodes: [], edges: [], counts: count([]) };
     const nodes = compare('node', before.nodes, after.nodes, ['kind', 'tech', 'health', 'visibility', 'labels', 'addresses', 'errorsUnknown', 'identity'], n => n.id,
       n => ({ ...n, identity: decisions(n.identity) }));
     const edges = compare('edge', before.edges, after.edges, ['state', 'health', 'declared', 'observed', 'protocol', 'port', 'errorsUnknown', 'identity'], e => e.from + '->' + e.to,
@@ -2848,27 +2854,33 @@ button.label { cursor: pointer; }
     // what a slice in use shows: only those calls, with their own metrics.
     function sliceBar() {
       const sl = state.snap?.slice, dims = state.snap?.dimensions || {};
+      // teia's API slices directly; a host that feeds frames (a Grafana panel)
+      // picks through its own controls, or only labels the slice it was given.
+      const pickable = !!opts.api || typeof opts.onSliceChange === 'function';
       if (state.slice) {
         const label = sliceLabel(state.slice);
         const out = [el('span', { class: 'fchip slice' }, 'Calls of ' + label,
-          el('button', { type: 'button', 'aria-label': 'Show every call', title: 'Show every call', onclick: () => setSlice('') }, '✕'))];
+          pickable ? el('button', { type: 'button', 'aria-label': 'Show every call', title: 'Show every call', onclick: () => setSlice('') }, '✕') : null)];
         if (sl && !sl.matched) out.push(el('span', { class: 'caption slice-note' }, 'no call carried this selection'));
         else if (sl) out.push(el('span', { class: 'caption slice-note', title: 'Rates, errors and latencies come only from these calls. Node readings from exporters stay node-wide.' }, 'metrics of these calls only'));
         if (sl?.excluded.length) out.push(el('span', { class: 'caption slice-note', title: 'These sources cannot split their connections by the selected dimensions, so their connections are left out of the slice.' }, 'without ' + sl.excluded.join(', ')));
+        if (!pickable) return out;
+        const others = [];
         for (const [k, vs] of Object.entries(dims)) {
           const current = Object.fromEntries(state.slice.split(',').map(p => p.split(':')))[k];
           if (current === undefined) continue;
-          for (const v of vs.slice(0, 6)) if (v !== current) out.push(el('button', { type: 'button', class: 'jtab', title: `Only the calls with ${k} = ${v}`, onclick: () => setSlice(state.slice.split(',').map(p => p.startsWith(k + ':') ? k + ':' + v : p).join(',')) }, `${k}: ${v}`));
+          for (const v of vs.slice(0, 6)) if (v !== current) others.push(el('button', { type: 'button', class: 'jtab', title: `Only the calls with ${k} = ${v}`, onclick: () => setSlice(state.slice.split(',').map(p => p.startsWith(k + ':') ? k + ':' + v : p).join(',')) }, `${k}: ${v}`));
         }
+        if (others.length) out.push(el('span', { class: 'slice-pick' }, ...others));
         return out;
       }
       const entries = Object.entries(dims);
-      if (!entries.length || !opts.api) return [];
+      if (!entries.length || !pickable) return [];
       const out = [el('span', { class: 'caption', title: 'Show only the calls whose own telemetry carried this value, with their own metrics' }, 'Calls of')];
       for (const [k, vs] of entries) for (const v of vs.slice(0, 6)) {
         out.push(el('button', { type: 'button', class: 'jtab', title: `Only the calls with ${k} = ${v}`, onclick: () => setSlice(k + ':' + v) }, `${k}: ${v}`));
       }
-      return out;
+      return [el('span', { class: 'slice-pick' }, ...out)];
     }
 
     // ----------------------------------------------------- the filter panel
@@ -2912,6 +2924,19 @@ button.label { cursor: pointer; }
         const destination = ['journey', 'k8s.namespace', 'namespace', 'health'].includes(sec.key) ? sections : advanced;
         destination.push(el('section', {}, el('h5', {}, sec.title), el('div', { class: 'values' },
           ...values.map(v => value(chosen.includes(v.value), v.label, v.count, dot(v), icon(v), () => toggleFacet(sec.key, v.value), JSON.stringify([sec.key, v.value]))))));
+      }
+      // Slices: the values calls carried. Narrow bars leave their choice to this panel.
+      const dims = Object.entries(state.snap.dimensions || {});
+      if (dims.length && (!!opts.api || typeof opts.onSliceChange === 'function')) {
+        const current = Object.fromEntries((state.slice ? state.slice.split(',') : []).map(p => p.split(':')));
+        const choices = [];
+        for (const [k, vs] of dims) for (const v of vs) {
+          const label = `${k}: ${v}`;
+          if (q && !label.toLowerCase().includes(q) && !'calls of'.includes(q)) continue;
+          const pick = () => { const next = { ...current }; if (current[k] === v) delete next[k]; else next[k] = v; setSlice(sliceText(next)); renderFilterPanel(); };
+          choices.push(value(current[k] === v, label, '', null, null, pick, 'slice:' + k + ':' + v));
+        }
+        if (choices.length) sections.unshift(el('section', {}, el('h5', { title: 'Only the calls whose own telemetry carried the value, with their own metrics' }, 'Calls of'), el('div', { class: 'values' }, ...choices)));
       }
       if (state.snap.drift) {
         const count = st => state.snap.edges.filter(e => e.state === st).length;
@@ -3577,13 +3602,13 @@ button.label { cursor: pointer; }
       for (const side of ['before','after']) {
         const snap = comparison[side];
         $('#compare-label-' + side).textContent = snap ? `${snap.generatedAt || 'Capture time unknown'} · ${snap.history?.id || 'uploaded/captured observation'} · ${snap.nodes.length} components` +
-          (snap.slice ? ` · only calls with ${sliceLabel(sliceText(snap.slice.selector))}` : '') : 'No observation selected';
+          (snap.cluster ? ` · cluster ${snap.cluster}` : '') + (snap.slice ? ` · only calls with ${sliceLabel(sliceText(snap.slice.selector))}` : '') : 'No observation selected';
       }
       clearComparisonMaps(); const result = $('#comparisonResult'); result.replaceChildren();
       if (!comparison.before || !comparison.after) return;
       const diff = compareSnapshots(comparison.before, comparison.after);
       if (!diff.comparable) {
-        const holds = scope => scope ? 'only calls with ' + sliceLabel(scope) : 'every call';
+        const holds = scope => (scope.slice ? 'only calls with ' + sliceLabel(scope.slice) : 'every call') + (scope.cluster ? ` of cluster ${scope.cluster}` : '');
         result.append(el('p', { role: 'status' }, `Not compared: “before” holds ${holds(diff.scope.before)} and “after” holds ${holds(diff.scope.after)}. Their differences would be the scope, not changes. Choose two captures of the same scope.`));
         return;
       }
@@ -3669,23 +3694,21 @@ button.label { cursor: pointer; }
     function renderOperations(pane) {
       const operations = state.baseSnapshot?.operations;
       pane.append(el('h3', {}, 'Investigate a sampled operation'), el('p', {}, 'Operations use span ancestry and normalized route/RPC attributes. Ownership journeys remain a separate topological view. Sample outcomes and durations do not establish service health, request rates or total traffic coverage.'));
-      // A slice keeps only some calls of each trace; an operation follows the whole trace.
-      const sliced = state.slice || (state.baseSnapshot?.slice ? sliceText(state.baseSnapshot.slice.selector) : '');
-      if (sliced) {
-        pane.append(el('p', {}, `The map shows only calls with ${sliceLabel(sliced)}. Operations follow whole sampled traces, which a slice does not split, so none are listed for it.`));
-        if (state.slice && opts.api) pane.append(el('button', { type: 'button', class: 'btn', onclick: () => setSlice('').then(() => {
-          if (state.workspace === 'operations' && $('#investigateDialog').open) { openWorkspace('operations'); $('#operationSelect')?.focus(); }
-        }) }, 'Show every call'));
-        pane.append(el('p', { id: 'workspaceStatus', role: 'status' }));
-        return;
-      }
+      // In a slice: the traces whose entry carried it, and in them its calls.
+      const sliced = state.baseSnapshot?.slice ? sliceText(state.baseSnapshot.slice.selector) : state.slice;
+      if (sliced) pane.append(el('p', {}, `Only calls with ${sliceLabel(sliced)}: the sampled traces whose entry carried it, and in them the calls that did. Counts, outcomes and durations are those of these traces.`));
       if (!operations?.scopes.length) {
-        pane.append(el('p', {}, 'No attributed operations in this capture. Connect Tempo and instrument http.route + method, RPC service/method, or teia.operation. Missing metadata is not evidence that no requests occurred.'));
+        pane.append(el('p', {}, sliced ? `No sampled entry carried ${sliceLabel(sliced)} in this capture. Missing metadata is not evidence that no requests occurred.`
+          : 'No attributed operations in this capture. Connect Tempo and instrument http.route + method, RPC service/method, or teia.operation. Missing metadata is not evidence that no requests occurred.'));
       }
-      if (operations) pane.append(...operations.sources.map(source => el('p', {}, `${source.source}: ${source.status} · ${source.fetchedTraces}/${source.requestedTraces} requested traces returned · ${source.failedTraces} failures${source.truncated ? ' · truncated' : ''} · ${source.queryPeriod?.from || '?'} – ${source.queryPeriod?.to || '?'}`)),
+      if (operations) pane.append(...operations.sources.map(source => el('p', {}, source.status === 'excluded'
+        ? `${source.source}: excluded · it cannot split its traces by the selected dimensions, so its operations are left out of this slice`
+        : `${source.source}: ${source.status} · ${source.fetchedTraces}/${source.requestedTraces} requested traces returned · ${source.failedTraces} failures${source.truncated ? ' · truncated' : ''} · ${source.queryPeriod?.from || '?'} – ${source.queryPeriod?.to || '?'}`)),
         el('p', {}, `${operations.unattributed.length} spans without an attributed operation. Sampling policy and traffic denominator are unknown.`));
       const scopes = operations?.scopes || [];
-      const select = choice('Operation', 'operationSelect', [['','Choose an operation'], ...scopes.map(s => [s.id, `${s.entryService} · ${s.operation} · ${s.source}`])], state.operation.id);
+      // The operation on the map may be absent here (another slice): offer the choice again.
+      const current = scopes.some(s => s.id === state.operation.id) ? state.operation.id : '';
+      const select = choice('Operation', 'operationSelect', [['','Choose an operation'], ...scopes.map(s => [s.id, `${s.entryService} · ${s.operation} · ${s.source}`])], current);
       const details = el('section', { id: 'operationDetails' });
       const refresh = () => {
         const scope = scopes.find(s => s.id === $('#operationSelect').value); details.replaceChildren();
@@ -3781,6 +3804,12 @@ button.label { cursor: pointer; }
         (snap.history?.id !== state.snap?.history?.id || snap.timeMode !== state.snap?.timeMode);
       if (!force && !hostReplayChanged && !state.live && state.snap) { state.pending = raw; renderLive(); return; }
       if (hostReplayChanged) { state.activity = []; renderActivity(); }
+      // Frames from a host hold the slice their queries asked for: the data,
+      // not a choice made here, says which calls the map shows.
+      if (!opts.api) {
+        const held = base.slice ? sliceText(base.slice.selector) : '';
+        if (held !== state.slice) { state.slice = held; state.positions = stored(posKey(), {}); topologyKey = ''; state.fitted = false; }
+      }
       const sig = signature(snap);
       const changed = sig !== state.sig;
       const isNew = !state.snap || snap.round !== state.snap.round;
@@ -3915,9 +3944,6 @@ button.label { cursor: pointer; }
       state.slice = next;
       // An update held while paused belongs to the previous selection.
       state.pending = null;
-      // A slice carries no sampled operations (they follow whole traces), so
-      // an operation shown on the map closes when a slice is chosen.
-      if (next) state.operation = { id: '', traceId: '' };
       state.positions = stored(posKey(), {});
       topologyKey = '';
       state.fitted = false;
@@ -3928,10 +3954,14 @@ button.label { cursor: pointer; }
       }
       syncSharedURL();
       if (es) { es.close(); es = null; }
-      if (!opts.api) return Promise.resolve();
-      const loaded = load(aborter.signal, true).catch(error => { state.error = error.message; renderLive(); }).finally(() => { state.fitted = fit(); connect(); });
       $('#announce').textContent = next ? `Only calls with ${next.replaceAll(',', ', ')}` : 'Whole map';
-      return loaded;
+      if (!opts.api) {
+        // A host that feeds frames asks its queries for the slice (a dashboard
+        // variable); the frames that come back say which slice they hold.
+        if (typeof opts.onSliceChange === 'function') { opts.onSliceChange(next); renderScope(); }
+        return Promise.resolve();
+      }
+      return load(aborter.signal, true).catch(error => { state.error = error.message; renderLive(); }).finally(() => { state.fitted = fit(); connect(); });
     }
 
     function connect() {
@@ -4153,8 +4183,6 @@ button.label { cursor: pointer; }
         state.signals = new Set(strings(view.signals).filter(s => has(SIGNAL, s)));
       }
     } catch { /* invalid shared views leave the normal dashboard controls available */ }
-    // A slice carries no sampled operations: a link naming both opens the slice.
-    if (state.slice) state.operation = { id: '', traceId: '' };
     state.positions = stored(posKey(), {});
     if (opts.theme) host.dataset.theme = opts.theme;
 
@@ -4194,7 +4222,8 @@ button.label { cursor: pointer; }
       // setStatus reports the host's own query state (the panel's data.state).
       setStatus(error) { state.error = error || ''; renderLive(); },
       setOptions(options = {}) {
-        for (const key of ['inputFrames', 'fieldMapping', 'onMappingChange']) if (has(options, key)) opts[key] = options[key];
+        for (const key of ['inputFrames', 'fieldMapping', 'onMappingChange', 'onSliceChange']) if (has(options, key)) opts[key] = options[key];
+        if (has(options, 'onSliceChange') && state.snap) renderScope();
         const { groupBy, flow, journey, journeyKey, values } = options;
         if (has(options, 'requestedRange')) { opts.requestedRange = options.requestedRange; renderLive(); }
         // A journey from the host (a dashboard variable) is the viewer's

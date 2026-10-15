@@ -15,6 +15,8 @@ import (
 type slicingEngine struct {
 	*fakeEngine
 	asked []string
+	// operations, when set, are the sliced round's own.
+	operations *model.OperationContract
 }
 
 func (s *slicingEngine) Sliced(sel slice.Selector) model.Snapshot {
@@ -22,13 +24,16 @@ func (s *slicingEngine) Sliced(sel slice.Selector) model.Snapshot {
 	snap := s.snap
 	snap.Nodes = []model.Node{{ID: "app-a"}}
 	snap.Slice = &model.SliceScope{Selector: sel, Matched: true, Metrics: "scoped"}
+	if s.operations != nil {
+		snap.Operations = s.operations
+	}
 	return snap
 }
 
 func TestSliceParameter(t *testing.T) {
 	eng := &slicingEngine{fakeEngine: newFakeEngine()}
 	h := Handler(eng, Options{})
-	for _, path := range []string{"snapshot", "graph", "findings", "coverage", "journeys", "grafana/nodes", "grafana/edges", "export/matrix.csv"} {
+	for _, path := range []string{"snapshot", "graph", "findings", "coverage", "journeys", "operations", "grafana/nodes", "grafana/edges", "grafana/findings", "export/matrix.csv"} {
 		if rec := get(h, "/api/v1/"+path+"?slice=tenant:a,journey:notification", nil); rec.Code != http.StatusOK {
 			t.Fatalf("%s: %d %s", path, rec.Code, rec.Body)
 		}
@@ -81,5 +86,36 @@ func TestStreamSendsSlices(t *testing.T) {
 	eng.updates <- []byte(`{"round":2}`)
 	if _, data := nextEvent(t, r); json.Unmarshal([]byte(data), &snap) != nil || snap.Slice == nil {
 		t.Fatalf("every update must be sliced: %s", data)
+	}
+}
+
+// Frames cannot show that they were sliced: the first node row and the
+// coverage row carry the slice they hold, and the values a panel can offer.
+func TestGrafanaFramesSayWhichSliceTheyHold(t *testing.T) {
+	eng := &slicingEngine{fakeEngine: newFakeEngine()}
+	eng.snap.Dimensions = map[string][]string{"journey": {"browse", "checkout"}}
+	h := Handler(eng, Options{})
+	type metadata struct{ Slice, Dimensions string }
+	frames := func(query string) (node, coverage metadata) {
+		var nodes []metadata
+		if err := json.Unmarshal(get(h, "/api/v1/grafana/nodes"+query, nil).Body.Bytes(), &nodes); err != nil || len(nodes) == 0 {
+			t.Fatalf("nodes%s: %v", query, err)
+		}
+		if err := json.Unmarshal(get(h, "/api/v1/coverage"+query, nil).Body.Bytes(), &coverage); err != nil {
+			t.Fatalf("coverage%s: %v", query, err)
+		}
+		return nodes[0], coverage
+	}
+	node, coverage := frames("")
+	if node.Slice != "" || coverage.Slice != "" || node.Dimensions != `{"journey":["browse","checkout"]}` || coverage.Dimensions != node.Dimensions {
+		t.Fatalf("whole frames = %+v / %+v", node, coverage)
+	}
+	node, coverage = frames("?slice=journey:checkout")
+	var scope model.SliceScope
+	if err := json.Unmarshal([]byte(node.Slice), &scope); err != nil || scope.Selector["journey"] != "checkout" || !scope.Matched || coverage.Slice != node.Slice {
+		t.Fatalf("sliced frames = %+v / %+v (%v)", node, coverage, err)
+	}
+	if node.Dimensions != `{"journey":["browse","checkout"]}` {
+		t.Fatalf("a sliced frame still offers every value, got %s", node.Dimensions)
 	}
 }

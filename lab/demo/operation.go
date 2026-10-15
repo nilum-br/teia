@@ -14,6 +14,22 @@ func operationRoute(path string) string {
 	}
 }
 
+// operationJourney is the business journey web's entry span carries; every
+// call below it inherits the value, so slices split checkout and browse calls
+// through the services and database they share.
+func operationJourney(service, path string) string {
+	if service != "web" {
+		return ""
+	}
+	switch path {
+	case "/checkout":
+		return "checkout"
+	case "/browse":
+		return "browse"
+	}
+	return ""
+}
+
 func operationCalls(calls []downstream, service, path string) []downstream {
 	if service != "web" || path != "/checkout" && path != "/browse" {
 		return calls

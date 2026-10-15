@@ -81,6 +81,20 @@ describe('framesToSnapshot', () => {
     expect(framesToSnapshot(frames, 2).snapshot).toMatchObject({ timeMode: 'mixed', history: undefined });
   });
 
+  it('reads which slice the frames hold and the values on offer', () => {
+    const slice = (matched: boolean) => JSON.stringify({ selector: { journey: 'checkout' }, matched, metrics: 'scoped', sources: ['tempo'] });
+    const dimensions = JSON.stringify({ journey: ['browse', 'checkout'] });
+    const sliced = framesToSnapshot([toDataFrame({ refId: 'nodes', fields: [{ name: 'id', values: ['web'] }, { name: 'slice', values: [slice(true)] }, { name: 'dimensions', values: [dimensions] }] })], 1).snapshot;
+    expect(sliced?.slice).toMatchObject({ selector: { journey: 'checkout' }, matched: true });
+    expect(sliced?.dimensions).toEqual({ journey: ['browse', 'checkout'] });
+    // A selection no call carried has no node rows: the coverage row still says so.
+    const empty = framesToSnapshot([toDataFrame({ refId: 'nodes', fields: [{ name: 'id', values: [] }] }),
+      toDataFrame({ refId: 'coverage', fields: [{ name: 'visibility', values: [0] }, { name: 'slice', values: [slice(false)] }, { name: 'dimensions', values: [dimensions] }] })], 1).snapshot;
+    expect(empty?.nodes).toEqual([]);
+    expect(empty?.slice).toMatchObject({ matched: false });
+    expect(framesToSnapshot([nodes, edges], 1).snapshot?.slice).toBeUndefined();
+  });
+
   it('maps teia frames and adds nodes only edges mention', () => {
     const { snapshot } = framesToSnapshot([nodes, edges], 3);
     expect(snapshot).toBeDefined();

@@ -4,6 +4,7 @@ import { createTheme, dateTime, LoadingState, PanelProps, ThemeContext, toDataFr
 import { journeyOf, TeiaPanel } from './TeiaPanel';
 import { TeiaOptions } from '../types';
 import TeiaUI from '../teia/teia-ui';
+import { locationService, variables } from '../test/grafana-runtime';
 
 // jsdom has no layout: give SVG geometry and ResizeObserver harmless answers.
 beforeAll(() => {
@@ -52,6 +53,52 @@ const shadow = (container: HTMLElement) => container.querySelector('[data-testid
 
 describe('TeiaPanel', () => {
   beforeEach(() => localStorage.clear());
+
+  describe('slices', () => {
+    // Frames from the panel queries, whole or holding one journey's calls.
+    const frames = (journey?: string) => [
+      toDataFrame({
+        refId: 'nodes',
+        fields: [
+          { name: 'id', values: ['web', 'orders'] },
+          { name: 'kind', values: ['service', 'service'] },
+          { name: 'dimensions', values: [JSON.stringify({ journey: ['browse', 'checkout'] }), ''] },
+          { name: 'slice', values: [journey ? JSON.stringify({ selector: { journey }, matched: true, metrics: 'scoped', sources: ['tempo'] }) : '', ''] },
+        ],
+      }),
+      series[1],
+    ];
+    const withData = (journey?: string) => props({ data: { series: frames(journey), state: LoadingState.Done } as never });
+    const sliceButtons = (root: ShadowRoot) => [...root.querySelectorAll<HTMLButtonElement>('.jtab')].filter((b) => b.textContent?.startsWith('journey: '));
+    afterEach(() => {
+      variables.length = 0;
+      locationService.partial.mockClear();
+    });
+
+    it('sets the dashboard variable the queries slice by, and follows the frames that come back', () => {
+      variables.push({ name: 'slice' });
+      const { container, rerender } = render(<TeiaPanel {...withData()} />);
+      sliceButtons(shadow(container)).find((b) => b.textContent === 'journey: checkout')!.click();
+      expect(locationService.partial).toHaveBeenCalledWith({ 'var-slice': 'journey:checkout' }, true);
+      rerender(<TeiaPanel {...withData('checkout')} />);
+      const chip = shadow(container).querySelector('.fchip.slice')!;
+      expect(chip.textContent).toContain('Calls of journey = checkout');
+      chip.querySelector('button')!.click();
+      expect(locationService.partial).toHaveBeenLastCalledWith({ 'var-slice': '' }, true);
+    });
+
+    it('only labels sliced frames when the dashboard has no slice variable or a teia URL slices', () => {
+      const { container } = render(<TeiaPanel {...withData('checkout')} />);
+      const chip = shadow(container).querySelector('.fchip.slice')!;
+      expect(chip.textContent).toContain('Calls of journey = checkout');
+      expect(chip.querySelector('button')).toBeNull();
+      expect(sliceButtons(shadow(container))).toHaveLength(0);
+      variables.push({ name: 'other' });
+      const { container: unrelated } = render(<TeiaPanel {...withData()} />);
+      expect(sliceButtons(shadow(unrelated))).toHaveLength(0);
+      expect(locationService.partial).not.toHaveBeenCalled();
+    });
+  });
 
   it('draws the nodes from the panel queries', () => {
     const { container } = render(<TeiaPanel {...props()} />);

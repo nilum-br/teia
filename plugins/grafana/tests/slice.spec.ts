@@ -14,6 +14,8 @@ type SliceSnapshot = TeiaSnapshot & {
 
 // Checkout calls web -> orders -> db and browse web -> catalog -> db.
 const CALLS: Record<string, string[][]> = { checkout: [['web', 'orders'], ['orders', 'db']], browse: [['web', 'catalog'], ['catalog', 'db']] };
+// The entry operation each journey's requests sampled.
+const OPERATION: Record<string, string> = { checkout: 'POST /checkout', browse: 'GET /browse' };
 
 // snapshot is the whole map, or what /api/v1/snapshot?slice=journey:<journey> answers.
 function snapshot(journey = ''): SliceSnapshot {
@@ -25,9 +27,9 @@ function snapshot(journey = ''): SliceSnapshot {
     edges: calls.map(([from, to]) => ({ from, to, health: 'healthy', state: 'ok', declared: true, observed: true, sources: ['traces'], signals: ['traces'] })),
     sources: [], findings: [], coverage: { nodes: ids.length, edges: calls.length, visibility: 1, declared: 1, observed: 1 },
     dimensions: { journey: Object.keys(CALLS).sort() },
-    // A sliced round carries no sampled operations: they follow whole traces.
     slice: journey ? { selector: { journey }, matched: true, metrics: 'scoped', sources: ['tempo'] } : undefined,
-    operations: journey ? undefined : operations,
+    // teia narrows operations to the traces whose entry carried the slice.
+    operations: journey ? { ...operations, scopes: operations.scopes.filter(s => s.operation === OPERATION[journey]) } : operations,
   };
 }
 
@@ -44,6 +46,19 @@ async function names(root: Locator) {
   return (await root.locator('.node .title').allTextContents()).sort();
 }
 
+// pickSlice chooses a slice value: in the bar when it has room, otherwise in
+// the Filter panel, which narrow maps keep it to so the map keeps its space.
+async function pickSlice(root: Locator, label: string) {
+  const inline = root.locator('.slice-pick').getByRole('button', { name: label, exact: true });
+  if (await inline.isVisible()) {
+    await inline.click();
+    return;
+  }
+  await root.locator('#filterBtn').click();
+  await root.locator('#filterPanel').getByRole('button', { name: label }).click();
+  await root.locator('#filterPanel').getByRole('button', { name: 'Done', exact: true }).click();
+}
+
 async function workspace(root: Locator, tab: string) {
   await root.getByRole('button', { name: 'Investigate', exact: true }).click();
   await root.getByRole('button', { name: tab, exact: true }).click();
@@ -56,7 +71,7 @@ test('a slice chosen while live updates are paused is drawn at once', async ({ p
   const root = await mountFixture(page, snapshot(), { api: '/api/v1/', stream: false });
   await expect(root.locator('#liveBtn')).toHaveAttribute('aria-pressed', 'false');
   expect(await names(root)).toEqual(['catalog', 'db', 'orders', 'web']);
-  await root.getByRole('button', { name: 'journey: checkout', exact: true }).click();
+  await pickSlice(root, 'journey: checkout');
   await expect(root.locator('.fchip.slice')).toContainText('Calls of journey = checkout');
   await expect.poll(() => names(root)).toEqual(['db', 'orders', 'web']);
   await root.getByRole('button', { name: 'Show every call', exact: true }).click();
@@ -70,7 +85,7 @@ test('an update held while paused does not replace a slice chosen after it', asy
   await expect(root.locator('#liveBtn')).toHaveAttribute('aria-pressed', 'false');
   // A whole-map update arrives while paused and waits for Live.
   await page.evaluate(() => { const w = window as FixtureWindow; w.fixture.update(w.fixtureSnapshot); });
-  await root.getByRole('button', { name: 'journey: checkout', exact: true }).click();
+  await pickSlice(root, 'journey: checkout');
   await expect.poll(() => names(root)).toEqual(['db', 'orders', 'web']);
   await root.locator('#liveBtn').click();
   await expect(root.locator('#liveBtn')).toHaveAttribute('aria-pressed', 'true');
@@ -79,7 +94,7 @@ test('an update held while paused does not replace a slice chosen after it', asy
 });
 
 for (const width of [1600, 600]) {
-  test(`a slice closes a sampled operation and lists none until every call is shown (${width}px)`, async ({ page }, info) => {
+  test(`a slice narrows a sampled operation, and one it did not sample says so (${width}px)`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 900 });
     await serve(page);
     const root = await mountFixture(page, snapshot(), { api: '/api/v1/', stream: false });
@@ -87,19 +102,23 @@ for (const width of [1600, 600]) {
     let dialog = await workspace(root, 'Operations and traces');
     await dialog.getByRole('combobox', { name: 'Operation', exact: true }).selectOption(operations.scopes.find(s => s.operation === 'POST /checkout')!.id);
     await dialog.getByRole('button', { name: 'Show sampled operation', exact: true }).click();
-    await expect(root.locator('#investigationSummary')).toContainText('Sampled operation');
-    // The browse slice has no operation to show: the checkout operation closes.
-    await root.getByRole('button', { name: 'journey: browse', exact: true }).click();
-    await expect.poll(() => names(root)).toEqual(['catalog', 'db', 'web']);
-    await expect(root.locator('#investigationSummary')).toBeHidden();
+    await expect.poll(() => names(root)).toEqual(['db', 'orders', 'web']);
+    // The checkout slice keeps the checkout operation on the map.
+    await pickSlice(root, 'journey: checkout');
+    await expect(root.locator('.fchip.slice')).toContainText('Calls of journey = checkout');
+    await expect(root.locator('#investigationSummary')).toContainText('Sampled operation: POST /checkout');
+    expect(await names(root)).toEqual(['db', 'orders', 'web']);
+    // Browse did not sample it: no platform calls stand in for it.
+    await pickSlice(root, 'journey: browse');
+    await expect(root.locator('#investigationSummary')).toContainText('not sampled in this slice');
+    await expect(root.locator('.node')).toHaveCount(0);
     dialog = await workspace(root, 'Operations and traces');
-    await expect(dialog).toContainText('Operations follow whole sampled traces, which a slice does not split');
-    await expect(dialog.getByRole('combobox', { name: 'Operation', exact: true })).toHaveCount(0);
+    await expect(dialog).toContainText('Only calls with journey = browse: the sampled traces whose entry carried it');
+    const choose = dialog.getByRole('combobox', { name: 'Operation', exact: true });
+    expect((await choose.locator('option').allTextContents()).slice(1).map(o => o.split(' · ')[1])).toEqual(['GET /browse']);
+    await expect(choose).toHaveValue('');
+    await expect(choose.locator('option:checked')).toHaveText('Choose an operation');
     await page.screenshot({ path: info.outputPath(`operations-in-slice-${width}.png`), animations: 'disabled' });
-    await dialog.getByRole('button', { name: 'Show every call', exact: true }).click();
-    await expect(dialog.getByRole('combobox', { name: 'Operation', exact: true })).toBeFocused();
-    await expect(root.locator('.fchip.slice')).toHaveCount(0);
-    expect(await names(root)).toEqual(['catalog', 'db', 'orders', 'web']);
   });
 }
 
@@ -111,7 +130,7 @@ test('a capture of a slice is compared only with a capture of the same slice', a
   let dialog = await workspace(root, 'Compare snapshots');
   await dialog.getByRole('button', { name: 'Capture current snapshot as before', exact: true }).click();
   await dialog.getByRole('button', { name: 'Close investigation', exact: true }).click();
-  await root.getByRole('button', { name: 'journey: checkout', exact: true }).click();
+  await pickSlice(root, 'journey: checkout');
   await expect.poll(() => names(root)).toEqual(['db', 'orders', 'web']);
   dialog = await workspace(root, 'Compare snapshots');
   await expect(dialog).toContainText('“Capture current snapshot” takes that slice');
@@ -125,3 +144,28 @@ test('a capture of a slice is compared only with a capture of the same slice', a
   await expect(dialog.locator('#comparisonResult')).toContainText('0 only after · 0 only before · 0 changed');
   await expect(dialog.locator('.comparison-map')).toHaveCount(2);
 });
+
+// The lab's web entry spans carry business.journey, and its dashboard passes
+// the slice variable to teia's queries: the panel's buttons set the variable.
+for (const width of [1600, 600]) {
+  test(`grafana: the panel picks a slice through the dashboard variable (${width}px)`, async ({ page }, info) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/d/teia-overview/teia?var-slice=&refresh=&theme=light');
+    const root = page.getByTestId('teia-panel');
+    const node = (id: string) => root.locator(`.node[data-id="${id}"]`);
+    await expect(node('catalog')).toHaveCount(1, { timeout: 60_000 });
+    // A narrow panel leaves the choice to Filter; a wide one offers it in the bar too.
+    await expect(root.locator('.slice-pick').first()).toBeVisible({ visible: width > 760 });
+    await pickSlice(root, 'journey: checkout');
+    await expect(page).toHaveURL(/var-slice=journey(%3A|:)checkout/);
+    await expect(node('catalog')).toHaveCount(0, { timeout: 60_000 });
+    await expect(node('orders')).toHaveCount(1);
+    await expect(root.locator('.fchip.slice')).toContainText('Calls of journey = checkout');
+    await expect(root.locator('.slice-note').first()).toContainText('metrics of these calls only');
+    await page.screenshot({ path: info.outputPath(`grafana-slice-${width}.png`), animations: 'disabled' });
+    await root.getByRole('button', { name: 'Show every call', exact: true }).click();
+    await expect(node('catalog')).toHaveCount(1, { timeout: 60_000 });
+    await expect(root.locator('.fchip.slice')).toHaveCount(0);
+  });
+}

@@ -39,3 +39,14 @@ func TestOperationRoutesKeepSharedFrontendCallsSeparate(t *testing.T) {
 		t.Fatal("opt-in changed an existing generator")
 	}
 }
+
+// Only web's entry spans name a journey; the calls below inherit it in teia.
+func TestOperationJourneyTagsOnlyTheEntry(t *testing.T) {
+	for _, tc := range []struct{ service, path, want string }{
+		{"web", "/checkout", "checkout"}, {"web", "/browse", "browse"}, {"web", "/", ""}, {"orders", "/checkout", ""},
+	} {
+		if got := operationJourney(tc.service, tc.path); got != tc.want {
+			t.Errorf("%s %s = %q, want %q", tc.service, tc.path, got, tc.want)
+		}
+	}
+}

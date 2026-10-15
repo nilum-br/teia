@@ -96,6 +96,10 @@ sources:
   tempo:
     - url: http://tempo:3200
       window: 10m
+      # web's entry spans carry business.journey and every call below inherits
+      # it: slices split checkout and browse (docs/journeys.md).
+      dimensions:
+        journey: business.journey
 
   # logs: access logs name callers that have no telemetry of their own
   queries:

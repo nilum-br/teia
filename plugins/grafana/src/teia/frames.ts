@@ -346,6 +346,9 @@ export function framesToSnapshot(series: DataFrame[], round: number): { snapshot
       edges,
       journeys: journeyContract((byRole.nodes ?? []).find((r) => has(r, 'journeyContract'))?.journeyContract, nodes, edges),
       operations: jsonObject<TeiaSnapshot['operations']>(allMetadata.find(r => has(r, 'operations'))?.operations),
+      // Sliced frames look like any frames: the slice they hold travels beside them.
+      slice: jsonObject<TeiaSnapshot['slice']>(allMetadata.find(r => has(r, 'slice'))?.slice),
+      dimensions: jsonObject<TeiaSnapshot['dimensions']>(allMetadata.find(r => has(r, 'dimensions'))?.dimensions),
       findings: (byRole.findings ?? []).map(toFinding).filter((f) => f.title),
       sources: (byRole.sources ?? []).map(toSource).filter((s) => s.name),
       coverage,

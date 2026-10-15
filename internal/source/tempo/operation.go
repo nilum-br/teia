@@ -25,8 +25,12 @@ type sampledTrace struct {
 	spans []span
 }
 
-func operationSamples(source string, window url.Values, traces []sampledTrace, requested, failed, searched, available int, limited bool) *model.OperationContract {
+// operationSamples attributes the sampled spans to entry operations. With
+// dimensions configured, every trace, span and unattributed span records the
+// business dimension values it carried, so a slice can keep its own.
+func operationSamples(source string, window url.Values, traces []sampledTrace, dims map[string]string, requested, failed, searched, available int, limited bool) *model.OperationContract {
 	contract := model.EmptyOperations()
+	reader := &pairing{dims: dims}
 	from, _ := strconv.ParseInt(window.Get("start"), 10, 64)
 	to, _ := strconv.ParseInt(window.Get("end"), 10, 64)
 	period := model.OperationPeriod{From: time.Unix(from, 0).UTC(), To: time.Unix(to, 0).UTC()}
@@ -61,6 +65,7 @@ func operationSamples(source string, window url.Values, traces []sampledTrace, r
 			delete(byID, id)
 		}
 		cyclic := hasParentCycle(byID)
+		dimsOf := func(sp span) map[string]string { return reader.dimsOf(sp, byID) }
 		children := map[string][]string{}
 		var roots, missing []string
 		for id, sp := range byID {
@@ -106,7 +111,7 @@ func operationSamples(source string, window url.Values, traces []sampledTrace, r
 					reason = "missing-parent"
 				}
 			}
-			contract.Unattributed = append(contract.Unattributed, model.OperationUnattributed{Source: source, TraceID: trace.id, SpanID: sp.id, NodeID: sp.service, Reason: reason})
+			contract.Unattributed = append(contract.Unattributed, model.OperationUnattributed{Source: source, TraceID: trace.id, SpanID: sp.id, NodeID: sp.service, Reason: reason, Dimensions: dimsOf(sp)})
 			unattributed = append(unattributed, sp.id)
 		}
 		sort.Strings(unattributed)
@@ -141,7 +146,7 @@ func operationSamples(source string, window url.Values, traces []sampledTrace, r
 				status.Truncated, status.Status = true, "partial"
 			}
 			emittedRemaining -= len(ids)
-			addOperationTrace(scope, trace.id, root, ids, byID, missing, unattributed, truncated || cut || len(duplicates) > 0, cyclic)
+			addOperationTrace(scope, trace.id, root, ids, byID, missing, unattributed, truncated || cut || len(duplicates) > 0, cyclic, dimsOf)
 		}
 	}
 	for _, scope := range scopes {
@@ -192,14 +197,15 @@ func hasParentCycle(spans map[string]span) bool {
 	return false
 }
 
-func addOperationTrace(scope *model.OperationScope, traceID string, root span, ids []string, spans map[string]span, missing, unattributed []string, truncated, cyclic bool) {
+func addOperationTrace(scope *model.OperationScope, traceID string, root span, ids []string, spans map[string]span, missing, unattributed []string, truncated, cyclic bool, dimsOf func(span) map[string]string) {
 	if len(missing) > maxOperationGapIDs || len(unattributed) > maxOperationGapIDs {
 		truncated = true
 	}
 	missing = missing[:min(len(missing), maxOperationGapIDs)]
 	unattributed = unattributed[:min(len(unattributed), maxOperationGapIDs)]
 	trace := model.OperationTrace{TraceID: traceID, RootSpanID: root.id, RootDurationMs: durationMs(root), RootOutcome: operationOutcome(root),
-		SpanIDs: ids, MissingParentSpanIDs: append([]string{}, missing...), UnattributedSpanIDs: append([]string{}, unattributed...), Spans: []model.OperationSpan{}, StructuralStatus: "linked-sample", Truncated: truncated}
+		SpanIDs: ids, MissingParentSpanIDs: append([]string{}, missing...), UnattributedSpanIDs: append([]string{}, unattributed...), Spans: []model.OperationSpan{}, StructuralStatus: "linked-sample", Truncated: truncated,
+		Dimensions: dimsOf(root)}
 	nodes := map[string]model.NodeKind{}
 	for _, node := range scope.Nodes {
 		nodes[node.ID] = node.Kind
@@ -242,7 +248,7 @@ func addOperationTrace(scope *model.OperationScope, traceID string, root span, i
 		if len(sp.links) > maxOperationLinks {
 			trace.Truncated, truncated = true, true
 		}
-		trace.Spans = append(trace.Spans, model.OperationSpan{SpanID: id, ParentSpanID: sp.parent, NodeID: sp.service, Kind: sp.kind, StartedAt: sp.startedAt, EndedAt: sp.endedAt, Links: append([]model.OperationSpanLink{}, links...)})
+		trace.Spans = append(trace.Spans, model.OperationSpan{SpanID: id, ParentSpanID: sp.parent, NodeID: sp.service, Kind: sp.kind, StartedAt: sp.startedAt, EndedAt: sp.endedAt, Links: append([]model.OperationSpanLink{}, links...), Dimensions: dimsOf(sp)})
 		if len(sp.links) > 0 {
 			trace.StructuralStatus = "gaps-detected" // links are preserved, never traversed as synchronous ancestry
 		}

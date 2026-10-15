@@ -239,18 +239,14 @@ func routes(eng Snapshotter, opts Options, slots chan struct{}) *http.ServeMux {
 		}
 		send(w, dims)
 	})
-	// Sampled operations follow whole traces, which a slice does not split:
-	// ?slice= is refused rather than answered with every call's operations.
+	// With ?slice=, the traces whose entry carried the selection and their
+	// calls that did; a source that cannot split them is marked excluded.
 	mux.HandleFunc("GET /api/v1/operations", func(w http.ResponseWriter, r *http.Request) {
-		switch sel, err := slice.Parse(r.URL.Query().Get("slice")); {
-		case err != nil:
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		case sel != nil:
-			writeError(w, http.StatusBadRequest, "operations are sampled from whole traces and are not split by dimension; omit slice")
+		s, ok := snapOf(w, r)
+		if !ok {
 			return
 		}
-		contract := snap().Operations
+		contract := s.Operations
 		if contract == nil {
 			contract = model.EmptyOperations()
 		}
@@ -309,8 +305,10 @@ func routes(eng Snapshotter, opts Options, slots chan struct{}) *http.ServeMux {
 			send(w, grafanaEdges(s))
 		}
 	})
-	mux.HandleFunc("GET /api/v1/grafana/findings", func(w http.ResponseWriter, _ *http.Request) {
-		send(w, grafanaFindings(snap()))
+	mux.HandleFunc("GET /api/v1/grafana/findings", func(w http.ResponseWriter, r *http.Request) {
+		if s, ok := snapOf(w, r); ok {
+			send(w, grafanaFindings(s))
+		}
 	})
 	mux.HandleFunc("GET /api/v1/grafana/sources", func(w http.ResponseWriter, _ *http.Request) {
 		send(w, grafanaSources(snap()))

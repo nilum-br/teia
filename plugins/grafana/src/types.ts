@@ -17,4 +17,7 @@ export interface TeiaOptions {
   groupBy: string;
   /** Animate traffic along the edges. */
   flow: boolean;
+  /** Dashboard variable the queries pass as ?slice= (default slice). The
+   * panel's slice buttons set it; empty turns them off. */
+  sliceVariable?: string;
 }

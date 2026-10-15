@@ -86,10 +86,14 @@ Coverage transport also works when the global topology has no nodes. Generic ext
 contract do not acquire inferred operation correlation. Explicit node aliases are applied to operation IDs
 and endpoints; platform health and metric aggregates are not copied into operation scopes.
 
-[Slices](journeys.md#slices-follow-the-calls) do not split operations. An operation follows whole sampled
-traces, while a slice keeps only the calls that carried its dimensions, so a sliced snapshot, graph or frame
-carries no `operations`, and `GET /api/v1/operations?slice=…` answers 400 instead of every journey's
-operations. To follow an operation, show every call (✕ on the slice chip, or drop `?slice=` from the frame query).
+With the Tempo source's `dimensions` configured, every trace records the values its entry span carried and
+every span its own, each from the span itself or its closest ancestor, as for edge slices. In a
+[slice](journeys.md#slices-follow-the-calls) (`?slice=` on the snapshot, `graph`, `operations` and the Grafana
+frames), an operation keeps only the sampled traces whose entry carried the selection and, in them, the spans and
+calls that did: a call made for another journey inside a checkout trace leaves the checkout slice, as its edge
+does. Root counts, outcomes and durations are those of the kept entries, and an operation no kept entry sampled
+disappears from the slice. A trace source that cannot split by every selected dimension keeps its status as
+`excluded`, with no operations, rather than mixing every journey's operations in.
 
 When snapshot history is enabled, the original operation contract is stored inside each snapshot. Historical
 replay preserves its original trace IDs, query interval and collection time; replay does not requery Tempo.
@@ -102,16 +106,15 @@ span. Limits set `truncated` and source status `partial`. The existing Tempo tra
 ## Local lab
 
 The demo supports `/checkout` and `/browse` on `web`. Checkout calls `orders`; browse calls `catalog` and
-`recommendations`. Requests to `/` retain the existing combined demonstration. Set `OPERATION_ROUTES: "true"`
-on the lab's `loadgen` to alternate `POST /checkout` and `GET /browse`.
+`recommendations`. The lab's `loadgen` alternates `POST /checkout` and `GET /browse` (`OPERATION_ROUTES: "true"`
+in `lab/compose.yaml`; without it, requests to `/` keep the combined demonstration). `web` marks each entry span
+with `business.journey`, which the lab's Tempo source reads as the `journey` dimension, so slices and their
+operations split the two journeys.
 
 To exercise a genuinely shared database, add the following to `catalog` in a local Compose override:
 
 ```yaml
 services:
-  loadgen:
-    environment:
-      OPERATION_ROUTES: "true"
   catalog:
     environment:
       POSTGRES_DSN: postgres://orders:orders@orders-db:5432/orders?sslmode=disable

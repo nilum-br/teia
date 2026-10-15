@@ -46,7 +46,8 @@ declaration should be removed: each capture is a discrete observation, not conti
 
 Captures are compared only within the same scope. With a slice on the map, "the snapshot currently shown" holds
 only the selected calls, while stored observations hold every call; a slice against the whole map, or against
-another slice, is not compared, because everything outside the slice would read as a difference.
+another slice, is not compared, because everything outside the slice would read as a difference. Captures of two
+clusters are not compared either: the same apps in two clusters are two maps, not one map that changed.
 
 ## Connect data
 
@@ -69,8 +70,9 @@ calls descended from those sampled entry spans. Health, rates and error shares a
 a sample neither establishes service health nor counts traffic. The workspace states the Tempo query period,
 how many traces were requested and returned, structural gaps, root outcomes and the range of sampled root
 durations, which is not a percentile. Ownership journeys remain a separate, topological view.
-Operations follow whole traces, so none are listed while a slice is shown: **Show every call** returns to the
-whole map and the list. See [sampled operations](operations.md) for instrumentation and limits.
+With a slice, the list holds the operations whose sampled entries carried it, each narrowed to those traces
+and their calls in the slice; an operation shown on the map stays open across slices and says when one did not
+sample it. See [sampled operations](operations.md) for instrumentation and limits.
 
 ## Identity and provenance
 

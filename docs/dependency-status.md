@@ -109,6 +109,12 @@ mean every installed package is embedded in `dist/module.js`. Webpack's
 runtime implementations. npm's `dev` flag alone cannot establish what the browser bundle contains, and this
 plugin audit does not certify the separate Grafana server distribution or its bundled libraries.
 
+`@grafana/runtime` is not installed at all. The Grafana host provides it, and the panel uses two of its functions
+(`locationService.partial` and `getTemplateSrv().getVariables`) to set the dashboard's slice variable.
+[`src/grafana-runtime.d.ts`](../plugins/grafana/src/grafana-runtime.d.ts) declares them for TypeScript and
+`jest.config.js` maps the module to a test stand-in. Installing the package would bring `@grafana/ui` and its
+dependency tree back into the audited install.
+
 Two deliberately scoped overrides remain necessary:
 
 | Override | Current upstream requirement | Removal condition |
