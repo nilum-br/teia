@@ -6,6 +6,19 @@
 # Needs: go, curl, k6. Ports 19090 (synth), 18480 (teia) and 16060 (pprof).
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
+if (( $# < 5 )); then
+  echo "usage: lab/stress/run.sh CLUSTERS SERVICES FANOUT JOURNEYS TENANTS [OUT_DIR]" >&2
+  exit 2
+fi
+for tool in go curl jq bc k6; do
+  command -v "$tool" >/dev/null || { echo "lab/stress needs $tool on PATH (k6: https://grafana.com/docs/k6/latest/set-up/install-k6/)" >&2; exit 2; }
+done
+for port in 19090 18480 16060; do
+  if curl -s -o /dev/null "http://127.0.0.1:$port/"; then
+    echo "port $port is in use: stop what listens there (an earlier run?) and retry" >&2
+    exit 2
+  fi
+done
 clusters=$1 services=$2 fanout=$3 journeys=$4 tenants=$5
 out=${6:-$(mktemp -d)}
 mkdir -p "$out/bin"

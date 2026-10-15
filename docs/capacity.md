@@ -9,6 +9,16 @@ a "connection" is one caller→callee pair, each with one series per journey and
 combination when the queries carry those dimensions. One process, 30 s interval,
 Apple M-series laptop.
 
+## Run it yourself
+
+```sh
+make stress        # two scenarios, about 6 minutes
+make stress-full   # every row below, about 25 minutes
+```
+
+Needs Go, curl, jq, bc and k6; no Docker or cluster. Both print a table in the format below.
+[lab/stress](../lab/stress/README.md) explains the options and how to read a run.
+
 ## Results
 
 | Clusters × connections | Series per round | Memory (RSS) | Round per cluster (max) | Snapshot | API under load (20 VUs) |
@@ -20,9 +30,11 @@ Apple M-series laptop.
 | 100 × 900 | 270 000 | 2.1 GiB | 29 ms | 4.2 MB | 2105 req/s, snapshot p95 19 ms |
 | 50 × 4 000 | 600 000 | 3.0 GiB | 47 ms | 16.5 MB | 180 req/s, snapshot p95 210 ms |
 
-One run (30 × 2 000) had 4 of 17 198 requests end with `unexpected EOF` in the first second of the
-load; four later runs with the same load (about 41 000 requests) had none, and teia logged nothing. The
-cause was not found. Every other run had no failed request. The MCP load includes `teia_impact` and
+Two runs had requests end with `unexpected EOF` in the first second of the load: 4 of 17 198 at
+30 × 2 000, and 1 of 18 197 at 10 × 2 000, a whole `/api/v1/snapshot` (the cached, gzip-capable
+response). Other runs with the same load (about 41 000 requests), and 15 runs reading only snapshots
+(about 53 000), had none; teia logged nothing and no handler panicked. The cause was not found; `api.js`
+prints the method and URL of any failed request so the next occurrence can be traced. Every other run had no failed request. The MCP load includes `teia_impact` and
 `teia_path`, which walk the graph. CPU averaged under 0.3 core between requests:
 rounds spend their time waiting for the backends, which the synthetic APIs answer at
 once, so real rounds take as long as your Prometheus and Tempo do.
