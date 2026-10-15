@@ -179,10 +179,16 @@ func (s *server) trace(w http.ResponseWriter, cluster int, id string) {
 		http.NotFound(w, nil)
 		return
 	}
-	from, _ := strconv.ParseInt(id[:16], 16, 64)
-	to, _ := strconv.ParseInt(id[16:24], 16, 64)
+	// The ID names the caller and callee (see search): only services that exist.
+	from64, err1 := strconv.ParseInt(id[:16], 16, 32)
+	to64, err2 := strconv.ParseInt(id[16:24], 16, 32)
+	if err1 != nil || err2 != nil || from64 < 0 || to64 < 0 || from64 >= int64(s.topo.services) || to64 >= int64(s.topo.services) {
+		http.NotFound(w, nil)
+		return
+	}
+	from, to := int(from64), int(to64)
 	at := int64(1_700_000_000_000_000_000)
-	journey := fmt.Sprintf("j%d", (int(from)+cluster)%s.topo.journeys)
+	journey := fmt.Sprintf("j%d", (from+cluster)%s.topo.journeys)
 	span := func(spanID, parent string, kind int, start, end int64) string {
 		return fmt.Sprintf(`{"traceId":"%s","spanId":"%s","parentSpanId":"%s","name":"call","kind":%d,"startTimeUnixNano":"%d","endTimeUnixNano":"%d","attributes":[{"key":"business.journey","value":{"stringValue":"%s"}}]}`,
 			id, spanID, parent, kind, start, end, journey)
@@ -193,6 +199,6 @@ func (s *server) trace(w http.ResponseWriter, cluster int, id string) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, `{"trace":{"resourceSpans":[%s,%s]}}`,
-		batch(s.topo.name(int(from)), span("0000000000000001", "", 2, at, at+50e6), span("0000000000000002", "0000000000000001", 3, at+1e6, at+40e6)),
-		batch(s.topo.name(int(to)), span("0000000000000003", "0000000000000002", 2, at+2e6, at+38e6)))
+		batch(s.topo.name(from), span("0000000000000001", "", 2, at, at+50e6), span("0000000000000002", "0000000000000001", 3, at+1e6, at+40e6)),
+		batch(s.topo.name(to), span("0000000000000003", "0000000000000002", 2, at+2e6, at+38e6)))
 }

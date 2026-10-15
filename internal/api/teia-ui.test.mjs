@@ -764,6 +764,16 @@ describe('filters', () => {
   });
 });
 
+describe('reason tags', () => {
+  it('never calls a method named by the data', () => {
+    assert.equal(reasonTag({ cause: 'errors', value: 0.25 }), '25% errors');
+    for (const cause of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'unheard-of']) {
+      assert.doesNotThrow(() => reasonTag({ cause, value: 1 }), cause);
+      assert.equal(reasonTag({ cause, value: 1, summary: 'too slow' }), 'too slow');
+    }
+  });
+});
+
 describe('clusters', () => {
   it('keeps the cluster a snapshot describes, and never mistakes one cluster for another', () => {
     const nodes = [node('app-a'), node('app-b')], edges = [edge('app-a', 'app-b', { requestRate: 2 })];

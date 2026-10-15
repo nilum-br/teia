@@ -908,18 +908,23 @@ button.label { cursor: pointer; }
 
   // reasonTag is the few words a card or line shows for its worst reason:
   // what crossed its limit, and where it most likely comes from.
+  // REASON_TAGS words each cause. A Map, so a cause from the data can never
+  // reach Object.prototype (constructor, toString...).
+  const REASON_TAGS = new Map([
+    ['errors', r => `${pct(r.value)} errors${r.coverage > 0 && r.coverage < 1 ? ` (${pct(r.coverage)} covered)` : ''}`],
+    ['latency', r => `${r.approximate ? '≈ ' : ''}p95 ${fmtMs(r.value)}`],
+    ['saturation', r => `${pct(r.value)} ${r.what || 'used'}`],
+    ['backlog', r => `${compact(r.value)} ${r.what || 'waiting'}`],
+    ['lag', r => `${fmtSec(r.value)} ${r.what || 'behind'}`],
+    ['locks', r => `${compact(r.value)} on locks`],
+    ['restarts', r => `${compact(r.value)} restarts`],
+    ['evictions', r => `${compact(r.value)} evictions`],
+    ['rejections', r => `${compact(r.value)} rejected clients`],
+  ]);
   function reasonTag(r, more = 0) {
-    const what = {
-      errors: () => `${pct(r.value)} errors${r.coverage > 0 && r.coverage < 1 ? ` (${pct(r.coverage)} covered)` : ''}`,
-      latency: () => `${r.approximate ? '≈ ' : ''}p95 ${fmtMs(r.value)}`,
-      saturation: () => `${pct(r.value)} ${r.what || 'used'}`,
-      backlog: () => `${compact(r.value)} ${r.what || 'waiting'}`,
-      lag: () => `${fmtSec(r.value)} ${r.what || 'behind'}`,
-      locks: () => `${compact(r.value)} on locks`,
-      restarts: () => `${compact(r.value)} restarts`,
-      evictions: () => `${compact(r.value)} evictions`,
-      rejections: () => `${compact(r.value)} rejected clients`,
-    }[r.cause]();
+    const tag = REASON_TAGS.get(r.cause);
+    // An unknown cause (unsanitized data, a newer server) says what it can.
+    const what = tag ? tag(r) : String(r.summary || r.cause || 'unhealthy');
     const via = r.via ? (r.cause === 'locks' ? ` held by ${r.via}` : ` from ${r.via}`) : r.subject ? ` · ${r.subject}` : '';
     return what + via + (more > 0 ? ` +${more}` : '');
   }
