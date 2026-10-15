@@ -1,4 +1,6 @@
 export interface TeiaOptions {
+  /** Explicit frame/column aliases. JSON with optional nodes and edges sections. */
+  frameMapping?: string;
   /** Optional teia API base, as the browser reaches it (e.g.
    * http://localhost:8480/api/v1/). When set, the panel streams from teia
    * directly instead of using the panel queries. */

@@ -35,8 +35,10 @@ var (
 )
 
 type grafanaNode struct {
-	HistoryID          string    `json:"historyId,omitempty"` // every historical row identifies its capture
-	History            string    `json:"history,omitempty"`   // JSON replay metadata on first node row
+	Operations         string    `json:"operations,omitempty"` // JSON operation contract on first row
+	Identity           string    `json:"identity"`             // JSON array of identity resolutions
+	HistoryID          string    `json:"historyId,omitempty"`  // every historical row identifies its capture
+	History            string    `json:"history,omitempty"`    // JSON replay metadata on first node row
 	Links              string    `json:"links"`
 	TimeMode           string    `json:"timeMode"`
 	SnapshotAt         time.Time `json:"snapshotAt"`
@@ -74,6 +76,7 @@ type grafanaNode struct {
 }
 
 type grafanaEdge struct {
+	Identity                 string    `json:"identity"` // JSON object with from/to resolutions
 	HistoryID                string    `json:"historyId,omitempty"`
 	ExpectedFrequencySeconds float64   `json:"expectedFrequencySeconds"`
 	Frequency                string    `json:"frequency"`
@@ -132,6 +135,7 @@ func grafanaNodes(s model.Snapshot) []grafanaNode {
 			main = fmt.Sprintf("%.2f req/s", n.RequestRate)
 		}
 		out = append(out, grafanaNode{
+			Identity:  jsonList(n.Identity),
 			HistoryID: frameHistoryID(s),
 			Links:     jsonList(n.Links),
 			TimeMode:  frameTimeMode(s), SnapshotAt: s.GeneratedAt, Evidence: jsonList(n.Evidence),
@@ -150,6 +154,10 @@ func grafanaNodes(s model.Snapshot) []grafanaNode {
 		contract, _ := json.Marshal(s.Journeys)
 		out[0].JourneyContract = string(contract)
 	}
+	if len(out) > 0 && s.Operations != nil {
+		contract, _ := json.Marshal(s.Operations)
+		out[0].Operations = string(contract)
+	}
 	if len(out) > 0 && s.History != nil {
 		metadata, _ := json.Marshal(s.History)
 		out[0].History = string(metadata)
@@ -161,7 +169,9 @@ func grafanaEdges(s model.Snapshot) []grafanaEdge {
 	out := make([]grafanaEdge, 0, len(s.Edges))
 	for _, e := range s.Edges {
 		frequency, _ := json.Marshal(e.Frequency)
+		identity, _ := json.Marshal(e.Identity)
 		ge := grafanaEdge{
+			Identity:                 string(identity),
 			HistoryID:                frameHistoryID(s),
 			ExpectedFrequencySeconds: e.ExpectedFrequencySeconds, Frequency: string(frequency),
 			Links:    jsonList(e.Links),
@@ -265,11 +275,16 @@ func grafanaSources(s model.Snapshot) []grafanaSource {
 type grafanaCoverage struct {
 	model.Coverage
 	grafanaTemporal
-	History string `json:"history,omitempty"`
+	History    string `json:"history,omitempty"`
+	Operations string `json:"operations,omitempty"`
 }
 
-func historicalCoverage(s model.Snapshot) grafanaCoverage {
+func grafanaCoverageOf(s model.Snapshot) grafanaCoverage {
 	row := grafanaCoverage{Coverage: s.Coverage, grafanaTemporal: frameMetadata(s)}
+	if s.Operations != nil {
+		contract, _ := json.Marshal(s.Operations)
+		row.Operations = string(contract)
+	}
 	if s.History != nil {
 		metadata, _ := json.Marshal(s.History)
 		row.History = string(metadata)

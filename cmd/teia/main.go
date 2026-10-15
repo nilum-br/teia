@@ -50,6 +50,10 @@ Usage:
             [--accept 'caller->callee=reason']
                                          review observed additions; emit only explicitly accepted flows
   teia validate FILE...                  check flows files
+  teia review propose --snapshot GRAPH.json --from CALLER --to CALLEE --rationale TEXT
+            or: --snapshot GRAPH.json --request REQUEST.json
+            [--format json|markdown|flows|bundle] [--output FILE]
+                                         prepare a local contract proposal; does not open a PR
   teia version
 
 The config path defaults to $TEIA_CONFIG, then ./teia.yaml. --ui-dir (env
@@ -76,6 +80,8 @@ func main() {
 		err = validate(os.Args[2:])
 	case "diff":
 		err = diff(os.Args[2:])
+	case "review":
+		err = reviewCommand(os.Args[2:])
 	case "version", "--version":
 		fmt.Println(version)
 	case "help", "-h", "--help":

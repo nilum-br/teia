@@ -79,6 +79,7 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 	}
 	mux := http.NewServeMux()
 	registerHistory(mux, opts)
+	registerReview(mux, eng, opts)
 	send := func(w http.ResponseWriter, v any) { writeJSON(w, opts.Log, v) }
 	// snapOf is the whole snapshot, or with ?slice= only the selected calls.
 	// It answers the error itself and reports false when the request is bad.
@@ -118,7 +119,7 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 		if !ok {
 			return
 		}
-		send(w, map[string]any{"generatedAt": s.GeneratedAt, "timeMode": s.TimeMode, "nodes": s.Nodes, "edges": s.Edges, "journeys": s.Journeys, "slice": s.Slice})
+		send(w, map[string]any{"generatedAt": s.GeneratedAt, "timeMode": s.TimeMode, "nodes": s.Nodes, "edges": s.Edges, "journeys": s.Journeys, "operations": s.Operations, "slice": s.Slice})
 	})
 	mux.HandleFunc("GET /api/v1/dimensions", func(w http.ResponseWriter, _ *http.Request) {
 		dims := snap().Dimensions
@@ -126,6 +127,23 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 			dims = map[string][]string{}
 		}
 		send(w, dims)
+	})
+	// Sampled operations follow whole traces, which a slice does not split:
+	// ?slice= is refused rather than answered with every call's operations.
+	mux.HandleFunc("GET /api/v1/operations", func(w http.ResponseWriter, r *http.Request) {
+		switch sel, err := slice.Parse(r.URL.Query().Get("slice")); {
+		case err != nil:
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		case sel != nil:
+			writeError(w, http.StatusBadRequest, "operations are sampled from whole traces and are not split by dimension; omit slice")
+			return
+		}
+		contract := snap().Operations
+		if contract == nil {
+			contract = model.EmptyOperations()
+		}
+		send(w, contract)
 	})
 	mux.HandleFunc("GET /api/v1/journeys", func(w http.ResponseWriter, r *http.Request) {
 		s, ok := snapOf(w, r)
@@ -146,7 +164,7 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 	})
 	mux.HandleFunc("GET /api/v1/coverage", func(w http.ResponseWriter, r *http.Request) {
 		if s, ok := snapOf(w, r); ok {
-			send(w, s.Coverage)
+			send(w, grafanaCoverageOf(s))
 		}
 	})
 	mux.HandleFunc("GET /api/v1/sources", func(w http.ResponseWriter, _ *http.Request) {

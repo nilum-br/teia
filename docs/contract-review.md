@@ -1,5 +1,9 @@
 # Local contract review
 
+For a single selected communication, [review proposals](review-proposals.md) provide a validated Flows
+fragment, evidence metadata, Markdown PR body and ZIP through the API or offline CLI. The operator owns
+the final repository edit and optional draft-PR publication.
+
 Save a graph from `GET /api/v1/snapshot` or an exact snapshot from the opt-in history API. The JSON must contain
 `nodes` and `edges`. Review input files are limited to 64 MiB. These commands read local files and write
 stdout; they never open a PR, alter a repository file, permit traffic or deploy network policy.

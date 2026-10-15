@@ -4,6 +4,7 @@ package review
 
 import (
 	"fmt"
+	"net/netip"
 	"reflect"
 	"slices"
 	"sort"
@@ -175,7 +176,7 @@ func Contract(docs []declared.Document, snapshot model.Snapshot, aliases ...map[
 }
 
 func identity(snapshot model.Snapshot, e model.Edge) string {
-	if source.IsAddressID(e.From) || source.IsAddressID(e.To) {
+	if unresolvedAddress(e.From) || unresolvedAddress(e.To) {
 		return "unresolved-address"
 	}
 	nodes := nodes(snapshot)
@@ -183,6 +184,17 @@ func identity(snapshot model.Snapshot, e model.Edge) string {
 		return "declared-reference"
 	}
 	return "named-identity: verify aliases and ownership"
+}
+
+func unresolvedAddress(id string) bool {
+	if source.IsAddressID(id) {
+		return true
+	}
+	if _, err := netip.ParseAddr(id); err == nil {
+		return true
+	}
+	_, err := netip.ParseAddrPort(id)
+	return err == nil
 }
 
 func nodes(s model.Snapshot) map[string]model.Node {

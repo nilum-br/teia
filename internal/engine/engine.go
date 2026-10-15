@@ -233,6 +233,7 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 	}
 	snap.Dimensions = slice.Values(snap.Edges)
 	snap.Journeys = journey.Build(snap, "")
+	snap.Operations = operationContract(results, g)
 	snap.Changes = e.differ.Diff(prev, snap, now)
 	evidencelinks.Apply(&snap, e.opts.EvidenceLinks)
 	if _, err := e.opts.History.Save(snap); err != nil {
@@ -294,6 +295,8 @@ const maxSliced = 64
 // every selected dimension value. Health, journeys and findings are judged
 // on those calls alone; the round number and time are the last round's.
 // A selection nothing matched gives an empty snapshot with Matched false.
+// Sampled operations follow whole traces, which a slice does not split, so
+// a sliced snapshot carries none rather than every journey's operations.
 func (e *Engine) Sliced(sel slice.Selector) model.Snapshot {
 	key := sel.String()
 	e.mu.RLock()
@@ -350,6 +353,7 @@ func (e *Engine) Sliced(sel slice.Selector) model.Snapshot {
 // old traffic and readings cannot establish the current health of a service.
 // Clone the slices we change: a source may reuse its observation on recovery.
 func topologyOnly(obs source.Observation) source.Observation {
+	obs.Operations = nil
 	obs.Nodes = slices.Clone(obs.Nodes)
 	for i := range obs.Nodes {
 		obs.Nodes[i].Measures = nil

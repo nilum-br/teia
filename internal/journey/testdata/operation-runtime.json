@@ -1,0 +1,287 @@
+{
+  "version": 1,
+  "mode": "operation",
+  "sampling": {
+    "policy": "unknown",
+    "totalRequests": null,
+    "coverage": null
+  },
+  "sources": [
+    {
+      "source": "tempo",
+      "queryPeriod": {
+        "from": "2026-10-15T12:00:00Z",
+        "to": "2026-10-15T12:05:00Z"
+      },
+      "requestedTraces": 4,
+      "fetchedTraces": 4,
+      "failedTraces": 0,
+      "queriedServices": 4,
+      "availableServices": 4,
+      "truncated": false,
+      "status": "sampled"
+    }
+  ],
+  "scopes": [
+    {
+      "id": "op:4d5822c03a93dedd124f5ec3",
+      "source": "tempo",
+      "entryService": "web",
+      "operation": "GET /browse",
+      "queryPeriod": {
+        "from": "2026-10-15T12:00:00Z",
+        "to": "2026-10-15T12:05:00Z"
+      },
+      "sampledRootCount": 1,
+      "incompleteTraceCount": 0,
+      "sampleRootDurationsMs": [
+        80
+      ],
+      "rootOutcomes": {
+        "ok": 0,
+        "error": 0,
+        "unknown": 1
+      },
+      "nodes": [
+        {
+          "id": "catalog",
+          "kind": "service"
+        },
+        {
+          "id": "db",
+          "kind": "service"
+        },
+        {
+          "id": "web",
+          "kind": "service"
+        }
+      ],
+      "edges": [
+        {
+          "from": "catalog",
+          "to": "db",
+          "traceIds": [
+            "browse-complete"
+          ],
+          "calls": [
+            {
+              "traceId": "browse-complete",
+              "spanId": "b3",
+              "parentSpanId": "b2",
+              "attribution": "parent-span"
+            }
+          ]
+        },
+        {
+          "from": "web",
+          "to": "catalog",
+          "traceIds": [
+            "browse-complete"
+          ],
+          "calls": [
+            {
+              "traceId": "browse-complete",
+              "spanId": "b2",
+              "parentSpanId": "b1",
+              "attribution": "parent-span"
+            }
+          ]
+        }
+      ],
+      "traces": [
+        {
+          "traceId": "browse-complete",
+          "rootSpanId": "b1",
+          "rootDurationMs": 80,
+          "rootOutcome": "unknown",
+          "spanIds": [
+            "b1",
+            "b2",
+            "b3"
+          ],
+          "missingParentSpanIds": [],
+          "unattributedSpanIds": [],
+          "spans": [
+            {
+              "spanId": "b1",
+              "nodeId": "web",
+              "kind": "server",
+              "startedAt": "2026-10-15T12:00:00Z",
+              "endedAt": "2026-10-15T12:00:00.08Z",
+              "links": []
+            },
+            {
+              "spanId": "b2",
+              "parentSpanId": "b1",
+              "nodeId": "catalog",
+              "kind": "server",
+              "links": []
+            },
+            {
+              "spanId": "b3",
+              "parentSpanId": "b2",
+              "nodeId": "db",
+              "kind": "server",
+              "links": []
+            }
+          ],
+          "structuralStatus": "linked-sample",
+          "truncated": false
+        }
+      ],
+      "truncated": false
+    },
+    {
+      "id": "op:a7b6598b7c395df16ae4a78d",
+      "source": "tempo",
+      "entryService": "web",
+      "operation": "POST /checkout",
+      "queryPeriod": {
+        "from": "2026-10-15T12:00:00Z",
+        "to": "2026-10-15T12:05:00Z"
+      },
+      "sampledRootCount": 2,
+      "incompleteTraceCount": 1,
+      "sampleRootDurationsMs": [
+        180,
+        300
+      ],
+      "rootOutcomes": {
+        "ok": 0,
+        "error": 0,
+        "unknown": 2
+      },
+      "nodes": [
+        {
+          "id": "db",
+          "kind": "service"
+        },
+        {
+          "id": "orders",
+          "kind": "service"
+        },
+        {
+          "id": "web",
+          "kind": "service"
+        }
+      ],
+      "edges": [
+        {
+          "from": "orders",
+          "to": "db",
+          "traceIds": [
+            "checkout-complete"
+          ],
+          "calls": [
+            {
+              "traceId": "checkout-complete",
+              "spanId": "c3",
+              "parentSpanId": "c2",
+              "attribution": "parent-span"
+            }
+          ]
+        },
+        {
+          "from": "web",
+          "to": "orders",
+          "traceIds": [
+            "checkout-complete"
+          ],
+          "calls": [
+            {
+              "traceId": "checkout-complete",
+              "spanId": "c2",
+              "parentSpanId": "c1",
+              "attribution": "parent-span"
+            }
+          ]
+        }
+      ],
+      "traces": [
+        {
+          "traceId": "checkout-complete",
+          "rootSpanId": "c1",
+          "rootDurationMs": 180,
+          "rootOutcome": "unknown",
+          "spanIds": [
+            "c1",
+            "c2",
+            "c3"
+          ],
+          "missingParentSpanIds": [],
+          "unattributedSpanIds": [],
+          "spans": [
+            {
+              "spanId": "c1",
+              "nodeId": "web",
+              "kind": "server",
+              "startedAt": "2026-10-15T12:00:00Z",
+              "endedAt": "2026-10-15T12:00:00.18Z",
+              "links": []
+            },
+            {
+              "spanId": "c2",
+              "parentSpanId": "c1",
+              "nodeId": "orders",
+              "kind": "server",
+              "links": []
+            },
+            {
+              "spanId": "c3",
+              "parentSpanId": "c2",
+              "nodeId": "db",
+              "kind": "server",
+              "links": []
+            }
+          ],
+          "structuralStatus": "linked-sample",
+          "truncated": false
+        },
+        {
+          "traceId": "checkout-partial",
+          "rootSpanId": "p1",
+          "rootDurationMs": 300,
+          "rootOutcome": "unknown",
+          "spanIds": [
+            "p1"
+          ],
+          "missingParentSpanIds": [
+            "missing-parent"
+          ],
+          "unattributedSpanIds": [
+            "p2"
+          ],
+          "spans": [
+            {
+              "spanId": "p1",
+              "nodeId": "web",
+              "kind": "server",
+              "startedAt": "2026-10-15T12:00:00Z",
+              "endedAt": "2026-10-15T12:00:00.3Z",
+              "links": []
+            }
+          ],
+          "structuralStatus": "gaps-detected",
+          "truncated": false
+        }
+      ],
+      "truncated": false
+    }
+  ],
+  "unattributed": [
+    {
+      "source": "tempo",
+      "traceId": "checkout-partial",
+      "spanId": "p2",
+      "nodeId": "db",
+      "reason": "missing-parent"
+    },
+    {
+      "source": "tempo",
+      "traceId": "orphan",
+      "spanId": "o1",
+      "nodeId": "orders",
+      "reason": "missing-parent"
+    }
+  ]
+}

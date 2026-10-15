@@ -54,7 +54,7 @@ check-ui:        ## map component tests, panel typecheck, lint and tests
 	$(NODE_SH) '\
 	  set -e; \
 	  if ls certs/*.crt >/dev/null 2>&1; then cat certs/*.crt > /tmp/teia-extra-ca.pem; export NODE_EXTRA_CA_CERTS=/tmp/teia-extra-ca.pem; fi; \
-	  node --test internal/api/teia-ui.test.mjs internal/api/ui-integration-audit.test.mjs; \
+	  node --test internal/api/*.test.mjs; \
 	  cd plugins/grafana; \
 	  [ node_modules/.package-lock.json -nt package-lock.json ] || npm exec --yes --package=npm@12.2.0 -- npm ci --no-audit --no-fund; \
 	  npm run typecheck; \

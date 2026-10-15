@@ -176,6 +176,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 				Kind:   model.KindUnknown,
 				Labels: userLabels(p.Labels),
 			}
+			w.IdentityMethod, w.IdentityBasis = workloadIdentity(p, workloadKind)
 			if k := strings.TrimSpace(p.Annotations[annotationPrefix+"kind"]); k != "" {
 				w.Kind = model.NodeKind(strings.ToLower(k))
 			}
@@ -205,6 +206,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 			w.Ignore = true
 		}
 		h := source.NodeObservation{ID: id}
+		h.IdentityMethod, h.IdentityBasis = workloadIdentity(p, workloadKind)
 		if p.Status.StartTime != nil {
 			h.Since = p.Status.StartTime.Time
 		}
@@ -238,6 +240,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		}
 		for id := range owners {
 			h := source.NodeObservation{ID: id, Since: svc.CreationTimestamp.Time}
+			h.IdentityMethod, h.IdentityBasis = model.IdentityInferred, "Kubernetes Service "+svc.Namespace+"/"+svc.Name+" selector matches one discovered workload; selector history is unavailable"
 			for _, ip := range svc.Spec.ClusterIPs {
 				if ip != "" && ip != corev1.ClusterIPNone {
 					h.Addresses = append(h.Addresses, ip)
@@ -260,11 +263,25 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		for _, h := range held[id] {
 			n := *w // every observation describes the whole workload
 			n.Addresses, n.Since = h.Addresses, h.Since
+			n.IdentityMethod, n.IdentityBasis = h.IdentityMethod, h.IdentityBasis
 			obs.Nodes = append(obs.Nodes, n)
 		}
 	}
 	obs.Message = fmt.Sprintf("%d workloads from %d pods", len(workloads), len(podWorkload))
 	return obs, nil
+}
+
+func workloadIdentity(p *corev1.Pod, kind string) (model.IdentityMethod, string) {
+	basis := "Kubernetes pod " + p.Namespace + "/" + p.Name
+	if p.Annotations[annotationPrefix+"node-id"] != "" {
+		return model.IdentityExplicit, basis + " annotation " + annotationPrefix + "node-id"
+	}
+	for _, owner := range p.OwnerReferences {
+		if owner.Controller != nil && *owner.Controller && (owner.Kind == "ReplicaSet" && kind == "Deployment" || owner.Kind == "Job" && kind == "CronJob") {
+			return model.IdentityInferred, basis + " controller name convention (owner object was not read)"
+		}
+	}
+	return model.IdentityName, basis + " reported " + kind + " name"
 }
 
 // pageSize bounds each list response, so a large cluster is read in chunks

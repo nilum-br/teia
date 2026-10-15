@@ -28,6 +28,10 @@ type NodeObservation struct {
 	ID       string
 	Kind     model.NodeKind
 	Journeys []string
+	// IdentityMethod and IdentityBasis qualify names supplied by sources.
+	// Empty means a source-reported name, not a verified global identity.
+	IdentityMethod model.IdentityMethod
+	IdentityBasis  string
 	// SelfReported is true when the node emitted the data itself
 	// (e.g. its own spans), which gives it full visibility.
 	SelfReported bool
@@ -193,6 +197,9 @@ type UnknownCaller struct {
 
 // Observation is everything a source learned in one round.
 type Observation struct {
+	// Operations preserves only correlated sampled spans; topology retention
+	// must not present an older trace sample as a new operation observation.
+	Operations *model.OperationContract
 	// EvaluatedAt is the pinned evaluation time of metric/log queries. It
 	// never substitutes for the original sample time or collection time.
 	EvaluatedAt time.Time

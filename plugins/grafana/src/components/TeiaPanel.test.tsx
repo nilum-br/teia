@@ -3,6 +3,7 @@ import { render } from '@testing-library/react';
 import { createTheme, dateTime, LoadingState, PanelProps, ThemeContext, toDataFrame } from '@grafana/data';
 import { journeyOf, TeiaPanel } from './TeiaPanel';
 import { TeiaOptions } from '../types';
+import TeiaUI from '../teia/teia-ui';
 
 // jsdom has no layout: give SVG geometry and ResizeObserver harmless answers.
 beforeAll(() => {
@@ -57,6 +58,36 @@ describe('TeiaPanel', () => {
     const ids = [...shadow(container).querySelectorAll('.node')].map((n) => (n as HTMLElement).dataset.id);
     expect(ids.sort()).toEqual(['orders', 'web']);
     expect(shadow(container).querySelector('#empty')!.hasAttribute('hidden')).toBe(true);
+  });
+
+  it('maps custom columns and reports broken aliases without replacing the mounted map', () => {
+    const custom = [toDataFrame({ refId: 'A', fields: [{ name: 'service', values: ['custom-service'] }, { name: 'requests', values: [10] }] })];
+    const original = props({ data: { series: custom, state: LoadingState.Done } as never });
+    const { container, rerender } = render(<TeiaPanel {...original} />);
+    const map = shadow(container).querySelector('.teia');
+    const options = { ...original.options, frameMapping: JSON.stringify({ nodes: { frame: 'ref:A', id: 'service', requestRate: 'requests' } }) };
+    rerender(<TeiaPanel {...{ ...original, options }} />);
+    expect(shadow(container).querySelector('.teia')).toBe(map);
+    expect(shadow(container).querySelector('.node[data-id="custom-service"]')).not.toBeNull();
+    rerender(<TeiaPanel {...{ ...original, options: { ...options, frameMapping: JSON.stringify({ nodes: { frame: 'ref:A', id: 'missing' } }) } }} />);
+    expect(shadow(container).querySelector('#live')!.textContent).toContain('Column missing is missing');
+    expect(shadow(container).querySelector('.teia')).toBe(map);
+  });
+
+  it('saves setup using the latest options callback without a remount', () => {
+    const mount = jest.spyOn(TeiaUI, 'mount');
+    try {
+      const first = jest.fn(), latest = jest.fn();
+      const original = props({ onOptionsChange: first });
+      const { container, rerender } = render(<TeiaPanel {...original} />);
+      const map = shadow(container).querySelector('.teia');
+      const callback = mount.mock.calls[mount.mock.calls.length - 1][1]!.onMappingChange!;
+      rerender(<TeiaPanel {...{ ...original, onOptionsChange: latest, options: { ...original.options, values: false } }} />);
+      callback({ nodes: { frame: 'ref:nodes', id: 'id' } });
+      expect(first).not.toHaveBeenCalled();
+      expect(latest).toHaveBeenCalledWith(expect.objectContaining({ values: false, frameMapping: '{"nodes":{"frame":"ref:nodes","id":"id"}}' }));
+      expect(shadow(container).querySelector('.teia')).toBe(map);
+    } finally { mount.mockRestore(); }
   });
 
   it.each(['panel id', 'dashboard UID'])('replays unchanged query data after a %s remount', (identity) => {

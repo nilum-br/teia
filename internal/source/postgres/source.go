@@ -146,7 +146,8 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		return obs, err
 	}
 
-	dbNode := source.NodeObservation{ID: s.cfg.Node, Kind: model.KindDatabase, SelfReported: privileged}
+	dbNode := source.NodeObservation{ID: s.cfg.Node, Kind: model.KindDatabase, SelfReported: privileged,
+		IdentityMethod: model.IdentityExplicit, IdentityBasis: "configured PostgreSQL explorer node"}
 	var used, limit float64
 	if err := conn.QueryRow(ctx, connectionsQuery).Scan(&used, &limit); err != nil {
 		return obs, fmt.Errorf("counting connections on %s: %w", s.cfg.Node, err)
