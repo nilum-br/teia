@@ -28,6 +28,11 @@ export interface TeiaEvidence {
   source: string;
   signal: string;
   collectedAt?: string;
+  /** Query evaluation instant; never the raw sample's timestamp. */
+  evaluatedAt?: string;
+  /** Oldest input sample reported for this metric evaluation, including capacity. */
+  oldestSampleAt?: string;
+  origin?: string;
   observedAt?: string;
   /** Earliest start / latest end of sampled calls, not continuous coverage. */
   observedFrom?: string;

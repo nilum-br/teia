@@ -112,8 +112,36 @@ collection, so paused views do not imply a ticking live measurement; future time
 
 The timestamp contract follows [OTLP span start/end semantics](https://github.com/open-telemetry/opentelemetry-proto/blob/main/opentelemetry/proto/trace/v1/trace.proto).
 The [Tempo search API](https://grafana.com/docs/tempo/latest/api_docs/#search) returns a limited sample, not a
-guarantee of the newest calls. Other sources continue to expose unknown original observation times where their
-responses do not establish them. Query evaluation time is not substituted for the underlying samples' time.
+guarantee of the newest calls. Sources expose unknown original observation times where their responses do not
+establish them. Query evaluation time is not substituted for the underlying samples' time.
+
+### Metric evaluation and input sample age
+
+Each Prometheus or custom PromQL/LogQL collection uses one explicit evaluation time for its measurement
+queries, exposed as `evidence.evaluatedAt`. `collectedAt` records when that source finished, independently of
+slower sources; the snapshot's `generatedAt` records assembly of the whole round. Retained evidence keeps
+its original times. Address attribution checks ownership over the evaluated window, so collection delay
+cannot move that window past an IP reassignment. Detection queries do not establish measurement time.
+
+For mapped gauge readings, `evidence.oldestSampleAt` identifies the oldest input sample reported for that
+evaluation. Teia applies PromQL `timestamp()` to raw selectors before filtering or aggregation, then takes
+the minimum across the reading's inputs, including capacity where required. Missing timing for either the
+value or its capacity leaves age unknown. Optional timestamp queries run after all probes have their values;
+their failures or timeouts preserve the readings and health and mark the source degraded. `origin` identifies
+the probe/exporter; times remain separate for each reading.
+
+Supported readings are Redis memory/clients, Kafka messages waiting, MongoDB connections/lock queues,
+MySQL connections/lock waits, postgres-exporter connections and cAdvisor memory. RabbitMQ's multi-metric
+selector and derived rates, latency, lag estimates and restart counts still have unknown original sample
+times. Window-based probes expose their configured lookback separately.
+
+An input sample timestamp belongs to the stored metric, not necessarily the last application activity or
+the exporter's internal update. Pinning evaluation time does not freeze ingestion between HTTP requests;
+late data can arrive between value and timestamp queries, so these calls do not form an atomic snapshot.
+Per-reading times do not establish graph-wide freshness. These distinctions follow the
+[Prometheus instant-query API](https://prometheus.io/docs/prometheus/latest/querying/api/#instant-queries),
+[`timestamp()` semantics](https://prometheus.io/docs/prometheus/latest/querying/functions/#timestamp) and
+[Loki query API](https://grafana.com/docs/loki/latest/reference/loki-http-api/#query-logs-at-a-single-point-in-time).
 
 ## Component health
 

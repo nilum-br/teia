@@ -5,6 +5,7 @@ import (
 	"net"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/nilum-br/teia/internal/model"
 	"github.com/nilum-br/teia/internal/source"
@@ -35,6 +36,11 @@ type ProbeReading struct {
 	Query func(w window) string
 	Max   func(w window) string
 	Share bool
+	// SampleTimes returns Unix seconds as VALUES, applying timestamp() to
+	// raw instant selectors before aggregation. Every input (value and
+	// capacity) must provide a time for a reading to claim sample age.
+	SampleTimes []string
+	Windowed    bool
 	// Unit of the value: model.UnitBytes, model.UnitSeconds, or empty.
 	Unit string
 	// Subject names the node the series measures (candidates, best first)
@@ -46,6 +52,7 @@ type ProbeReading struct {
 type window struct {
 	promql  string
 	seconds float64
+	at      time.Time
 }
 
 // Probes are tried in this order in auto mode.
@@ -80,6 +87,16 @@ const exporterBy = "instance, job, namespace, service, pod, container, server"
 
 func byExporter(expr string) string { return fmt.Sprintf("sum by (%s) (%s)", exporterBy, expr) }
 
+func gaugeTime(by, raw, eligible string) string {
+	expr := "timestamp(" + raw + ")"
+	if eligible != "" {
+		// timestamp(raw > 0) would timestamp the comparison's evaluation.
+		// Filter the timestamp VALUES instead, retaining only eligible inputs.
+		expr += " and (" + eligible + ")"
+	}
+	return fmt.Sprintf("min by (%s) (%s)", by, expr)
+}
+
 // --- caches
 
 var redisProbe = &Probe{
@@ -88,11 +105,13 @@ var redisProbe = &Probe{
 	Detect:      "redis_memory_used_bytes",
 	Readings: []ProbeReading{
 		{Cause: model.CauseSaturation, What: "memory", Unit: model.UnitBytes,
-			Query: func(window) string { return byExporter("redis_memory_used_bytes") },
-			Max:   func(window) string { return byExporter("redis_memory_max_bytes > 0") }, Subject: exporterSubject},
+			SampleTimes: []string{gaugeTime(exporterBy, "redis_memory_used_bytes", ""), gaugeTime(exporterBy, "redis_memory_max_bytes", "redis_memory_max_bytes > 0")},
+			Query:       func(window) string { return byExporter("redis_memory_used_bytes") },
+			Max:         func(window) string { return byExporter("redis_memory_max_bytes > 0") }, Subject: exporterSubject},
 		{Cause: model.CauseSaturation, What: "clients",
-			Query: func(window) string { return byExporter("redis_connected_clients") },
-			Max:   func(window) string { return byExporter("redis_config_maxclients > 0") }, Subject: exporterSubject},
+			SampleTimes: []string{gaugeTime(exporterBy, "redis_connected_clients", ""), gaugeTime(exporterBy, "redis_config_maxclients", "redis_config_maxclients > 0")},
+			Query:       func(window) string { return byExporter("redis_connected_clients") },
+			Max:         func(window) string { return byExporter("redis_config_maxclients > 0") }, Subject: exporterSubject},
 	},
 }
 
@@ -107,23 +126,25 @@ var kafkaProbe = &Probe{
 	Readings: []ProbeReading{
 		// On the line from the consumer group to its topic.
 		{Cause: model.CauseBacklog, What: "messages waiting", Subject: consumerSubject,
-			Query: func(window) string { return fmt.Sprintf("sum by (%s) (kafka_consumergroup_lag)", kafkaBy) }},
+			SampleTimes: []string{gaugeTime(kafkaBy, "kafka_consumergroup_lag", "")},
+			Query:       func(window) string { return fmt.Sprintf("sum by (%s) (kafka_consumergroup_lag)", kafkaBy) }},
 		// Lag divided by how fast the group consumes: how long it would take
 		// to catch up, which is how far behind it is.
-		{Cause: model.CauseLag, What: "behind", Unit: model.UnitSeconds, Subject: consumerSubject,
+		{Cause: model.CauseLag, What: "behind", Unit: model.UnitSeconds, Subject: consumerSubject, Windowed: true,
 			Query: func(w window) string {
 				return fmt.Sprintf("sum by (%[1]s) (kafka_consumergroup_lag) / sum by (%[1]s) (rate(kafka_consumergroup_current_offset[%[2]s])) > 0",
 					kafkaBy, w.promql)
 			}},
 		// Waiting messages and an offset that did not move over the window.
-		{Cause: model.CauseLag, What: "without progress", Unit: model.UnitSeconds, Subject: consumerSubject,
+		{Cause: model.CauseLag, What: "without progress", Unit: model.UnitSeconds, Subject: consumerSubject, Windowed: true,
 			Query: func(w window) string {
 				return fmt.Sprintf("(sum by (%[1]s) (kafka_consumergroup_lag) > 0 and sum by (%[1]s) (increase(kafka_consumergroup_current_offset[%[2]s])) == 0) * 0 + %[3]g",
 					kafkaBy, w.promql, w.seconds)
 			}},
 		// On the topic itself, every group's lag together.
 		{Cause: model.CauseBacklog, What: "messages waiting",
-			Query: func(window) string { return "sum by (topic) (kafka_consumergroup_lag)" },
+			SampleTimes: []string{gaugeTime("topic", "kafka_consumergroup_lag", "")},
+			Query:       func(window) string { return "sum by (topic) (kafka_consumergroup_lag)" },
 			Subject: func(m map[string]string) ([]string, []string) {
 				return nonEmpty(m["topic"]), nil
 			}},
@@ -137,6 +158,8 @@ func consumerSubject(m map[string]string) ([]string, []string) {
 var rabbitmqQueue = `{__name__=~"rabbitmq_(detailed_)?queue_messages_ready"}`
 
 var rabbitmqProbe = &Probe{
+	// No SampleTimes yet: timestamp() drops metric names, so the selector
+	// spanning two names can produce duplicate labelsets before aggregation.
 	Name:        "rabbitmq",
 	Description: "RabbitMQ queues through its built-in Prometheus plugin (per-object metrics): messages waiting",
 	Detect:      rabbitmqQueue,
@@ -157,11 +180,13 @@ var mongodbProbe = &Probe{
 	Detect:      "mongodb_ss_connections",
 	Readings: []ProbeReading{
 		{Cause: model.CauseSaturation, What: "connections",
-			Query: func(window) string { return byExporter(`mongodb_ss_connections{conn_type="current"}`) },
-			Max:   func(window) string { return byExporter(`mongodb_ss_connections{conn_type=~"current|available"}`) }, Subject: exporterSubject},
+			SampleTimes: []string{gaugeTime(exporterBy, `mongodb_ss_connections{conn_type="current"}`, ""), gaugeTime(exporterBy, `mongodb_ss_connections{conn_type=~"current|available"}`, "")},
+			Query:       func(window) string { return byExporter(`mongodb_ss_connections{conn_type="current"}`) },
+			Max:         func(window) string { return byExporter(`mongodb_ss_connections{conn_type=~"current|available"}`) }, Subject: exporterSubject},
 		{Cause: model.CauseLocks, What: "operations queued on locks",
-			Query:   func(window) string { return byExporter(`mongodb_ss_globalLock_currentQueue{count_type="total"}`) },
-			Subject: exporterSubject},
+			SampleTimes: []string{gaugeTime(exporterBy, `mongodb_ss_globalLock_currentQueue{count_type="total"}`, "")},
+			Query:       func(window) string { return byExporter(`mongodb_ss_globalLock_currentQueue{count_type="total"}`) },
+			Subject:     exporterSubject},
 	},
 }
 
@@ -171,11 +196,13 @@ var mysqlProbe = &Probe{
 	Detect:      "mysql_global_status_threads_connected",
 	Readings: []ProbeReading{
 		{Cause: model.CauseSaturation, What: "connections",
-			Query: func(window) string { return byExporter("mysql_global_status_threads_connected") },
-			Max:   func(window) string { return byExporter("mysql_global_variables_max_connections") }, Subject: exporterSubject},
+			SampleTimes: []string{gaugeTime(exporterBy, "mysql_global_status_threads_connected", ""), gaugeTime(exporterBy, "mysql_global_variables_max_connections", "")},
+			Query:       func(window) string { return byExporter("mysql_global_status_threads_connected") },
+			Max:         func(window) string { return byExporter("mysql_global_variables_max_connections") }, Subject: exporterSubject},
 		{Cause: model.CauseLocks, What: "row lock waits",
-			Query:   func(window) string { return byExporter("mysql_global_status_innodb_row_lock_current_waits") },
-			Subject: exporterSubject},
+			SampleTimes: []string{gaugeTime(exporterBy, "mysql_global_status_innodb_row_lock_current_waits", "")},
+			Query:       func(window) string { return byExporter("mysql_global_status_innodb_row_lock_current_waits") },
+			Subject:     exporterSubject},
 	},
 }
 
@@ -185,7 +212,8 @@ var postgresExporterProbe = &Probe{
 	Detect:      "pg_stat_activity_count",
 	Readings: []ProbeReading{
 		{Cause: model.CauseSaturation, What: "connections",
-			Query: func(window) string { return byExporter("pg_stat_activity_count") },
+			SampleTimes: []string{gaugeTime(exporterBy, "pg_stat_activity_count", ""), gaugeTime(exporterBy, "pg_settings_max_connections", "")},
+			Query:       func(window) string { return byExporter("pg_stat_activity_count") },
 			Max: func(window) string {
 				return fmt.Sprintf("max by (%s) (pg_settings_max_connections)", exporterBy)
 			}, Subject: exporterSubject},
@@ -201,12 +229,13 @@ var containersProbe = &Probe{
 	Description: "containers through cAdvisor (Kubernetes or Docker): CPU throttled by its limit, memory against its limit",
 	Detect:      `container_cpu_usage_seconds_total{image!=""}`,
 	Readings: []ProbeReading{
-		{Cause: model.CauseSaturation, What: "CPU time throttled", Share: true, Subject: workloadSubject,
+		{Cause: model.CauseSaturation, What: "CPU time throttled", Share: true, Subject: workloadSubject, Windowed: true,
 			Query: func(w window) string {
 				return fmt.Sprintf(`sum by (%[1]s) (rate(container_cpu_cfs_throttled_periods_total{image!=""}[%[2]s])) / sum by (%[1]s) (rate(container_cpu_cfs_periods_total{image!=""}[%[2]s]))`,
 					containerBy, w.promql)
 			}},
 		{Cause: model.CauseSaturation, What: "memory", Unit: model.UnitBytes, Subject: workloadSubject,
+			SampleTimes: []string{gaugeTime(containerBy, `container_memory_working_set_bytes{image!=""}`, ""), gaugeTime(containerBy, `container_spec_memory_limit_bytes{image!=""}`, `container_spec_memory_limit_bytes{image!=""} > 0`)},
 			Query: func(window) string {
 				return fmt.Sprintf(`sum by (%s) (container_memory_working_set_bytes{image!=""})`, containerBy)
 			},
@@ -221,7 +250,7 @@ var restartsProbe = &Probe{
 	Description: "Kubernetes container restarts through kube-state-metrics",
 	Detect:      "kube_pod_container_status_restarts_total",
 	Readings: []ProbeReading{
-		{Cause: model.CauseRestarts, What: "restarts in the last %s", Subject: workloadSubject,
+		{Cause: model.CauseRestarts, What: "restarts in the last %s", Subject: workloadSubject, Windowed: true,
 			Query: func(w window) string {
 				return fmt.Sprintf("sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total[%s])) > 0", w.promql)
 			}},

@@ -17,7 +17,7 @@ See the [comparison and implementation audit](landscape.md).
 Updated **15 October 2026**, following the [market, requirements and UI/UX review](landscape.md) of `62ef24b`,
 including Novatec, Kiali and Grafana. **T01/T02 implemented; T03 partially implemented; T16 audited and updated
 with compatibility/security follow-ups open; T04–T15 open.** R1/R2 now have regression coverage. T03 still needs
-original-sample timestamps beyond Tempo and fresh interactive validation; unknown age is shown explicitly.
+sample-time coverage beyond Tempo/mapped gauges and fresh interactive validation; unknown age is shown explicitly.
 
 P0 protects the interpretation of data; P1 completes the primary investigation and adoption experience; P2
 extends the product after those foundations. Size is relative scope (S small, M medium, L large), not a delivery
@@ -74,13 +74,14 @@ date or an estimate backed by an implementation spike. Areas identify where work
 
 **Areas:** source/model metadata, graph and Grafana APIs, `TeiaPanel`, shared UI.
 
-Implemented: current/query/mixed modes, explicit ignored dashboard range, per-source collection timestamps,
-lookbacks, retained evidence, supplied observation timestamps, unknown timing, grouped detail provenance and
-last-successful source collection. Automated coverage includes failure/recovery, old supplied samples, retention
-expiry, pause/errors and two Grafana ranges. Tempo now supplies original sample bounds and call counts, with
-unknown bounds if any contributing span lacks valid times. Other built-in sources still generally lack
-original-sample timestamps; collecting those and interactive verification of saved dashboards remain open.
-No historical query support is claimed.
+Implemented: current/query/mixed modes, explicit ignored dashboard range, individual source completion times,
+fixed Prometheus/LogQL evaluation times, lookbacks, retained evidence, supplied observation timestamps, unknown
+timing, grouped detail provenance and last-successful source collection. Automated coverage includes
+failure/recovery, old supplied samples, retention expiry, pause/errors and two Grafana ranges. Tempo supplies
+original sample bounds and call counts, with unknown bounds if any contributing span lacks valid times.
+Mapped gauges now report the oldest input sample per reading, including capacity. Other signals still have
+unknown original times; extending coverage and interactive verification of saved dashboards remain open.
+No historical query support or atomic snapshot across separate source queries is claimed.
 
 - [x] Preserve Tempo sample start/end times without substituting collection time; keep one search window per
       round. Qualify sample counts and bounds in shared/Grafana details, including age at collection and future clocks.
@@ -88,11 +89,19 @@ No historical query support is claimed.
       in successful responses, failure/recovery, unknown/reversed times and grouping/paused panel provenance.
 - [x] Keep the original component/relationship identity in grouped evidence. Equal timestamps and sample
       counts on different relationships must remain separately inspectable, without summing their samples.
+- [x] Pin measurement queries to one evaluation time per Prometheus/PromQL/LogQL collection; keep evaluation
+      distinct from original samples and actual per-source completion. A slow source must not advance another
+      source's collection time; retention must not renew these timestamps. Address ownership uses the evaluated
+      window instead of shifting it forward by collection/assembly latency.
+- [x] Expose the oldest input sample for mapped Redis, Kafka, MongoDB, MySQL, postgres-exporter and cAdvisor
+      gauges. Include required capacity, preserve per-reading origin, and leave missing input age unknown.
+      Fetch optional timestamps after all probe values; errors/cancellation must preserve measured health.
 
-Validation on 15 October 2026: Go vet/race tests and golangci-lint passed; 74 shared-UI tests, 40 panel/frame
+Validation on 15 October 2026: Go vet/race tests and golangci-lint passed; 74 shared-UI tests, 41 panel/frame
 tests, TypeScript/lint/build and the full local lab scenario passed. The running lab exposed original Tempo
-sample bounds on 11 edges; three Grafana API tests verified the installed plugin and saved dashboard at 15-minute
-and 30-day ranges. Interactive visual checks remain open because this session exposed no browser surface.
+sample bounds and separate Redis/Kafka gauge sample times. Three Grafana API tests verified the installed
+plugin and preserved evaluation/gauge/sample metadata in the saved dashboard at 15-minute and 30-day ranges.
+Interactive visual checks remain open because this session exposed no browser surface.
 
 - [ ] Show **current state**, effective measurement window and last observation for Teia snapshot/direct modes.
       Selecting a past Grafana period must not imply that these modes queried that period. For external frames,

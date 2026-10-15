@@ -7,7 +7,37 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestRelatedQueriesShareEvaluationTimeWithoutInventingSampleTime(t *testing.T) {
+	for _, dialect := range []Dialect{Prometheus, Loki} {
+		t.Run(string(dialect), func(t *testing.T) {
+			var times []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				times = append(times, r.URL.Query().Get("time"))
+				fmt.Fprint(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"from":"web","to":"orders"},"value":[1700000000,"1"]}]}}`)
+			}))
+			defer srv.Close()
+			src := New("custom", Config{URL: srv.URL, Dialect: dialect, Query: "requests", Errors: "errors", Latency: "latency", From: "from", To: "to"})
+			obs, err := src.Discover(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(times) != 3 || obs.EvaluatedAt.IsZero() || len(obs.Edges) != 1 {
+				t.Fatalf("incomplete discovery: %v %+v", times, obs)
+			}
+			for _, at := range times {
+				if at != obs.EvaluatedAt.Format(time.RFC3339Nano) {
+					t.Fatalf("related queries evaluated at different instants: %v", times)
+				}
+			}
+			if !obs.Edges[0].ObservedAt.IsZero() {
+				t.Fatal("the instant vector timestamp must not become the raw sample time")
+			}
+		})
+	}
+}
 
 func TestLokiQueryWithAddresses(t *testing.T) {
 	var gotPath, gotQuery string

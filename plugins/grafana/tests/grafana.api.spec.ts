@@ -36,9 +36,22 @@ for (const from of ['now-15m', 'now-30d']) {
       expect(values('snapshotAt').every((at: string) => Number.isFinite(Date.parse(at)))).toBe(true);
       expect(names).toContain('evidence');
       expect(values('evidence').some((raw: string) => JSON.parse(raw).length > 0)).toBe(true);
+      const evidence: TeiaEvidence[] = values('evidence').flatMap((raw: string) => JSON.parse(raw) as TeiaEvidence[]);
+      const metrics = evidence.filter(e => e.source === 'prometheus');
+      expect(metrics.length).toBeGreaterThan(0);
+      for (const e of metrics) {
+        expect(Date.parse(e.evaluatedAt ?? '')).toBeLessThanOrEqual(Date.parse(e.collectedAt ?? ''));
+      }
+      if (role === 'nodes') {
+        const gauges = metrics.filter(e => e.origin?.startsWith('redis ') && e.metrics?.includes('saturation: memory'));
+        expect(gauges.length).toBeGreaterThan(0);
+        for (const e of gauges) {
+          expect(Date.parse(e.oldestSampleAt ?? '')).toBeLessThanOrEqual(Date.parse(e.evaluatedAt ?? ''));
+          expect(e.observedAt).toBeUndefined();
+        }
+      }
       if (role === 'edges') {
-        const samples: TeiaEvidence[] = values('evidence').flatMap((raw: string) => JSON.parse(raw) as TeiaEvidence[])
-          .filter((e: TeiaEvidence) => e.source === 'tempo' && (e.sampleCount ?? 0) > 0);
+        const samples = evidence.filter(e => e.source === 'tempo' && (e.sampleCount ?? 0) > 0);
         expect(samples.length).toBeGreaterThan(0);
         for (const e of samples) {
           expect(Number.isSafeInteger(e.sampleCount)).toBe(true);

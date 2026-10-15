@@ -163,7 +163,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		}
 		return source.Observation{}, fmt.Errorf("prometheus at %s: %w", s.redactedURL(), err)
 	}
-	var obs source.Observation
+	obs := source.Observation{EvaluatedAt: time.Now().UTC()}
 	var parts []string
 	if len(presets) == 0 {
 		obs.Degraded = true
@@ -173,11 +173,11 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 
 	// Presets run independently: one family timing out or rejected must not
 	// hide the edges the others found.
-	w := window{promql: promapi.Duration(s.cfg.Window), seconds: s.cfg.Window.Seconds()}
+	w := window{promql: promapi.Duration(s.cfg.Window), seconds: s.cfg.Window.Seconds(), at: obs.EvaluatedAt}
 	var used, empty, failedNames, failures, noLatency []string
 	var firstErr error
 	for _, p := range presets {
-		n, latencyErr, err := s.runPreset(ctx, p, w.promql, &obs)
+		n, latencyErr, err := s.runPreset(ctx, p, w, &obs)
 		if err == nil && latencyErr != nil {
 			noLatency = append(noLatency, p.Name)
 		}
@@ -231,14 +231,30 @@ func (s *Source) runProbes(ctx context.Context, w window, obs *source.Observatio
 		obs.Degraded = true
 		return []string{"probe detection failed: " + promapi.RedactError(err).Error()}
 	}
-	var used, failed []string
+	var used, failed, timingFailed []string
+	var timings []probeTiming
 	for _, p := range probes {
-		n, err := s.runProbe(ctx, p, w, obs)
+		n, pending, err := s.runProbe(ctx, p, w, obs)
+		timings = append(timings, pending...)
 		switch {
 		case err != nil:
 			failed = append(failed, p.Name)
 		case n > 0:
 			used = append(used, fmt.Sprintf("%s (%d)", p.Name, n))
+		}
+	}
+	// Fetch optional timing only after ALL probes' required measurements.
+	// A timestamp query reaching the source deadline must not prevent another
+	// reading from being collected or discard values already obtained.
+	failedTiming := make(map[string]bool)
+	for _, pending := range timings {
+		times, err := s.sampleTimes(ctx, pending.queries, w.at)
+		if err != nil && !failedTiming[pending.probe] {
+			failedTiming[pending.probe] = true
+			timingFailed = append(timingFailed, pending.probe+": "+promapi.RedactError(err).Error())
+		}
+		for i, key := range pending.keys {
+			obs.Readings[pending.first+i].OldestSampleAt = times[key]
 		}
 	}
 	var parts []string
@@ -249,23 +265,36 @@ func (s *Source) runProbes(ctx context.Context, w window, obs *source.Observatio
 		obs.Degraded = true
 		parts = append(parts, "probe failed: "+strings.Join(failed, ", "))
 	}
+	if len(timingFailed) > 0 {
+		obs.Degraded = true
+		parts = append(parts, "sample timing unavailable: "+strings.Join(timingFailed, "; "))
+	}
 	return parts
 }
 
-// runProbe adds one probe's readings to obs and returns how many it took.
-// Readings are only added once all of the probe's queries succeeded.
-func (s *Source) runProbe(ctx context.Context, p *Probe, w window, obs *source.Observation) (int, error) {
+// probeTiming maps optional timestamp queries back to the readings they date.
+type probeTiming struct {
+	probe   string
+	first   int
+	keys    []string
+	queries []string
+}
+
+// runProbe adds readings only once every value/capacity query succeeds.
+// Optional sample timing is deferred until all probes have their values.
+func (s *Source) runProbe(ctx context.Context, p *Probe, w window, obs *source.Observation) (int, []probeTiming, error) {
 	var readings []source.Reading
+	var timings []probeTiming
 	for _, r := range p.Readings {
-		values, err := s.client.Query(ctx, r.Query(w))
+		values, err := s.client.QueryAt(ctx, r.Query(w), w.at)
 		if err != nil {
-			return 0, err
+			return 0, nil, err
 		}
 		var capacity map[string]float64
 		if r.Max != nil {
-			maxes, err := s.client.Query(ctx, r.Max(w))
+			maxes, err := s.client.QueryAt(ctx, r.Max(w), w.at)
 			if err != nil {
-				return 0, err
+				return 0, nil, err
 			}
 			capacity = make(map[string]float64, len(maxes))
 			for _, m := range maxes {
@@ -276,6 +305,8 @@ func (s *Source) runProbe(ctx context.Context, p *Probe, w window, obs *source.O
 		if strings.Contains(what, "%s") {
 			what = fmt.Sprintf(what, w.promql)
 		}
+		first := len(readings)
+		var keys []string
 		for _, v := range values {
 			m := model.Measure{Cause: r.Cause, What: what, Value: v.Value, Unit: r.Unit}
 			switch {
@@ -290,11 +321,59 @@ func (s *Source) runProbe(ctx context.Context, p *Probe, w window, obs *source.O
 			if len(candidates) == 0 {
 				continue
 			}
-			readings = append(readings, source.Reading{Candidates: candidates, To: to, Measures: []model.Measure{m}, Origin: origin(p, v.Metric)})
+			rd := source.Reading{Candidates: candidates, To: to, Measures: []model.Measure{m}, Origin: origin(p, v.Metric)}
+			if r.Windowed {
+				rd.Window = s.cfg.Window
+			}
+			readings = append(readings, rd)
+			keys = append(keys, seriesKey(v.Metric))
+		}
+		if len(keys) > 0 && len(r.SampleTimes) > 0 {
+			timings = append(timings, probeTiming{probe: p.Name, first: len(obs.Readings) + first, keys: keys, queries: r.SampleTimes})
 		}
 	}
 	obs.Readings = append(obs.Readings, readings...)
-	return len(readings), nil
+	return len(readings), timings, nil
+}
+
+// sampleTimes intersects the inputs for each reading: a recent value must
+// not hide an older or undated capacity. The vector timestamp is evaluation
+// time; only the timestamp() result VALUE establishes input sample age.
+func (s *Source) sampleTimes(ctx context.Context, queries []string, at time.Time) (map[string]time.Time, error) {
+	var oldest map[string]time.Time
+	for i, query := range queries {
+		samples, err := s.client.QueryAt(ctx, query, at)
+		if err != nil {
+			return nil, err
+		}
+		current := make(map[string]time.Time, len(samples))
+		for _, sample := range samples {
+			current[seriesKey(sample.Metric)] = sampleTime(sample.Value)
+		}
+		if i == 0 {
+			oldest = current
+			continue
+		}
+		for key, previous := range oldest {
+			next := current[key]
+			switch {
+			case previous.IsZero() || next.IsZero():
+				delete(oldest, key)
+			case next.Before(previous):
+				oldest[key] = next
+			}
+		}
+	}
+	return oldest, nil
+}
+
+func sampleTime(seconds float64) time.Time {
+	// Stay within JSON's RFC3339 year range; invalid values remain unknown.
+	if math.IsNaN(seconds) || seconds <= 0 || seconds >= 253402300800 {
+		return time.Time{}
+	}
+	whole, fraction := math.Modf(seconds)
+	return time.Unix(int64(whole), int64(math.Round(fraction*1e9))).UTC()
 }
 
 // origin names where a reading came from, for findings about readings that
@@ -315,14 +394,14 @@ func (s *Source) denied(err *promapi.DeniedError) source.Observation {
 // runPreset adds one preset's edges to obs and returns how many it found.
 // obs is only touched once the request and failure queries have succeeded;
 // latency is optional, so its failure (latencyErr) keeps the edges.
-func (s *Source) runPreset(ctx context.Context, p *Preset, window string, obs *source.Observation) (found int, latencyErr error, err error) {
-	requests, err := s.client.Query(ctx, p.Requests(window))
+func (s *Source) runPreset(ctx context.Context, p *Preset, w window, obs *source.Observation) (found int, latencyErr error, err error) {
+	requests, err := s.client.QueryAt(ctx, p.Requests(w.promql), w.at)
 	if err != nil {
 		return 0, nil, err
 	}
 	failedBy := map[string]float64{}
 	if p.Failures != nil {
-		failed, err := s.client.Query(ctx, p.Failures(window))
+		failed, err := s.client.QueryAt(ctx, p.Failures(w.promql), w.at)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -336,8 +415,8 @@ func (s *Source) runPreset(ctx context.Context, p *Preset, window string, obs *s
 	}
 	var p50, p95 map[string]latencyEstimate
 	if p.Latency != nil && !p.NoRate {
-		if p50, latencyErr = s.latency(ctx, p, window, 0.5, rateBy); latencyErr == nil {
-			p95, latencyErr = s.latency(ctx, p, window, 0.95, rateBy)
+		if p50, latencyErr = s.latency(ctx, p, w, 0.5, rateBy); latencyErr == nil {
+			p95, latencyErr = s.latency(ctx, p, w, 0.95, rateBy)
 		}
 		if latencyErr != nil {
 			p50, p95 = nil, nil
@@ -435,8 +514,8 @@ type latencyEstimate struct {
 // milliseconds. An edge made of several series (HTTP and gRPC, two
 // destination services) gets their quantiles weighted by each series'
 // request rate: an approximation, since quantiles do not add up.
-func (s *Source) latency(ctx context.Context, p *Preset, window string, q float64, rateBy map[string]float64) (map[string]latencyEstimate, error) {
-	series, err := s.client.Query(ctx, p.Latency(window, q))
+func (s *Source) latency(ctx context.Context, p *Preset, w window, q float64, rateBy map[string]float64) (map[string]latencyEstimate, error) {
+	series, err := s.client.QueryAt(ctx, p.Latency(w.promql, q), w.at)
 	if err != nil {
 		return nil, err
 	}

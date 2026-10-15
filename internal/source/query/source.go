@@ -82,8 +82,8 @@ func (s *Source) signal() string {
 func (s *Source) Type() string { return string(s.cfg.Dialect) + "-query" }
 
 func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
-	var obs source.Observation
-	samples, err := s.client.Query(ctx, s.expand(s.cfg.Query))
+	obs := source.Observation{EvaluatedAt: time.Now().UTC()}
+	samples, err := s.client.QueryAt(ctx, s.expand(s.cfg.Query), obs.EvaluatedAt)
 	if err != nil {
 		var denied *promapi.DeniedError
 		if errors.As(err, &denied) {
@@ -152,7 +152,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 
 	var problems []string
 	if s.cfg.Errors != "" {
-		failed, err := s.client.Query(ctx, s.expand(s.cfg.Errors))
+		failed, err := s.client.QueryAt(ctx, s.expand(s.cfg.Errors), obs.EvaluatedAt)
 		if err != nil {
 			problems = append(problems, "errors query failed: "+promapi.RedactError(err).Error())
 		}
@@ -169,7 +169,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		}
 	}
 	if s.cfg.Latency != "" {
-		latency, err := s.client.Query(ctx, s.expand(s.cfg.Latency))
+		latency, err := s.client.QueryAt(ctx, s.expand(s.cfg.Latency), obs.EvaluatedAt)
 		if err != nil {
 			problems = append(problems, "latency query failed: "+promapi.RedactError(err).Error())
 		}

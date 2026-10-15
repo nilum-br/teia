@@ -160,13 +160,13 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 	statuses := make([]model.SourceStatus, len(e.sources))
 	for i, src := range e.sources {
 		a := answers[i]
-		results[i] = graph.Result{Source: src, Observation: a.obs, Err: a.err, CollectedAt: now}
+		results[i] = graph.Result{Source: src, Observation: a.obs, Err: a.err, CollectedAt: a.collectedAt}
 		statuses[i] = status(src, a.obs, a.err, a.took)
 		last := e.lastGood[i]
 		switch {
 		case a.err == nil:
-			e.lastGood[i] = goodObservation{obs: a.obs, at: now}
-			statuses[i].LastSuccessAt = now
+			e.lastGood[i] = goodObservation{obs: a.obs, at: a.collectedAt}
+			statuses[i].LastSuccessAt = a.collectedAt
 		case !last.at.IsZero() && now.Sub(last.at) <= e.opts.Retention:
 			// Keep what the source knew for a while: a bad flows file would
 			// otherwise turn every ok edge into a ghost, and a failed
@@ -289,9 +289,10 @@ func topologyOnly(obs source.Observation) source.Observation {
 
 // answer is what one source returned in a round.
 type answer struct {
-	obs  source.Observation
-	err  error
-	took time.Duration
+	obs         source.Observation
+	err         error
+	took        time.Duration
+	collectedAt time.Time
 }
 
 // discover asks every source in parallel. A source that panics fails
@@ -317,12 +318,13 @@ func (e *Engine) discover(ctx context.Context) []answer {
 			defer cancel()
 			start := time.Now()
 			obs, err := e.discoverOne(sctx, src)
+			collectedAt := e.now().UTC()
 			// Free the slot before answering: once the round has every
 			// answer it may end, and the next round must find this source
 			// idle. A source past the deadline keeps its slot until it
 			// returns, which is what the busy check is for.
 			e.busy[i].Store(false)
-			done <- indexed{i, answer{obs: obs, err: err, took: time.Since(start)}}
+			done <- indexed{i, answer{obs: obs, err: err, took: time.Since(start), collectedAt: collectedAt}}
 		}()
 	}
 

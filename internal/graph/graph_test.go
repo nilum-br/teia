@@ -302,6 +302,39 @@ func TestSampleTimesPreventAttributingOldCallsToRecycledAddresses(t *testing.T) 
 	}
 }
 
+func TestAddressWindowDoesNotAdvanceDuringCollection(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name                 string
+		evaluated, collected time.Time
+		want                 int
+	}{
+		{"evaluation precedes completion", now.Add(-30 * time.Second), now, 1},
+		{"completion precedes assembly", time.Time{}, now.Add(-30 * time.Second), 1},
+		{"undated fallback", time.Time{}, time.Time{}, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			traffic := result("metrics", "prometheus", source.Observation{
+				EvaluatedAt: tc.evaluated,
+				Edges: []source.EdgeObservation{
+					{From: source.AddressID("10.0.0.7"), To: "catalog", Window: 2 * time.Minute},
+					{From: source.AddressID("10.0.0.8"), To: "catalog", Window: 2 * time.Minute},
+				},
+			})
+			traffic.CollectedAt = tc.collected
+			g := BuildAt([]Result{
+				result("inventory", "docker", source.Observation{Nodes: []source.NodeObservation{
+					{ID: "new-owner", Addresses: []string{"10.0.0.7"}, Since: now.Add(-130 * time.Second)},
+					{ID: "old-owner", Addresses: []string{"10.0.0.8"}, Since: now.Add(-time.Hour)},
+				}}), traffic,
+			}, nil, nil, now)
+			if len(g.Edges) != tc.want || g.Edges["old-owner->catalog"] == nil {
+				t.Fatalf("collection delay must not move a query window past address reassignment: %v", g.SortedEdges())
+			}
+		})
+	}
+}
+
 func TestAddressesAreTimedPerObservation(t *testing.T) {
 	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	results := []Result{
@@ -514,6 +547,39 @@ func TestRetainedEvidenceKeepsTimeAndDoesNotRenewRetention(t *testing.T) {
 	m.Retain(expired, now.Add(61*time.Second))
 	if len(expired.Edges) != 0 {
 		t.Fatal("retained topology renewed its own lifetime")
+	}
+}
+
+func TestReadingsKeepTheirOwnSampleTimeAndOrigin(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	r := result("metrics", "prometheus", source.Observation{
+		EvaluatedAt: now.Add(-time.Second),
+		Nodes:       []source.NodeObservation{{ID: "cache"}},
+		Edges:       []source.EdgeObservation{{From: "web", To: "cache", RequestRate: 5}},
+		Readings: []source.Reading{
+			{Candidates: []string{"cache"}, OldestSampleAt: now.Add(-time.Hour), Origin: "redis (instance cache:9121)",
+				Measures: []model.Measure{{Cause: model.CauseSaturation, What: "memory", Value: 48, Max: 64}}},
+			{Candidates: []string{"cache"}, OldestSampleAt: now.Add(-time.Minute), Origin: "redis (instance cache:9121)",
+				Measures: []model.Measure{{Cause: model.CauseSaturation, What: "clients", Value: 10, Max: 100}}},
+			{Candidates: []string{"web"}, To: []string{"cache"}, Window: 5 * time.Minute,
+				Measures: []model.Measure{{Cause: model.CauseLag, What: "behind", Value: 20}}},
+		},
+	})
+	r.CollectedAt = now
+	g := BuildAt([]Result{r}, nil, nil, now)
+	entries := g.Nodes["cache"].Evidence
+	if len(entries) != 3 || !entries[0].OldestSampleAt.IsZero() || !entries[1].OldestSampleAt.Equal(now.Add(-time.Hour)) ||
+		!entries[2].OldestSampleAt.Equal(now.Add(-time.Minute)) || entries[1].Origin != "redis (instance cache:9121)" {
+		t.Fatalf("per-reading sample times/origin were lost: %+v", entries)
+	}
+	for _, ev := range entries {
+		if !ev.EvaluatedAt.Equal(r.Observation.EvaluatedAt) || !ev.CollectedAt.Equal(now) || !ev.ObservedAt.IsZero() {
+			t.Fatalf("sample, evaluation and collection times were mixed: %+v", ev)
+		}
+	}
+	edge := g.Edges["web->cache"].Evidence
+	if len(edge) != 2 || !edge[0].OldestSampleAt.IsZero() || !edge[1].OldestSampleAt.IsZero() || edge[1].WindowSeconds != 300 {
+		t.Fatalf("a gauge timestamp must not date traffic or derived measures: %+v", edge)
 	}
 }
 

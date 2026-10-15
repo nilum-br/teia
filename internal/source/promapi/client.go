@@ -47,7 +47,18 @@ func New(baseURL, path string, headers map[string]string) *Client {
 // finite numbers (NaN from a ratio over zero traffic, ±Inf) are dropped: they
 // carry no rate and cannot be encoded as JSON further down.
 func (c *Client) Query(ctx context.Context, query string) ([]Sample, error) {
-	u := strings.TrimRight(c.BaseURL, "/") + c.Path + "?query=" + url.QueryEscape(query)
+	return c.QueryAt(ctx, query, time.Time{})
+}
+
+// QueryAt pins evaluation to one instant across related queries. This is
+// when the expression is evaluated, not the timestamp of its raw samples.
+// A zero at keeps the server's default evaluation time (used by detection).
+func (c *Client) QueryAt(ctx context.Context, query string, at time.Time) ([]Sample, error) {
+	params := url.Values{"query": {query}}
+	if !at.IsZero() {
+		params.Set("time", at.UTC().Format(time.RFC3339Nano))
+	}
+	u := strings.TrimRight(c.BaseURL, "/") + c.Path + "?" + params.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, RedactError(err)

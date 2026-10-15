@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestQuery(t *testing.T) {
@@ -97,6 +98,34 @@ func TestQuery(t *testing.T) {
 			}
 			if fmt.Sprint(got) != fmt.Sprint(c.want) {
 				t.Errorf("samples = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestQueryAtPinsPrometheusAndLokiWithoutChangingLaterQueries(t *testing.T) {
+	at := time.Date(2026, 10, 15, 12, 0, 0, 123456789, time.FixedZone("client", -3*3600))
+	for _, path := range []string{"/api/v1/query", "/loki/api/v1/query"} {
+		t.Run(path, func(t *testing.T) {
+			var times []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != path || r.URL.Query().Get("query") != `sum(rate(requests{service="a+b"}[5m]))` {
+					t.Errorf("query encoding/path changed: %s", r.URL)
+				}
+				times = append(times, r.URL.Query().Get("time"))
+				fmt.Fprint(w, `{"status":"success","data":{"resultType":"vector","result":[]}}`)
+			}))
+			defer srv.Close()
+			client := New(srv.URL, path, nil)
+			query := `sum(rate(requests{service="a+b"}[5m]))`
+			if _, err := client.QueryAt(context.Background(), query, at); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := client.Query(context.Background(), query); err != nil {
+				t.Fatal(err)
+			}
+			if len(times) != 2 || times[0] != at.UTC().Format(time.RFC3339Nano) || times[1] != "" {
+				t.Fatalf("evaluation time leaked between calls: %v", times)
 			}
 		})
 	}

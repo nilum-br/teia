@@ -531,7 +531,8 @@ button.label { cursor: pointer; }
     let observedAt = timestamp(e.observedAt), observedFrom = timestamp(e.observedFrom);
     if (sampleCount && (!observedFrom || !observedAt || Date.parse(observedFrom) > Date.parse(observedAt))) observedAt = observedFrom = '';
     return {
-      source: e.source, signal: text(e.signal), collectedAt: timestamp(e.collectedAt), observedAt, observedFrom, sampleCount,
+      source: e.source, signal: text(e.signal), origin: text(e.origin), collectedAt: timestamp(e.collectedAt), observedAt, observedFrom, sampleCount,
+      evaluatedAt: timestamp(e.evaluatedAt), oldestSampleAt: timestamp(e.oldestSampleAt),
       windowSeconds: Math.max(0, finite(e.windowSeconds)), retained: e.retained === true, metrics: strings(e.metrics),
     };
   });
@@ -541,15 +542,16 @@ button.label { cursor: pointer; }
   };
   function evidenceText(e) {
     const subject = e.subject ? `${e.subject.node || `${e.subject.from} → ${e.subject.to}`} · ` : '';
-    const age = e.observedAt && e.collectedAt ? ` (age at collection: ${ageText(e.observedAt, Date.parse(e.collectedAt))})` : '';
+    const age = at => at && e.collectedAt ? ` (age at collection: ${ageText(at, Date.parse(e.collectedAt))})` : '';
     const observation = e.sampleCount
       ? `Sampled calls: ${e.sampleCount}. ` + (e.observedFrom && e.observedAt
-        ? `Earliest start in sample: ${e.observedFrom}. Latest end in sample: ${e.observedAt}${age}. `
+        ? `Earliest start in sample: ${e.observedFrom}. Latest end in sample: ${e.observedAt}${age(e.observedAt)}. `
         : 'Sample time range unknown: missing or invalid span times. ') +
         'Sample bounds do not imply continuous coverage or the service\'s last call. '
-      : `Original observation: ${e.observedAt || 'unknown'}${age}. `;
-    return `${subject}${e.source} · ${e.signal || 'source'} · ${e.metrics.join(', ') || 'inventory'}${e.retained ? ' · retained topology' : ''}. ` +
-      `Collected: ${e.collectedAt || 'unknown'}. ` + observation +
+      : e.oldestSampleAt ? `Oldest input sample: ${e.oldestSampleAt}${age(e.oldestSampleAt)}. `
+        : `Original observation: ${e.observedAt || 'unknown'}${age(e.observedAt)}. `;
+    return `${subject}${e.source}${e.origin ? ` (${e.origin})` : ''} · ${e.signal || 'source'} · ${e.metrics.join(', ') || 'inventory'}${e.retained ? ' · retained topology' : ''}. ` +
+      `Collected: ${e.collectedAt || 'unknown'}. ` + (e.evaluatedAt ? `Query evaluated: ${e.evaluatedAt}. ` : '') + observation +
       (e.windowSeconds > 0 ? `Query lookback: ${fmtSec(e.windowSeconds)}.` : 'Query lookback not supplied.');
   }
   function temporalText(snap, opts = {}, now = Date.now()) {
@@ -561,7 +563,7 @@ button.label { cursor: pointer; }
     const windows = [...new Set([...snap.nodes, ...snap.edges].flatMap(x => (x.evidence || []).map(e => e.windowSeconds)).filter(w => w > 0))].sort((a, b) => a - b);
     const parts = [mode === 'current' ? 'Current state' : mode === 'mixed' ? 'Mixed time modes' : 'Query data'];
     if (mode !== 'current') parts.push(snap.period ? `${snap.period.from} – ${snap.period.to}` : 'effective period unknown');
-    parts.push(collected ? `snapshot collected ${age(collected)}` : 'collection time unknown');
+    parts.push(collected ? `snapshot updated ${age(collected)}` : 'collection time unknown');
     if (windows.length) parts.push(`source lookbacks ${windows.map(fmtSec).join(', ')}`);
     parts.push(observed ? `original observation ${age(observed)}` : 'original observation time unknown');
     if (mode === 'current' && (opts.mode === 'panel' || opts.requestedRange)) parts.push('dashboard range does not change this snapshot');

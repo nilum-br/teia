@@ -48,6 +48,10 @@ type NodeObservation struct {
 // consumer group, the exporter's own address), so a reading never creates a
 // node: the graph gives it to the first candidate it already knows.
 type Reading struct {
+	// OldestSampleAt is the oldest input sample reported for this reading's
+	// evaluation, including capacity when applicable. It is not a call time.
+	OldestSampleAt time.Time
+	Window         time.Duration
 	// Candidates are names for the node, best first, after aliases and
 	// addresses (an "ip:..." candidate becomes the node holding it).
 	Candidates []string
@@ -165,8 +169,11 @@ type UnknownCaller struct {
 
 // Observation is everything a source learned in one round.
 type Observation struct {
-	Nodes []NodeObservation
-	Edges []EdgeObservation
+	// EvaluatedAt is the pinned evaluation time of metric/log queries. It
+	// never substitutes for the original sample time or collection time.
+	EvaluatedAt time.Time
+	Nodes       []NodeObservation
+	Edges       []EdgeObservation
 	// Findings are raised by the source itself, typically about its own
 	// permissions or configuration.
 	Findings []model.Finding

@@ -176,11 +176,11 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 	}
 	// A full trace can contain calls older than the search lookback. Check
 	// the sample's earliest start too before attributing an IP to its owner.
-	ambiguous := func(id string, window time.Duration, observedFrom time.Time) bool {
+	ambiguous := func(id string, window time.Duration, at, observedFrom time.Time) bool {
 		if !source.IsAddressID(canonical(id)) || (window <= 0 && observedFrom.IsZero()) {
 			return false
 		}
-		start := now.Add(-max(window, 0))
+		start := at.Add(-max(window, 0))
 		if !observedFrom.IsZero() && observedFrom.Before(start) {
 			start = observedFrom
 		}
@@ -223,6 +223,15 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 			continue
 		}
 		srcName, srcType := r.Source.Name(), r.Source.Type()
+		// Address ownership must cover the evaluated window, not a newer
+		// window shifted by collection latency or snapshot assembly.
+		at := r.Observation.EvaluatedAt
+		if at.IsZero() {
+			at = r.CollectedAt
+		}
+		if at.IsZero() {
+			at = now
+		}
 		for _, n := range r.Observation.Nodes {
 			id := resolve(n.ID)
 			if ignored[id] {
@@ -255,7 +264,7 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 			g.UnknownCallers[id][uc.Signal] = u
 		}
 		for _, o := range r.Observation.Edges {
-			if ambiguous(o.From, o.Window, o.ObservedFrom) || ambiguous(o.To, o.Window, o.ObservedFrom) {
+			if ambiguous(o.From, o.Window, at, o.ObservedFrom) || ambiguous(o.To, o.Window, at, o.ObservedFrom) {
 				continue // attribute it once the window no longer straddles the change
 			}
 			from, to := resolve(o.From), resolve(o.To)
@@ -472,7 +481,9 @@ func attachReadings(g *Graph, results []Result, resolve func(string) string) {
 			continue
 		}
 		for _, rd := range r.Observation.Readings {
-			if !attach(g, rd, resolve, evidence(r, r.Source.Type(), 0, time.Time{}, measureNames(rd.Measures))) {
+			ev := evidence(r, r.Source.Type(), rd.Window, time.Time{}, measureNames(rd.Measures))
+			ev.OldestSampleAt, ev.Origin = rd.OldestSampleAt, rd.Origin
+			if !attach(g, rd, resolve, ev) {
 				g.Unmatched = append(g.Unmatched, Unmatched{Source: r.Source.Name(), Origin: rd.Origin, Candidates: rd.Candidates, To: rd.To})
 			}
 		}
@@ -481,7 +492,7 @@ func attachReadings(g *Graph, results []Result, resolve func(string) string) {
 
 func evidence(r Result, signal string, window time.Duration, observed time.Time, metrics []string) model.Evidence {
 	return model.Evidence{Source: r.Source.Name(), Signal: signal, CollectedAt: r.CollectedAt,
-		ObservedAt: observed, WindowSeconds: window.Seconds(), Retained: r.Retained, Metrics: metrics}
+		EvaluatedAt: r.Observation.EvaluatedAt, ObservedAt: observed, WindowSeconds: window.Seconds(), Retained: r.Retained, Metrics: metrics}
 }
 
 func measureNames(measures []model.Measure) []string {

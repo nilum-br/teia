@@ -175,6 +175,60 @@ func TestFailedTelemetryRetainsTopologyWithoutOldHealth(t *testing.T) {
 	}
 }
 
+func TestSourceCollectionTimeDoesNotWaitForSlowerSources(t *testing.T) {
+	base := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	var clock atomic.Int64
+	clock.Store(base.UnixNano())
+	collected, release := make(chan struct{}), make(chan struct{})
+	var observedOnce, releaseOnce sync.Once
+	releaseSlow := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseSlow()
+	observation := func(from string) source.Observation {
+		return source.Observation{EvaluatedAt: base.Add(-time.Second), Edges: []source.EdgeObservation{{From: from, To: "cache"}}}
+	}
+	fast := &scripted{name: "fast", typ: "prometheus", steps: []func(context.Context) (source.Observation, error){
+		returns(observation("fast")), fails(errors.New("offline")),
+	}}
+	slow := &scripted{name: "slow", typ: "prometheus", steps: []func(context.Context) (source.Observation, error){
+		func(ctx context.Context) (source.Observation, error) {
+			select {
+			case <-release:
+				return observation("slow"), nil
+			case <-ctx.Done():
+				return source.Observation{}, ctx.Err()
+			}
+		},
+	}}
+	e := New([]source.Source{fast, slow}, Options{Retention: time.Minute}, quiet())
+	e.now = func() time.Time {
+		at := time.Unix(0, clock.Load()).UTC()
+		observedOnce.Do(func() { close(collected) })
+		return at
+	}
+	answer := make(chan model.Snapshot, 1)
+	go func() { answer <- e.Refresh(context.Background()) }()
+	select {
+	case <-collected:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the fast source never recorded its collection time")
+	}
+	clock.Store(base.Add(30 * time.Second).UnixNano())
+	releaseSlow()
+	first := <-answer
+	if !first.GeneratedAt.Equal(base.Add(30*time.Second)) || !statusOf(t, first, "fast").LastSuccessAt.Equal(base) ||
+		!statusOf(t, first, "slow").LastSuccessAt.Equal(first.GeneratedAt) {
+		t.Fatalf("source completion was replaced by snapshot assembly: %+v", first.Sources)
+	}
+	if ev := first.Edges[0].Evidence[0]; !ev.CollectedAt.Equal(base) || !ev.EvaluatedAt.Equal(base.Add(-time.Second)) {
+		t.Fatalf("query and collection times must stay separate: %+v", ev)
+	}
+	clock.Store(base.Add(40 * time.Second).UnixNano())
+	failed := e.Refresh(context.Background())
+	if ev := failed.Edges[0].Evidence[0]; !ev.Retained || !ev.CollectedAt.Equal(base) || !ev.EvaluatedAt.Equal(base.Add(-time.Second)) {
+		t.Fatalf("failure renewed the old query or collection time: %+v", ev)
+	}
+}
+
 func TestTempoSampleAgeSurvivesRefreshFailureAndRecovery(t *testing.T) {
 	clock := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	var end atomic.Int64

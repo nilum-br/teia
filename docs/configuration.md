@@ -132,7 +132,7 @@ second.
 | `sources.queries[].query` | required | The query. `$window` is replaced by `window` as a PromQL duration (`5m`, `90s`), so write `[$window]`. Its value is requests (or log lines) per second. |
 | `sources.queries[].errors` | none | Failed requests per second, with the same `from` and `to` labels (other labels may differ: series of one pair are added up). Without it, the edges' failures are **unknown**: they are not judged healthy, and the advisor asks for this query. |
 | `sources.queries[].latency` | none | The p95 of calls in **seconds**, with the same `from` and `to` labels, for example a `histogram_quantile(0.95, ...)`. |
-| `sources.queries[].window` | `5m` | Value of `$window`. Addresses seen over a window are only resolved to a workload that held them for all of it. |
+| `sources.queries[].window` | `5m` | Value of `$window` and the configured lookback reported in evidence. Hardcoded ranges, `offset` and `@` are not parsed to verify the query's effective interval. Addresses seen over the configured window are only resolved to a workload that held them for all of it. |
 | `sources.queries[].from` | required | Label holding the caller. |
 | `sources.queries[].to` | required | Label holding the callee. |
 | `sources.queries[].fromAddress` | `false` | The `from` label is an IP address (a port is dropped), resolved through the inventory. |

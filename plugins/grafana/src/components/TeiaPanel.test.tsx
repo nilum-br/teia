@@ -200,6 +200,31 @@ describe('TeiaPanel', () => {
     expect(root.querySelector('#pane-details')!.textContent).toBe(detail);
   });
 
+  it('keeps gauge input age separate from evaluation, collection and other readings', () => {
+    const data = [toDataFrame({ refId: 'nodes', fields: [
+      { name: 'id', values: ['cache'] },
+      { name: 'evidence', values: [JSON.stringify([
+        { source: 'metrics', signal: 'prometheus', origin: 'redis (instance cache:9121)', collectedAt: '2026-10-15T12:00:00Z',
+          evaluatedAt: '2026-10-15T11:59:59Z', oldestSampleAt: '2026-10-15T11:00:00Z', metrics: ['saturation: memory'] },
+        { source: 'metrics', signal: 'prometheus', origin: 'redis (instance cache:9121)', collectedAt: '2026-10-15T12:00:00Z',
+          evaluatedAt: '2026-10-15T11:59:59Z', metrics: ['saturation: clients'] },
+      ])] },
+    ] })];
+    const { container } = render(<TeiaPanel {...props({ data: { series: data, state: LoadingState.Done } as never })} />);
+    const root = shadow(container);
+    (root.querySelector('.node') as SVGElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const entries = [...root.querySelectorAll('#pane-details p.explain')];
+    const memory = entries.find(p => p.textContent?.includes('saturation: memory'))!.textContent;
+    expect(memory).toContain('redis (instance cache:9121)');
+    expect(memory).toContain('Query evaluated: 2026-10-15T11:59:59.000Z');
+    expect(memory).toContain('Collected: 2026-10-15T12:00:00.000Z');
+    expect(memory).toContain('Oldest input sample: 2026-10-15T11:00:00.000Z (age at collection: 60 min ago)');
+    const clients = entries.find(p => p.textContent?.includes('saturation: clients'))!.textContent;
+    expect(clients).toContain('Original observation: unknown');
+    expect(clients).not.toContain('Oldest input sample:');
+    expect(root.querySelector('#timeContext')!.textContent).toContain('original observation time unknown');
+  });
+
   it('does not disguise a future original observation as zero age', () => {
     const now = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-15T12:00:00Z'));
     try {
