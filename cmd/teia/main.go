@@ -112,19 +112,7 @@ func newLogger() *slog.Logger {
 // newEngine builds the engine of one scope: a cluster, or every source when
 // the config has no clusters.
 func newEngine(cfg *config.Config, scope config.Scope, log *slog.Logger, archive *history.Store) *engine.Engine {
-	return engine.New(scope.Sources, engine.Options{
-		Cluster:         scope.Cluster,
-		History:         archive,
-		Interval:        cfg.Interval,
-		Timeout:         cfg.Timeout,
-		Aliases:         cfg.Aliases,
-		Ignore:          cfg.Ignore,
-		Retention:       cfg.Retention,
-		Health:          cfg.HealthThresholds(),
-		HealthOverrides: cfg.HealthOverrides(),
-		Notifiers:       cfg.Notifiers(),
-		EvidenceLinks:   cfg.EvidenceLinks,
-	}, log)
+	return engine.New(scope.Sources, cfg.EngineOptions(scope.Cluster, archive), log)
 }
 
 // scopeFor is the named cluster's scope, or the first one when name is

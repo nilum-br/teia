@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -707,6 +708,35 @@ func (c *Config) BuildSources() []source.Source {
 		out = append(out, p.build(p.name))
 	}
 	return out
+}
+
+// EngineOptions are the engine settings of one scope: a cluster, or the
+// single scope when cluster is empty. archive may be nil. With clusters,
+// each one's rounds start at its own point of the interval (Phase), in the
+// order of the file.
+func (c *Config) EngineOptions(cluster string, archive *history.Store) engine.Options {
+	var phase time.Duration
+	if i := slices.IndexFunc(c.Clusters, func(cl Cluster) bool { return cl.Name == cluster }); i > 0 {
+		interval := c.Interval
+		if interval <= 0 {
+			interval = 30 * time.Second
+		}
+		phase = interval * time.Duration(i) / time.Duration(len(c.Clusters))
+	}
+	return engine.Options{
+		Phase:           phase,
+		Cluster:         cluster,
+		History:         archive,
+		Interval:        c.Interval,
+		Timeout:         c.Timeout,
+		Aliases:         c.Aliases,
+		Ignore:          c.Ignore,
+		Retention:       c.Retention,
+		Health:          c.HealthThresholds(),
+		HealthOverrides: c.HealthOverrides(),
+		Notifiers:       c.Notifiers(),
+		EvidenceLinks:   c.EvidenceLinks,
+	}
 }
 
 // Scope is what one engine discovers: the sources of one cluster with the

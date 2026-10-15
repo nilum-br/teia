@@ -172,6 +172,7 @@ func ApplyHealth(g *Graph, t HealthThresholds, overrides ...HealthOverride) {
 		evidence                                        []model.Evidence
 	}
 	in, out := map[string]*sum{}, map[string]*sum{}
+	shared := globalRules(t)
 	add := func(m map[string]*sum, id string, e *model.Edge) {
 		s, ok := m[id]
 		if !ok {
@@ -196,7 +197,7 @@ func ApplyHealth(g *Graph, t HealthThresholds, overrides ...HealthOverride) {
 		}
 	}
 	for _, e := range g.Edges {
-		limits, rules := resolveHealth(g, t, overrides, nil, e)
+		limits, rules := resolveHealth(g, t, overrides, shared, nil, e)
 		e.HealthRules = rules
 		e.Health, e.Reasons = limits.Judge(Signals{RequestRate: e.RequestRate, ErrorRate: e.ErrorRate, ErrorsUnknown: e.ErrorsUnknown,
 			LatencyP95Ms: e.LatencyP95Ms, LatencyApproximate: e.LatencyApproximate, Measures: e.Measures})
@@ -207,7 +208,7 @@ func ApplyHealth(g *Graph, t HealthThresholds, overrides ...HealthOverride) {
 		}
 	}
 	for id, n := range g.Nodes {
-		limits, rules := resolveHealth(g, t, overrides, n, nil)
+		limits, rules := resolveHealth(g, t, overrides, shared, n, nil)
 		n.HealthRules = rules
 		s := in[id]
 		n.TrafficDirection = "incoming"

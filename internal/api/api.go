@@ -5,6 +5,7 @@ package api
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
@@ -14,6 +15,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nilum-br/teia/internal/export"
@@ -220,7 +222,15 @@ func routes(eng Snapshotter, opts Options, slots chan struct{}) *http.ServeMux {
 		send(w, eng.Changes())
 	})
 	mux.HandleFunc("GET /api/v1/stream", streamHandler(eng, slots))
+	body := &snapshotBody{}
 	mux.HandleFunc("GET /api/v1/snapshot", func(w http.ResponseWriter, r *http.Request) {
+		// The whole round is served as the engine encoded it once.
+		if r.URL.Query().Get("slice") == "" {
+			if data := eng.SnapshotJSON(); len(data) > 0 {
+				body.serve(w, r, data)
+				return
+			}
+		}
 		if s, ok := snapOf(w, r); ok {
 			send(w, s)
 		}
@@ -375,7 +385,6 @@ func writeJSON(w http.ResponseWriter, log *slog.Logger, v any) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
 	if err := enc.Encode(v); err != nil {
 		log.Error("encoding response", "err", err)
 		writeError(w, http.StatusInternalServerError, "teia could not encode this response; the server log has the details")
@@ -392,4 +401,34 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
 	_, _ = w.Write(append(data, '\n'))
+}
+
+// snapshotBody serves a round's snapshot as the engine encoded it, and to
+// clients that accept gzip a compressed copy made once per round: a large
+// map is several megabytes of JSON, read by every page and dashboard.
+type snapshotBody struct {
+	mu  sync.Mutex
+	src []byte // the encoding gz was made from
+	gz  []byte
+}
+
+func (b *snapshotBody) serve(w http.ResponseWriter, r *http.Request, data []byte) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Vary", "Accept-Encoding")
+	if len(data) < 4096 || !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		_, _ = w.Write(data)
+		return
+	}
+	b.mu.Lock()
+	if len(b.src) != len(data) || &b.src[0] != &data[0] {
+		var buf bytes.Buffer
+		zw, _ := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+		_, _ = zw.Write(data)
+		_ = zw.Close()
+		b.src, b.gz = data, buf.Bytes()
+	}
+	gz := b.gz
+	b.mu.Unlock()
+	w.Header().Set("Content-Encoding", "gzip")
+	_, _ = w.Write(gz)
 }

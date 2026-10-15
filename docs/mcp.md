@@ -22,6 +22,13 @@ failing and why, and what teia cannot see, with the same data the map shows.
 | `teia_changes` | Changes between rounds, newest first (`limit`, 50 by default). |
 | `teia_journeys` | Ownership journeys: members, frames and boundary ports (`key` picks another journey label). |
 | `teia_dimensions` | Business dimensions and the values the calls carried. |
+| `teia_clusters` | The clusters this teia maps, with components, connections, health counts and working sources. |
+| `teia_impact` | Who depends on a component (`upstream`, the default: its callers, directly or not, hit when it fails) or what it depends on (`downstream`), hop by hop up to `depth`, with their health and the journeys and tenants of the calls involved. |
+| `teia_path` | The shortest call paths between two components (`maxPaths`, `maxDepth`), each connection with health, rate, error share and p95. |
+| `teia_history` | Stored snapshots of a cluster, optionally between `from` and `to` (needs `history.directory`). |
+| `teia_compare` | What changed between a stored snapshot (`before`) and a later one or the current round: connections and components added or removed, health changes, and the connections whose rate, error share or p95 moved most. |
+| `teia_operations` | Sampled operations (request paths seen in traces), with their sampling policy. Samples, not totals. |
+| `teia_propose_flow` | Drafts the flows fragment that would declare an observed but undeclared connection, with its evidence, for a pull request. It writes nothing. |
 
 With [several clusters](configuration.md#clusters), every tool takes `cluster` (the first when empty) and every answer
 carries the `cluster` it describes; `teia_overview` lists them. A tool never mixes clusters: compare clusters by calling

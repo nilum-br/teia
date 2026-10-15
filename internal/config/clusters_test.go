@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func loadYAML(t *testing.T, body string) (*Config, error) {
@@ -107,5 +108,23 @@ clusters:
   - {name: east, sources: {prometheus: [{url: http://p:9090}]}}
   - {name: west, sources: {prometheus: [{url: http://q:9090}]}}`); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Clusters spread their rounds across the interval, in file order.
+func TestClustersStartAtTheirOwnPhase(t *testing.T) {
+	cfg, err := loadYAML(t, `
+interval: 30s
+clusters:
+  - {name: a, sources: {prometheus: [{url: http://p:9090}]}}
+  - {name: b, sources: {prometheus: [{url: http://p:9090}]}}
+  - {name: c, sources: {prometheus: [{url: http://p:9090}]}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]time.Duration{"a": 0, "b": 10 * time.Second, "c": 20 * time.Second, "": 0} {
+		if got := cfg.EngineOptions(name, nil).Phase; got != want {
+			t.Errorf("phase of %q = %s, want %s", name, got, want)
+		}
 	}
 }

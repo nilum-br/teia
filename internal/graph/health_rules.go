@@ -81,13 +81,28 @@ func matchesHealthLabels(want map[string]string, n *model.Node) bool {
 	return true
 }
 
-func resolveHealth(g *Graph, global HealthThresholds, overrides []HealthOverride, node *model.Node, edge *model.Edge) (HealthThresholds, []model.HealthRule) {
-	limits := global
+// globalRules is the rule of every cause under the global thresholds, in
+// healthCauses order. Its capacity is its length, so an append never writes
+// into it: components and connections without an override share it.
+func globalRules(global HealthThresholds) []model.HealthRule {
 	rules := make([]model.HealthRule, 0, len(healthCauses))
 	for _, cause := range healthCauses {
+		d, f, unit := global.LimitsFor(cause)
+		rules = append(rules, model.HealthRule{Cause: cause, Name: "global", Match: "global", Degraded: d, Failing: f, Unit: unit})
+	}
+	return slices.Clip(rules)
+}
+
+// resolveHealth picks each cause's limits for a node or an edge: the best
+// matching override, else the global thresholds. Without any override it
+// returns shared (globalRules) itself rather than a copy per subject.
+func resolveHealth(g *Graph, global HealthThresholds, overrides []HealthOverride, shared []model.HealthRule, node *model.Node, edge *model.Edge) (HealthThresholds, []model.HealthRule) {
+	limits := global
+	var rules []model.HealthRule
+	for i, cause := range healthCauses {
 		var chosen *HealthOverride
-		for i := range overrides {
-			o := &overrides[i]
+		for j := range overrides {
+			o := &overrides[j]
 			if !slices.Contains(o.Causes, cause) {
 				continue
 			}
@@ -105,17 +120,22 @@ func resolveHealth(g *Graph, global HealthThresholds, overrides []HealthOverride
 				chosen = o
 			}
 		}
-		d, f, unit := global.LimitsFor(cause)
-		rule := model.HealthRule{Cause: cause, Name: "global", Match: "global", Degraded: d, Failing: f, Unit: unit}
-		if chosen != nil {
-			rule.Name, rule.Priority, rule.Match = chosen.Name, chosen.Priority, "selector"
-			if chosen.ID != "" {
-				rule.Match = "identity"
-			}
-			rule.Degraded, rule.Failing, _ = chosen.Limits.LimitsFor(cause)
-			limits.setLimits(cause, rule.Degraded, rule.Failing)
+		if chosen == nil {
+			continue
 		}
-		rules = append(rules, rule)
+		if rules == nil {
+			rules = slices.Clone(shared)
+		}
+		rule := &rules[i]
+		rule.Name, rule.Priority, rule.Match = chosen.Name, chosen.Priority, "selector"
+		if chosen.ID != "" {
+			rule.Match = "identity"
+		}
+		rule.Degraded, rule.Failing, _ = chosen.Limits.LimitsFor(cause)
+		limits.setLimits(cause, rule.Degraded, rule.Failing)
+	}
+	if rules == nil {
+		return limits, shared
 	}
 	return limits, rules
 }

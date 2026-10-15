@@ -2,8 +2,12 @@ package api
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -128,6 +132,13 @@ func TestMetricsLabelEachCluster(t *testing.T) {
 			t.Errorf("missing %s in\n%s", want, body)
 		}
 	}
+	west := get(Clusters(twoClusters(), Options{}), "/metrics?cluster=west", nil).Body.String()
+	if strings.Contains(west, `cluster="east"`) || !strings.Contains(west, `teia_edge_info{cluster="west"`) {
+		t.Fatalf("?cluster= keeps one cluster's series:\n%s", west)
+	}
+	if rec := get(Clusters(twoClusters(), Options{}), "/metrics?cluster=north", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown cluster: %d", rec.Code)
+	}
 	single := get(Handler(newFakeEngine(), Options{}), "/metrics", nil).Body.String()
 	if strings.Contains(single, "cluster=") || !strings.Contains(single, "teia_last_round_timestamp_seconds ") {
 		t.Fatalf("a single scope keeps its series unlabelled:\n%s", single)
@@ -161,7 +172,8 @@ func TestMCPReadsOneClusterAtATime(t *testing.T) {
 	}
 	for _, tool := range tools.Tools {
 		raw, _ := json.Marshal(tool.InputSchema)
-		if !strings.Contains(string(raw), `"cluster"`) {
+		// teia_clusters lists every cluster; it reads none in particular.
+		if tool.Name != "teia_clusters" && !strings.Contains(string(raw), `"cluster"`) {
 			t.Errorf("%s takes no cluster argument: %s", tool.Name, raw)
 		}
 	}
@@ -178,5 +190,56 @@ func TestGrafanaChangeRowsNameTheirCluster(t *testing.T) {
 	var rows []map[string]any
 	if err := json.Unmarshal(data, &rows); err != nil || len(rows) != 1 || rows[0]["cluster"] != "east" || rows[0]["timeMode"] != "current" || rows[0]["subject"] != "app-a->app-b" {
 		t.Fatalf("change rows = %s (%v)", data, err)
+	}
+}
+
+// fixedJSON returns the same encoding until its round changes, as the engine does.
+type fixedJSON struct {
+	*fakeEngine
+	data []byte
+}
+
+func (f *fixedJSON) SnapshotJSON() []byte { return f.data }
+
+// The whole snapshot is the engine's own encoding, gzipped once per round
+// for clients that accept it; a slice is still encoded per request.
+func TestSnapshotServedFromTheRoundsEncoding(t *testing.T) {
+	eng := &fixedJSON{fakeEngine: newFakeEngine()}
+	for i := 0; i < 400; i++ {
+		eng.snap.Nodes = append(eng.snap.Nodes, model.Node{ID: fmt.Sprintf("svc-%04d", i)})
+	}
+	eng.data, _ = json.Marshal(eng.snap)
+	h := Clusters([]Cluster{{Engine: eng}}, Options{})
+	plain := get(h, "/api/v1/snapshot", nil)
+	if !bytes.Equal(plain.Body.Bytes(), eng.data) || plain.Header().Get("Content-Encoding") != "" {
+		t.Fatalf("plain snapshot is not the round's encoding (%d bytes)", plain.Body.Len())
+	}
+	body := &snapshotBody{}
+	read := func() ([]byte, []byte) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/snapshot", nil)
+		req.Header.Set("Accept-Encoding", "gzip, deflate")
+		body.serve(rec, req, eng.data)
+		if rec.Header().Get("Content-Encoding") != "gzip" || rec.Header().Get("Vary") != "Accept-Encoding" {
+			t.Fatalf("headers %v", rec.Header())
+		}
+		zr, err := gzip.NewReader(rec.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, _ := io.ReadAll(zr)
+		return out, body.gz
+	}
+	first, gz1 := read()
+	_, gz2 := read()
+	if !bytes.Equal(first, eng.data) || &gz1[0] != &gz2[0] {
+		t.Fatal("the gzip copy must decode to the round's JSON and be made once per round")
+	}
+	eng.data = append([]byte(nil), eng.data...)
+	if _, gz3 := read(); &gz3[0] == &gz1[0] {
+		t.Fatal("a new round's encoding needs a new gzip copy")
+	}
+	if rec := get(h, "/api/v1/snapshot?slice=journey:x", nil); rec.Code != http.StatusNotImplemented {
+		t.Fatalf("a slice is not the cached round: %d", rec.Code)
 	}
 }

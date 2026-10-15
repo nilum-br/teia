@@ -221,7 +221,7 @@ observadas para o time revisar. Veja a [especificação](docs/flows-spec.md) e
 ## Documentação
 
 [Sinais e fontes](docs/sources.md) · [Configuração](docs/configuration.md) · [Kubernetes / Helm](docs/kubernetes.md) · [Arquitetura](docs/architecture.md) ·
-[Jornadas](docs/journeys.md) · [Investigação](docs/investigation.md) · [Operações amostradas](docs/operations.md) · [Agentes (MCP)](docs/mcp.md) ·
+[Jornadas](docs/journeys.md) · [Investigação](docs/investigation.md) · [Operações amostradas](docs/operations.md) · [Agentes (MCP)](docs/mcp.md) · [Capacidade](docs/capacity.md) ·
 [Resolução de identidade](docs/identity-resolution.md) · [Propostas de contrato](docs/review-proposals.md) · [Regras do advisor](docs/advisor.md) ·
 [Ícones](docs/icons.md) · [Especificação dos flows](docs/flows-spec.md) · [Roadmap](docs/roadmap.md) · [Panorama](docs/landscape.md)
 

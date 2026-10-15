@@ -8,9 +8,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/nilum-br/teia/internal/history"
 	"github.com/nilum-br/teia/internal/model"
 	"github.com/nilum-br/teia/internal/slice"
 )
@@ -133,7 +135,8 @@ func TestMCPListsReadOnlyTools(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{"teia_changes", "teia_component", "teia_connection", "teia_dimensions", "teia_findings", "teia_journeys", "teia_map", "teia_overview"}
+	want := []string{"teia_changes", "teia_clusters", "teia_compare", "teia_component", "teia_connection", "teia_dimensions", "teia_findings",
+		"teia_history", "teia_impact", "teia_journeys", "teia_map", "teia_operations", "teia_overview", "teia_path", "teia_propose_flow"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools = %v", names)
 	}
@@ -277,5 +280,100 @@ func TestMCPRequiresTheToken(t *testing.T) {
 	Handler(newMCPEngine(), Options{AllowedOrigins: []string{"*"}}).ServeHTTP(rec, req)
 	if rec.Header().Get("Access-Control-Allow-Origin") != "" {
 		t.Fatalf("CORS must not open /mcp: %v", rec.Header())
+	}
+}
+
+func TestMCPInvestigationTools(t *testing.T) {
+	eng := newMCPEngine()
+	store, err := history.Open(history.Config{Directory: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng.snap.GeneratedAt = time.Now().UTC().Truncate(time.Second)
+	before := eng.snap
+	before.GeneratedAt = eng.snap.GeneratedAt.Add(-time.Hour)
+	before.Edges = slices.Clone(before.Edges)
+	before.Edges[0].RequestRate, before.Edges[0].Health = 0.9, model.HealthHealthy
+	before.Edges = before.Edges[:2] // app-c->app-b is new since
+	id, err := store.Save(before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := mcpSession(t, Clusters([]Cluster{{Engine: eng, History: store}}, Options{}), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	list, _ := call(t, s, "teia_clusters", nil)
+	if len(list["clusters"].([]any)) != 1 {
+		t.Fatalf("clusters = %v", list)
+	}
+
+	// Who is hit when redis fails, and which journeys.
+	up, _ := call(t, s, "teia_impact", map[string]any{"id": "redis"})
+	levels := up["levels"].([]any)
+	ids := func(level any) (out []string) {
+		for _, c := range level.(map[string]any)["components"].([]any) {
+			out = append(out, c.(map[string]any)["id"].(string))
+		}
+		slices.Sort(out)
+		return out
+	}
+	if len(levels) != 2 || !slices.Equal(ids(levels[0]), []string{"app-b"}) || !slices.Equal(ids(levels[1]), []string{"app-a", "app-c"}) {
+		t.Fatalf("upstream of redis = %v", levels)
+	}
+	if j := up["dimensions"].(map[string]any)["journey"].([]any); len(j) != 2 {
+		t.Fatalf("journeys behind redis's callers = %v", up["dimensions"])
+	}
+	down, _ := call(t, s, "teia_impact", map[string]any{"id": "app-a", "direction": "downstream", "depth": 1})
+	if levels := down["levels"].([]any); len(levels) != 1 || !slices.Equal(ids(levels[0]), []string{"app-b"}) {
+		t.Fatalf("one hop downstream of app-a = %v", levels)
+	}
+	if _, res := call(t, s, "teia_impact", map[string]any{"id": "redis", "direction": "sideways"}); errorText(res) == "" {
+		t.Fatal("an unknown direction is a tool error")
+	}
+
+	paths, _ := call(t, s, "teia_path", map[string]any{"from": "app-c", "to": "redis"})
+	p := paths["paths"].([]any)
+	if len(p) != 1 || len(p[0].([]any)) != 2 || p[0].([]any)[1].(map[string]any)["to"] != "redis" {
+		t.Fatalf("app-c to redis = %v", p)
+	}
+	if none, _ := call(t, s, "teia_path", map[string]any{"from": "redis", "to": "app-a"}); len(none["paths"].([]any)) != 0 {
+		t.Fatalf("redis calls nobody: %v", none)
+	}
+
+	hist, _ := call(t, s, "teia_history", nil)
+	if snaps := hist["history"].(map[string]any)["snapshots"].([]any); len(snaps) != 1 || snaps[0].(map[string]any)["id"] != id {
+		t.Fatalf("history = %v", hist)
+	}
+	cmp, _ := call(t, s, "teia_compare", map[string]any{"before": id})
+	var added bool
+	for _, c := range cmp["changes"].([]any) {
+		ch := c.(map[string]any)
+		added = added || (ch["type"] == string(model.ChangeEdgeAdded) && ch["subject"] == "app-c->app-b")
+	}
+	moved := cmp["moved"].([]any)
+	if !added || len(moved) == 0 || moved[0].(map[string]any)["from"] != "app-a" {
+		t.Fatalf("compare = changes %v moved %v", cmp["changes"], moved)
+	}
+	if rate := moved[0].(map[string]any)["requestRate"].(map[string]any); rate["before"] != 0.9 || rate["after"] != 2.7 {
+		t.Fatalf("app-a->app-b rate = %v", rate)
+	}
+	if _, res := call(t, s, "teia_compare", map[string]any{"before": "nope"}); !strings.Contains(errorText(res), "not available") {
+		t.Fatalf("unknown snapshot: %v", res)
+	}
+
+	draft, res := call(t, s, "teia_propose_flow", map[string]any{"from": "app-c", "to": "app-b", "rationale": "checkout confirms payments"})
+	if draft == nil {
+		t.Fatalf("proposal: %s", errorText(res))
+	}
+	if files := draft["proposal"].(map[string]any)["files"]; files == nil {
+		t.Fatalf("a draft carries the flows fragment: %v", draft)
+	}
+	if _, res := call(t, s, "teia_propose_flow", map[string]any{"from": "app-a", "to": "app-b", "rationale": "x"}); !strings.Contains(errorText(res), "already declared") {
+		t.Fatalf("a declared connection needs no proposal: %v", errorText(res))
+	}
+	if ops, _ := call(t, s, "teia_operations", nil); ops == nil {
+		t.Fatal("operations")
 	}
 }
