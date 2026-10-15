@@ -1,6 +1,8 @@
-# Maintainers review every change. CODE_OF_CONDUCT.md points here for reports.
+# Maintainers review every change: main requires a code owner's approval, and
+# an author cannot approve their own pull request, so each maintainer reviews
+# the other's. CODE_OF_CONDUCT.md points here for reports.
 #
-# The @nilum-br/teia-maintainers team will replace the individual owner below
+# The @nilum-br/teia-maintainers team will replace the individual owners below
 # once it exists. Until then naming the team would leave every path without an
 # owner: GitHub ignores owners that do not exist or lack write access.
-* @felipesdsredes
+* @felipesdsredes @mario-valente
