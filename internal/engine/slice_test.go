@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/nilum-br/teia/internal/model"
@@ -191,5 +192,46 @@ func TestSlicedSnapshotIsCachedPerRound(t *testing.T) {
 	eng.Refresh(context.Background())
 	if len(eng.sliced) != 0 {
 		t.Fatal("a new round must drop the old slices")
+	}
+}
+
+// Declarations are not per journey: a declared flow between two services a
+// slice reaches is not one of its calls. Checkout reaches app-a and app-b
+// through app-c, so the declared app-a->app-b must not show as stale there.
+func TestSliceLeavesOutDeclaredFlowsItsCallsNeverMade(t *testing.T) {
+	declared := sliceSource{"declared", "declared", source.Observation{Edges: []source.EdgeObservation{
+		{From: "app-a", To: "app-b", Declared: true}, {From: "app-b", To: "redis", Declared: true},
+		{From: "app-a", To: "app-c", Declared: true}, {From: "app-c", To: "app-b", Declared: true},
+		{From: "app-c", To: "redis", Declared: true},
+	}}}
+	call := func(from, to, journey string) source.EdgeObservation {
+		return source.EdgeObservation{From: from, To: to, Signal: source.SignalMetrics, RequestRate: 1, Slices: []source.Slice{
+			{Dims: dims(journey, "b"), RequestRate: 1, LatencyP95Ms: 10},
+		}}
+	}
+	metrics := sliceSource{"prometheus/calls", "prometheus-query", source.Observation{Dimensions: []string{"journey", "tenant"}, Edges: []source.EdgeObservation{
+		call("app-a", "app-b", "whatsapp"), call("app-b", "redis", "whatsapp"),
+		call("app-a", "app-c", "checkout"), call("app-c", "app-b", "checkout"), call("app-c", "redis", "checkout"),
+	}}}
+	eng := New([]source.Source{declared, metrics}, Options{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	eng.Refresh(context.Background())
+
+	s := eng.Sliced(mustParse(t, "journey:checkout"))
+	nodes, edges := ids(s)
+	if want := []string{"app-a->app-c", "app-c->app-b", "app-c->redis"}; !slices.Equal(edges, want) {
+		t.Fatalf("checkout edges %v, want %v (nodes %v)", edges, want, nodes)
+	}
+	for _, e := range s.Edges {
+		if !e.Declared || e.State != model.EdgeOK {
+			t.Fatalf("checkout calls keep their declaration: %s declared %v state %v", e.Key(), e.Declared, e.State)
+		}
+	}
+	for _, f := range s.Findings {
+		if strings.Contains(f.Subject, "app-a->app-b") || strings.Contains(f.Subject, "app-b->redis") {
+			t.Fatalf("no finding about flows the slice never made: %+v", f)
+		}
+	}
+	if _, edges := ids(eng.Snapshot()); len(edges) != 5 {
+		t.Fatalf("the whole map keeps every declared flow: %v", edges)
 	}
 }
