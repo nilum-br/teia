@@ -59,7 +59,9 @@ test('stored history replays and a clean shared view restores the same snapshot'
 
 test('saved Grafana history dashboard restores a snapshot independently of the dashboard time range', async ({ page, request }, info) => {
   const listing = await (await request.get(base + '/api/v1/history')).json();
-  const original = listing.snapshots[0];
+  // The newest capture: once history reaches its byte or count limit, the
+  // oldest is pruned every round and could vanish before the panel asks.
+  const original = listing.snapshots.at(-1);
   await expect.poll(async () => (await request.get('/api/dashboards/uid/teia-history')).status(), { timeout: 40_000 }).toBe(200);
   await page.goto('/d-solo/teia-history/teia?panelId=1&var-snapshot=' + encodeURIComponent(original.id) + '&from=now-30d&to=now');
   const root = page.getByTestId('teia-panel');
