@@ -39,8 +39,24 @@ live theme changes without remounting the map. See the maintenance notes above f
 
 With the lab running, `npm run e2e -- --project=api` validates the installed plugin bundle and the saved
 dashboard's queries for two requested periods. `GRAFANA_URL` defaults to `http://localhost:3480`; optionally set
-`GRAFANA_STORAGE_STATE` for authenticated hosts. These are HTTP API tests, not visual/browser validation. The
-Chromium project is available for future browser tests and requires Playwright's browser installation.
+`GRAFANA_STORAGE_STATE` for authenticated hosts. These are HTTP API tests.
+
+`npm run e2e -- --project=chromium --workers=2` exercises the rendered standalone UI and installed Grafana
+panel in light/dark themes at 1600×960, 1024×768, 900×500 and 600×400. Set `TEIA_URL` if standalone Teia is not
+at `http://localhost:8480`. First install Chromium with `npx playwright install --with-deps chromium`, or use
+the isolated Docker runner from the repository root with the lab already running:
+
+```sh
+docker compose -f lab/compose.yaml -f lab/compose.visual.yaml run --build --rm visual
+```
+
+The runner uses Playwright 1.64.1, Node 26.12.0 and npm 12.2.0; it reuses the lab panel's installed dependencies.
+Screenshots of overview, node/edge details, sample evidence, journeys and grouping are written to `test-results/`
+and uploaded by CI as `visual-review`. Tests check controls stay in view, details remain closable, the selected
+node/edge endpoints are not covered by the sidebar, metric/reason labels and journey boundary ports open their
+details, manual pan/zoom/selection survive resumed updates, and a 30-day Grafana range still
+says current state. Captures require human/agent review; passing interactions alone does not certify legibility,
+contrast or absence of every label collision. Live values change, so these are not fixed pixel baselines.
 
 ## Loading it in your Grafana
 

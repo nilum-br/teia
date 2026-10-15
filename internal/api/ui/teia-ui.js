@@ -58,7 +58,7 @@
   height: 100%; position: relative;
   background: var(--bg); color: var(--ink);
   font: 13px/1.45 "teia-outfit", Outfit, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  display: grid; grid-template-rows: auto auto 1fr; overflow: hidden;
+  display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden;
 }
 button, input, select { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -97,7 +97,7 @@ header {
 }
 .search input:focus { border-color: var(--accent); }
 .search svg { position: absolute; left: 9px; top: 9px; width: 14px; height: 14px; color: var(--muted); }
-.ctl { display: flex; gap: 6px; align-items: center; }
+.ctl { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; max-width: 100%; }
 .btn {
   display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 11px; border-radius: 9px;
   background: var(--panel-2); border: 1px solid var(--line-2); cursor: pointer; white-space: nowrap; text-decoration: none; color: var(--ink);
@@ -106,7 +106,7 @@ header {
 .btn svg { width: 15px; height: 15px; }
 .btn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .btn.icon { width: 32px; padding: 0; justify-content: center; }
-select.btn { padding-right: 8px; }
+select.btn { padding-right: 8px; min-width: 0; max-width: 100%; }
 .menu { position: relative; }
 .menu-list {
   position: absolute; right: 0; top: 38px; z-index: 20; background: var(--panel); border: 1px solid var(--line-2);
@@ -120,7 +120,9 @@ select.btn { padding-right: 8px; }
 .menu-list button:hover, .menu-list a:hover { background: var(--panel-2); }
 
 /* ---- layout ----------------------------------------------------------- */
-main { display: grid; grid-template-columns: minmax(0, 1fr) 410px; min-height: 0; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 410px; min-height: 0; position: relative; }
+.page.drawer-closed main { grid-template-columns: minmax(0, 1fr); }
+.page.drawer-closed aside { display: none; }
 #stage { position: relative; overflow: hidden; background: var(--bg); touch-action: none; }
 #stage::before {
   content: ""; position: absolute; inset: 0; pointer-events: none;
@@ -145,7 +147,7 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 410px; min-height: 0
 .chip.off { opacity: .4; }
 .chip svg { width: 12px; height: 12px; }
 .sep { width: 1px; background: var(--line-2); margin: 3px 2px; }
-.legend { left: 14px; bottom: 14px; padding: 10px 12px; font-size: 11.5px; color: var(--ink-2); display: grid; grid-template-columns: repeat(3, auto); gap: 5px 16px; }
+.legend { left: 14px; bottom: 14px; padding: 10px 12px; font-size: 11.5px; color: var(--ink-2); display: grid; grid-template-columns: repeat(3, auto); gap: 5px 16px; max-width: calc(100% - 80px); max-height: calc(100% - 28px); overflow: auto; }
 .legend .lg { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
 .legend .sw { width: 11px; height: 11px; border-radius: 3px; }
 .legend .ln { width: 20px; height: 0; border-top: 2px solid var(--ink-2); }
@@ -175,7 +177,7 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 410px; min-height: 0
 
 /* ---- side panel ------------------------------------------------------- */
 aside { background: var(--panel); border-left: 1px solid var(--line); display: grid; grid-template-rows: auto 1fr; min-height: 0; }
-.tabs { display: flex; border-bottom: 1px solid var(--line); padding: 0 8px; }
+.tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding: 0 8px; }
 .tab {
   padding: 12px 10px; border: 0; background: none; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent;
   font-weight: 600; font-size: 12.5px; display: flex; gap: 6px; align-items: center;
@@ -226,7 +228,7 @@ details summary { cursor: pointer; color: var(--accent); font-size: 12px; margin
 .scope .clear { border: 0; background: none; color: var(--accent); cursor: pointer; font-size: 12px; white-space: nowrap; }
 .filter-panel { position: absolute; z-index: 30; left: 12px; top: 112px; width: min(760px, calc(100% - 24px)); max-height: min(70vh, calc(100% - 130px)); overflow: auto;
   background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px 16px; }
-.time-context { flex-basis: 100%; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.time-context { flex-basis: 100%; color: var(--muted); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
 .filter-panel .top { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
 .filter-panel .top input { flex: 1; background: var(--bg); border: 1px solid var(--line-2); border-radius: 10px; padding: 7px 10px; outline: none; }
 .filter-panel .top input:focus { border-color: var(--accent); }
@@ -285,16 +287,12 @@ button.label { cursor: pointer; }
 .state.ok { color: var(--ok-text); } .state.degraded { color: var(--warn-text); } .state.error { color: var(--err-text); }
 .muted { color: var(--muted); }
 
-@container teia (max-width: 960px) {
-  .teia.page { overflow: auto; }
-  .page main { grid-template-columns: 1fr; grid-template-rows: 64vh auto; }
-  .page aside { border-left: 0; border-top: 1px solid var(--line); }
-  .page .legend { display: none; }
-  .search input { width: 160px; }
+@container teia (max-width: 1200px) {
+  .page main { grid-template-columns: minmax(0, 1fr); }
+  .page aside { position: absolute; right: 0; top: 0; bottom: 0; width: min(410px, 90%); z-index: 10; box-shadow: var(--shadow); }
 }
-@container teia (max-width: 640px) {
-  .panel .rings, .panel .legend { display: none; }
-  .panel .search input { width: 120px; }
+@container teia (max-width: 960px) {
+  .search input { width: 160px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -317,11 +315,18 @@ button.label { cursor: pointer; }
 }
 .teia.panel aside.open { transform: none; }
 .teia.panel .drawer-close { display: inline-flex; }
-.drawer-close { display: none; margin-left: auto; align-self: center; }
+.drawer-close { display: inline-flex; margin-left: auto; align-self: center; }
 .teia.panel .legend { font-size: 11px; padding: 8px 10px; }
-.stepsBtn { display: none; }
+.stepsBtn { display: inline-flex; }
 .teia.panel .stepsBtn { display: inline-flex; }
 .stepsBtn .count { background: var(--degraded); color: #020f59; border-radius: 999px; padding: 0 6px; font-size: 11px; font-weight: 700; }
+@container teia (max-width: 640px) {
+  .panel .rings { display: none; }
+  .teia.panel .search input { width: 120px; }
+  .ctl { gap: 4px; }
+  .ctl .btn { padding: 0 8px; font-size: 12px; }
+  .ctl select { width: 150px; }
+}
 `;
 
   const MARKUP = `<header>
@@ -1467,7 +1472,7 @@ button.label { cursor: pointer; }
       tab: 'steps',
       activity: [],
       legendIcons: false,
-      legend: stored('legend', page), // open on teia's page; a panel has less room
+      legend: stored('legend', false), // expand on demand without covering the map
       filters: emptyFilters(), // what the map shows: journeys and facets (see scopeOf)
       journeyKey: opts.journeyKey || '', // the label naming journeys; empty: detected
       jkey: JOURNEY_KEY,
@@ -1554,6 +1559,7 @@ button.label { cursor: pointer; }
       .mark text { fill: #020f59; font-size: 10px; font-weight: 800; text-anchor: middle; }
       .elabel rect { fill: var(--panel); stroke: var(--line-2); }
       .elabel text { fill: var(--ink); font-size: 11px; }
+      .elabel, .particles { pointer-events: none; }
       .particles circle { fill: var(--particle); }
       .particles circle.ghost { fill: var(--ghost); }
       .particles circle.err { fill: var(--failing); }
@@ -2101,7 +2107,7 @@ button.label { cursor: pointer; }
 
     let drag = null, lastClick = { id: null, at: 0 };
     function onPointerDown(ev) {
-      if (ev.target.closest('.node, .edge, .mark')) return;
+      if (ev.target.closest('.node, .edge, .mark, .port, .why-tag, .value-tag')) return;
       drag = { type: 'pan', sx: ev.clientX, sy: ev.clientY, vx: state.view.x, vy: state.view.y, moved: false };
       svg.classList.add('panning');
       svg.setPointerCapture(ev.pointerId);
@@ -2164,9 +2170,11 @@ button.label { cursor: pointer; }
     }
     function applyHighlight() {
       if (!currentView) return;
+      const edge = state.selected?.type === 'edge' ? currentView.edges.get(state.selected.id) : null;
       const focus = state.hover || (state.selected?.type === 'node' ? state.selected.id : null);
       const match = matcher(state.query);
-      const nb = focus && currentView.nodes.has(focus) ? neighborhood(focus) : null;
+      const nb = edge ? { ids: new Set([edge.from, edge.to]), edges: new Set([edge.id]) }
+        : focus && currentView.nodes.has(focus) ? neighborhood(focus) : null;
       for (const [id, g] of nodeEls) {
         const n = currentView.nodes.get(id);
         const hit = !!(match && match(n));
@@ -2179,13 +2187,35 @@ button.label { cursor: pointer; }
     }
 
     function setDrawer(open) {
-      if (page) return;
       const aside = $('aside');
       aside.classList.toggle('open', open);
       aside.inert = !open;
+      app.classList.toggle('drawer-closed', !open);
+      $('#stepsBtn').setAttribute('aria-expanded', String(open));
+      if (open) revealSelection();
+    }
+
+    function revealSelection() {
+      const aside = $('aside');
+      if (!aside.classList.contains('open')) return;
+      const selected = state.selected;
+      const edge = selected?.type === 'edge' ? currentView?.edges.get(selected.id) : null;
+      const elements = edge ? [nodeEls.get(edge.from), nodeEls.get(edge.to)]
+        : [selected?.type === 'node' ? nodeEls.get(selected.id)
+          : selected?.type === 'port' ? portEls.get(selected.id)?.g : null];
+      const boxes = elements.filter(Boolean).map(g => g.getBoundingClientRect());
+      if (!boxes.length) return;
+      const box = { left: Math.min(...boxes.map(b => b.left)), right: Math.max(...boxes.map(b => b.right)) };
+      const r = stage.getBoundingClientRect();
+      const overlay = getComputedStyle(aside).position === 'absolute' ? aside.offsetWidth : 0;
+      const right = r.right - overlay - 16, left = r.left + 16;
+      if (right <= left || box.right - box.left > right - left) return;
+      const dx = box.right > right ? right - box.right : box.left < left ? left - box.left : 0;
+      if (dx) { state.view.x += dx; applyView(); }
     }
 
     function select(sel) {
+      const changed = state.selected?.type !== sel?.type || state.selected?.id !== sel?.id;
       state.selected = sel;
       for (const [id, g] of nodeEls) g.classList.toggle('sel', sel?.type === 'node' && sel.id === id);
       for (const [id, g] of edgeEls) g.classList.toggle('sel', sel?.type === 'edge' && sel.id === id);
@@ -2194,6 +2224,7 @@ button.label { cursor: pointer; }
       renderEdgeLabel();
       renderDetails();
       if (sel) { showTab('details'); setDrawer(true); }
+      if (changed) $('#pane-details').scrollTop = 0;
     }
 
     function focusNode(id) {
@@ -2798,7 +2829,7 @@ button.label { cursor: pointer; }
     }
 
     function connect() {
-      if (destroyed || es || !opts.api || opts.stream === false) return;
+      if (destroyed || es || !state.live || !opts.api || opts.stream === false) return;
       try { es = new EventSource(opts.api + 'stream'); } catch { return; }
       es.addEventListener('snapshot', ev => {
         reconnectDelay = 1000;
@@ -2830,7 +2861,7 @@ button.label { cursor: pointer; }
       const onControl = t && (t.tagName === 'BUTTON' || t.tagName === 'A' || t.tagName === 'SUMMARY');
       if (ev.key === 'Escape' && filterPanelOpen()) { ev.stopPropagation(); setFilterPanel(false); $('#filterBtn')?.focus(); return; }
       if (ev.key === 'Escape') {
-        const open = !page && $('aside').classList.contains('open');
+        const open = $('aside').classList.contains('open');
         if (state.selected || open) { ev.stopPropagation(); select(null); setDrawer(false); }
         return;
       }
@@ -2910,8 +2941,12 @@ button.label { cursor: pointer; }
     const keyTarget = page ? document : host;
     keyTarget.addEventListener('keydown', onKey);
     // Resizing refits the map until the viewer pans or zooms it themselves.
-    const resizeObs = new ResizeObserver(() => { if (state.snap && !state.userMoved) state.fitted = fit() || state.fitted; });
+    const resizeObs = new ResizeObserver(() => {
+      if (state.snap && !state.userMoved) state.fitted = fit() || state.fitted;
+      revealSelection();
+    });
     resizeObs.observe(host);
+    resizeObs.observe(stage);
     const seenObs = typeof IntersectionObserver !== 'undefined'
       ? new IntersectionObserver(entries => { state.visible = entries.some(e => e.isIntersecting); wake(); }) : null;
     seenObs?.observe(host);
@@ -2929,7 +2964,7 @@ button.label { cursor: pointer; }
       if (params.has('group')) state.groupBy = params.get('group');
       if (params.has('q')) { state.query = params.get('q'); $('#search').value = state.query; }
       if (params.has('theme')) host.dataset.theme = params.get('theme');
-      if (params.get('live') === '0') opts.stream = false;
+      if (params.get('live') === '0') state.live = false;
       if (params.has('select')) opts.select = params.get('select');
       if (params.get('legend') === 'icons') { state.legend = true; state.legendIcons = true; }
       else if (params.get('legend') === '0') state.legend = false;
@@ -2945,12 +2980,10 @@ button.label { cursor: pointer; }
 
     // API links only make sense when teia's API is reachable from the browser.
     app.querySelectorAll('[data-api]').forEach(a => { if (opts.api) a.setAttribute('href', opts.api + a.dataset.api); else a.remove(); });
-    if (!page) {
-      $('#stepsBtn').addEventListener('click', () => { const open = !$('aside').classList.contains('open'); setDrawer(open); if (open) showTab('steps'); });
-      $('#drawerClose').addEventListener('click', () => setDrawer(false));
-      setDrawer(false);
-      host.tabIndex = 0;
-    }
+    $('#stepsBtn').addEventListener('click', () => { const open = !$('aside').classList.contains('open'); setDrawer(open); if (open) showTab('steps'); });
+    $('#drawerClose').addEventListener('click', () => { setDrawer(false); $('#stepsBtn').focus(); });
+    setDrawer(false);
+    if (!page) host.tabIndex = 0;
 
     initSVG();
     renderLegend();

@@ -227,6 +227,18 @@ jobs:
           npm install --global npm@12.2.0
           npm ci --no-audit --no-fund
           npm run e2e -- --project=api
+      - name: validate the rendered map and Grafana panel
+        working-directory: plugins/grafana
+        run: |
+          npx playwright install --with-deps chromium
+          npm run e2e -- --project=chromium --workers=2
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: visual-review
+          path: plugins/grafana/test-results/
+          retention-days: 14
+          if-no-files-found: ignore
       - name: lab logs on failure
         if: failure()
         run: |

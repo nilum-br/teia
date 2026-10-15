@@ -15,9 +15,10 @@ See the [comparison and implementation audit](landscape.md).
 ## Prioritized implementation backlog
 
 Updated **15 October 2026**, following the [market, requirements and UI/UX review](landscape.md) of `62ef24b`,
-including Novatec, Kiali and Grafana. **T01/T02 implemented; T03 partially implemented; T16 audited and updated
-with compatibility/security follow-ups open; T04–T15 open.** R1/R2 now have regression coverage. T03 still needs
-sample-time coverage beyond Tempo/mapped gauges and fresh interactive validation; unknown age is shown explicitly.
+including Novatec, Kiali and Grafana. **T01/T02 implemented; T03/T04 partially implemented; T16 audited and updated
+with compatibility/security follow-ups open; T05–T15 open.** R1/R2 now have regression coverage. T03 still needs
+sample-time coverage beyond Tempo/mapped gauges; unknown age is shown explicitly. Real Chromium interaction and
+visual review now cover the running standalone UI and saved Grafana dashboard in both themes.
 
 P0 protects the interpretation of data; P1 completes the primary investigation and adoption experience; P2
 extends the product after those foundations. Size is relative scope (S small, M medium, L large), not a delivery
@@ -80,7 +81,7 @@ timing, grouped detail provenance and last-successful source collection. Automat
 failure/recovery, old supplied samples, retention expiry, pause/errors and two Grafana ranges. Tempo supplies
 original sample bounds and call counts, with unknown bounds if any contributing span lacks valid times.
 Mapped gauges now report the oldest input sample per reading, including capacity. Other signals still have
-unknown original times; extending coverage and interactive verification of saved dashboards remain open.
+unknown original times; extending that coverage remains open. Saved dashboards have browser/API validation.
 No historical query support or atomic snapshot across separate source queries is claimed.
 
 - [x] Preserve Tempo sample start/end times without substituting collection time; keep one search window per
@@ -101,28 +102,49 @@ Validation on 15 October 2026: Go vet/race tests and golangci-lint passed; 74 sh
 tests, TypeScript/lint/build and the full local lab scenario passed. The running lab exposed original Tempo
 sample bounds and separate Redis/Kafka gauge sample times. Three Grafana API tests verified the installed
 plugin and preserved evaluation/gauge/sample metadata in the saved dashboard at 15-minute and 30-day ranges.
-Interactive visual checks remain open because this session exposed no browser surface.
+Playwright with Chromium in Docker subsequently verified the rendered evidence and current-state warning in
+the saved dashboard, including a 30-day range. Pausing via `live=0` and resuming now reconnects to a real new
+collection round while preserving manual pan, zoom and selection; previously that URL disabled streaming permanently.
 
-- [ ] Show **current state**, effective measurement window and last observation for Teia snapshot/direct modes.
+- [x] Show **current state**, effective measurement window and last observation for Teia snapshot/direct modes.
       Selecting a past Grafana period must not imply that these modes queried that period. For external frames,
       preserve supplied period/observation metadata and show unknown when absent.
 - [ ] Separate conversion/refresh time from observation time; expose age, source and partial/missing/expired
       evidence for relevant signals. Keep topology visible during source failure without making old data live.
-- [ ] Validate failed/recovered sources, stale samples in successful responses, paused updates, two different
+- [x] Validate failed/recovered sources, stale samples in successful responses, paused updates, two different
       Grafana ranges and saved dashboards. This task does not require historical storage; that is T13.
 
 ### T04: Make the map easier to read at its normal size
 
 **Areas:** shared layout, annotation policy, legend, sidebar and both themes.
 
-- [ ] Default to a compact, expandable legend; prevent it from covering important nodes in the demo fixtures.
+- [x] Default to a compact, expandable legend; prevent it from covering important nodes in the demo fixtures.
       Make the sidebar collapsible and fit a journey using the available canvas while keeping boundary ports
       reachable. Preserve manual pan/zoom and selection across updates.
 - [ ] Prefer one concise primary reason per incident path, exposing propagated/additional reasons on demand.
       Prevent badge/metric collisions and keep the unselected context legible; provide a way to inspect every
       suppressed label. This is progressive disclosure, not removal of evidence.
-- [ ] Compare overview, selected node, edge, journey and grouped screenshots in light/dark themes at standalone
+- [x] Compare overview, selected node, edge, journey and grouped screenshots in light/dark themes at standalone
       1600×960 and 1024×768, plus Grafana panel 900×500 and 600×400. Mark any remaining overlap for follow-up.
+
+Browser review on 15 October 2026 found and corrected overflowing controls and an unreachable drawer close
+button at 600 px, a legend covering nodes, and a permanently allocated empty sidebar that squeezed journeys.
+Selection now reveals nodes/edge endpoints when they fit beside the drawer; a selected edge keeps its own
+context highlighted. Clicking a metric/reason label or boundary port no longer starts map panning and swallows
+the click. A different selection starts its details at the top; background updates retain the current scroll.
+
+Validation: 11 Chromium tests plus 3 Grafana API tests, 49 review screenshots, 74 shared-core tests, 41 panel/frame
+tests and 2 dependency regressions. CI runs browser interactions and uploads `visual-review`; screenshot review
+is still required because live values prevent a fixed pixel baseline. The Docker runner is documented in the
+[panel README](../plugins/grafana/README.md).
+
+Remaining work for this task: at 600×400 the overview still shrinks names and metrics to a few pixels. Add
+progressive labels and a readable focused view without losing access to hidden evidence; measure minimum text
+size and verify label/badge collisions. Opening details can leave too little map area for a large selection;
+provide an explicit focus/fit action for that case. In the grouped 600 px fixture, keep the `catalog-db` card
+clear of the zoom controls. T05 should shorten the long evidence paragraphs; T06 should make horizontal
+overflow in the journey summary discoverable (its summary/`go to` action is initially outside the 600 px area),
+and still owns complete keyboard flow, 200% zoom, contrast and target-size verification.
 
 ### T05: Put the selected problem and its evidence first
 

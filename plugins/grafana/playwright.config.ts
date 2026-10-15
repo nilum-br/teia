@@ -13,6 +13,7 @@ export default defineConfig({
     baseURL: process.env.GRAFANA_URL || 'http://localhost:3480',
     storageState: process.env.GRAFANA_STORAGE_STATE || undefined,
     trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
   },
   projects: [
     { name: 'api', testMatch: '**/*.api.spec.ts' },
