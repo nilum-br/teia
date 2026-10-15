@@ -220,7 +220,7 @@ observadas para o time revisar. Veja a [especificação](docs/flows-spec.md) e
 ## Documentação
 
 [Sinais e fontes](docs/sources.md) · [Configuração](docs/configuration.md) · [Kubernetes / Helm](docs/kubernetes.md) · [Arquitetura](docs/architecture.md) ·
-[Jornadas](docs/journeys.md) · [Regras do advisor](docs/advisor.md) · [Ícones](docs/icons.md) · [Especificação dos flows](docs/flows-spec.md) ·
+[Jornadas](docs/journeys.md) · [Agentes (MCP)](docs/mcp.md) · [Regras do advisor](docs/advisor.md) · [Ícones](docs/icons.md) · [Especificação dos flows](docs/flows-spec.md) ·
 [Roadmap](docs/roadmap.md) · [Panorama](docs/landscape.md)
 
 ## Contribuir e licença
