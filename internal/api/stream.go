@@ -21,8 +21,9 @@ const streamRetryAfter = "30"
 // The engine encodes each snapshot once and every stream sends those bytes.
 // At most max streams are open at once, and each ends with its request
 // context, which the server cancels on shutdown.
-func streamHandler(eng Snapshotter, max int) http.HandlerFunc {
-	slots := make(chan struct{}, max)
+// streamHandler streams one cluster's rounds; slots caps open streams across
+// every cluster.
+func streamHandler(eng Snapshotter, slots chan struct{}) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
 		if !ok {

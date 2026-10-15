@@ -52,8 +52,11 @@ type Config struct {
 	Auth      Auth          `yaml:"auth"`
 	CORS      CORS          `yaml:"cors"`
 	// MaxStreams caps concurrent /api/v1/stream clients (default 100).
-	MaxStreams    int                      `yaml:"maxStreams"`
-	Sources       Sources                  `yaml:"sources"`
+	MaxStreams int     `yaml:"maxStreams"`
+	Sources    Sources `yaml:"sources"`
+	// Clusters maps several clusters, each from its own sources. Without
+	// it, every source above describes one scope.
+	Clusters      []Cluster                `yaml:"clusters"`
 	EvidenceLinks []evidencelinks.Template `yaml:"evidenceLinks"`
 }
 
@@ -177,6 +180,15 @@ func (c *Config) Notifiers() []engine.Notifier {
 		out = append(out, notify.NewWebhook(fmt.Sprintf("notify.webhooks[%d]", i), w.URL, w.Format, types, w.Headers))
 	}
 	return out
+}
+
+// Cluster is one cluster mapped on its own: its inventory and telemetry
+// build a graph of their own, so services with the same name in two
+// clusters stay two services, each with its own traffic and health. The
+// top-level sources (declared flows) apply to every cluster.
+type Cluster struct {
+	Name    string  `yaml:"name"`
+	Sources Sources `yaml:"sources"`
 }
 
 type Sources struct {
@@ -484,71 +496,117 @@ func (c *Config) validate() error {
 		}
 	}
 
-	s := c.Sources
+	validateSources("sources", c.Sources, bad, notNegative)
+	if len(c.Clusters) == 0 {
+		uniqueNames("", plan(c.Sources), bad)
+		return errors.Join(errs...)
+	}
+	// With clusters, a top-level source would be read into every cluster
+	// and mix them: only declarations, which are not per cluster, stay here.
+	shared := c.Sources
+	for key, set := range map[string]bool{
+		"prometheus": len(shared.Prometheus) > 0, "tempo": len(shared.Tempo) > 0, "queries": len(shared.Queries) > 0,
+		"kubernetes": shared.Kubernetes != nil, "docker": shared.Docker != nil, "postgres": len(shared.Postgres) > 0,
+	} {
+		if set {
+			bad("sources.%s describes one cluster: with clusters, move it under clusters[].sources", key)
+		}
+	}
+	clusters := map[string]bool{}
+	for i, cl := range c.Clusters {
+		prefix := fmt.Sprintf("clusters[%d]", i)
+		switch err := slice.ValidName(cl.Name); {
+		case err != nil:
+			bad("%s.name: %v", prefix, err)
+		case strings.Contains(cl.Name, "/"):
+			bad("%s.name %q must not contain a slash", prefix, cl.Name)
+		case clusters[cl.Name]:
+			bad("two clusters are named %q", cl.Name)
+		}
+		clusters[cl.Name] = true
+		if cl.Sources.Declared != nil {
+			bad("%s.sources.declared: declarations apply to every cluster, set them under sources.declared", prefix)
+		}
+		own := plan(cl.Sources)
+		if len(own) == 0 {
+			bad("%s (%s) has no sources", prefix, cl.Name)
+		}
+		validateSources(prefix+".sources", cl.Sources, bad, notNegative)
+		uniqueNames(fmt.Sprintf("cluster %q: ", cl.Name), append(plan(c.Sources), own...), bad)
+	}
+	return errors.Join(errs...)
+}
+
+// uniqueNames rejects two sources with one name in a scope: names identify
+// sources in statuses, findings and edges, so they would be mistaken for
+// each other.
+func uniqueNames(scope string, planned []planned, bad func(string, ...any)) {
+	seen := map[string]bool{}
+	for _, p := range planned {
+		if seen[p.name] {
+			bad("%stwo sources are named %q: give each a distinct name", scope, p.name)
+		}
+		seen[p.name] = true
+	}
+}
+
+// validateSources checks one set of sources; prefix is where it sits in
+// the file, such as "sources" or "clusters[1].sources".
+func validateSources(prefix string, s Sources, bad func(string, ...any), notNegative func(string, time.Duration)) {
 	for i, p := range s.Prometheus {
 		if p.URL == "" {
-			bad("sources.prometheus[%d].url is required", i)
+			bad(prefix+".prometheus[%d].url is required", i)
 		}
-		notNegative(fmt.Sprintf("sources.prometheus[%d].window", i), p.Window)
+		notNegative(fmt.Sprintf(prefix+".prometheus[%d].window", i), p.Window)
 		for _, name := range p.Presets {
 			if name != "auto" && prometheus.Lookup(name) == nil {
-				bad("sources.prometheus[%d]: unknown preset %q", i, name)
+				bad(prefix+".prometheus[%d]: unknown preset %q", i, name)
 			}
 		}
 		for _, name := range p.Probes {
 			switch {
 			case name == "auto" || name == "none":
 				if len(p.Probes) > 1 {
-					bad("sources.prometheus[%d].probes: %q stands alone", i, name)
+					bad(prefix+".prometheus[%d].probes: %q stands alone", i, name)
 				}
 			case prometheus.LookupProbe(name) == nil:
-				bad("sources.prometheus[%d]: unknown probe %q (known: %s)", i, name, strings.Join(prometheus.ProbeNames(), ", "))
+				bad(prefix+".prometheus[%d]: unknown probe %q (known: %s)", i, name, strings.Join(prometheus.ProbeNames(), ", "))
 			}
 		}
 	}
 	for i, t := range s.Tempo {
 		if t.URL == "" {
-			bad("sources.tempo[%d].url is required", i)
+			bad(prefix+".tempo[%d].url is required", i)
 		}
-		notNegative(fmt.Sprintf("sources.tempo[%d].window", i), t.Window)
+		notNegative(fmt.Sprintf(prefix+".tempo[%d].window", i), t.Window)
 		if t.TracesPerService < 0 || t.MaxTraces < 0 {
-			bad("sources.tempo[%d]: tracesPerService and maxTraces must not be negative", i)
+			bad(prefix+".tempo[%d]: tracesPerService and maxTraces must not be negative", i)
 		}
 		if err := validDimensions(t.Dimensions); err != nil {
-			bad("sources.tempo[%d].dimensions: %v", i, err)
+			bad(prefix+".tempo[%d].dimensions: %v", i, err)
 		}
 	}
 	for i, q := range s.Queries {
 		if q.URL == "" || q.Query == "" || q.From == "" || q.To == "" {
-			bad("sources.queries[%d] needs url, query, from and to", i)
+			bad(prefix+".queries[%d] needs url, query, from and to", i)
 		}
 		if q.Dialect != "" && q.Dialect != string(query.Prometheus) && q.Dialect != string(query.Loki) {
-			bad("sources.queries[%d].dialect must be prometheus or loki", i)
+			bad(prefix+".queries[%d].dialect must be prometheus or loki", i)
 		}
-		notNegative(fmt.Sprintf("sources.queries[%d].window", i), q.Window)
+		notNegative(fmt.Sprintf(prefix+".queries[%d].window", i), q.Window)
 		if q.ToKind != "" && !oneOf(model.NodeKind(q.ToKind), nodeKinds) {
-			bad("sources.queries[%d].toKind %q is not a kind (one of %s)", i, q.ToKind, list(nodeKinds))
+			bad(prefix+".queries[%d].toKind %q is not a kind (one of %s)", i, q.ToKind, list(nodeKinds))
 		}
 		if err := validDimensions(q.Dimensions); err != nil {
-			bad("sources.queries[%d].dimensions: %v", i, err)
+			bad(prefix+".queries[%d].dimensions: %v", i, err)
 		}
 	}
 	for i, p := range s.Postgres {
 		if p.Node == "" || p.DSN == "" {
-			bad("sources.postgres[%d] needs node and dsn", i)
+			bad(prefix+".postgres[%d] needs node and dsn", i)
 		}
 	}
 
-	// Names identify sources in statuses, findings and edges: two sources
-	// with one name would be mistaken for each other.
-	seen := map[string]bool{}
-	for _, p := range c.plan() {
-		if seen[p.name] {
-			bad("two sources are named %q: give each a distinct name", p.name)
-		}
-		seen[p.name] = true
-	}
-	return errors.Join(errs...)
 }
 
 // validDimensions checks dimension names against the selector syntax
@@ -582,12 +640,11 @@ type planned struct {
 	build func(name string) source.Source
 }
 
-func (c *Config) plan() []planned {
+func plan(s Sources) []planned {
 	var out []planned
 	add := func(name string, build func(string) source.Source) {
 		out = append(out, planned{name: name, build: build})
 	}
-	s := c.Sources
 	if s.Declared != nil {
 		add("declared", func(n string) source.Source { return declared.New(n, s.Declared.Paths) })
 	}
@@ -642,11 +699,36 @@ func (c *Config) plan() []planned {
 	return out
 }
 
-// BuildSources instantiates every configured source.
+// BuildSources instantiates every configured source of a single scope (no
+// clusters); with clusters, use BuildScopes.
 func (c *Config) BuildSources() []source.Source {
 	var out []source.Source
-	for _, p := range c.plan() {
+	for _, p := range plan(c.Sources) {
 		out = append(out, p.build(p.name))
+	}
+	return out
+}
+
+// Scope is what one engine discovers: the sources of one cluster with the
+// shared ones, or every source when there are no clusters (Cluster empty).
+type Scope struct {
+	Cluster string
+	Sources []source.Source
+}
+
+// BuildScopes instantiates the sources of each cluster, in the order of the
+// file, each cluster with its own copy of the shared sources.
+func (c *Config) BuildScopes() []Scope {
+	if len(c.Clusters) == 0 {
+		return []Scope{{Sources: c.BuildSources()}}
+	}
+	out := make([]Scope, 0, len(c.Clusters))
+	for _, cl := range c.Clusters {
+		var sources []source.Source
+		for _, p := range append(plan(c.Sources), plan(cl.Sources)...) {
+			sources = append(sources, p.build(p.name))
+		}
+		out = append(out, Scope{Cluster: cl.Name, Sources: sources})
 	}
 	return out
 }

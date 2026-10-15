@@ -154,6 +154,45 @@ declared**, and the advisor writes a flows file per service from what it observe
 Check files before committing them with `teia validate path/to/flows.yaml`, or let an editor check them against
 [`schema/flows.schema.json`](../schema/flows.schema.json). The format is described in [flows-spec.md](flows-spec.md).
 
+## Several clusters from one teia
+
+One teia can map every cluster, each **on its own** (see [`clusters`](configuration.md#clusters)). Each cluster's
+inventory, Prometheus and Tempo build a separate graph, so `app-a` in two clusters is two components with their own
+traffic, errors and health: a failure in a quiet cluster is not hidden behind a busy one. The UI shows the cluster
+next to the logo, with a picker when there are several; `?cluster=` selects one in links and in the API, and every
+answer names its cluster.
+
+For each remote cluster, create a read-only account there (the same ClusterRole as the chart's: `get`, `list` and
+`watch` on pods, services and namespaces) and a kubeconfig that uses its token. Put one kubeconfig per cluster in a
+Secret where teia runs, and point the chart at it:
+
+```sh
+kubectl -n teia create secret generic teia-kubeconfigs \
+  --from-file=prod-east.yaml --from-file=prod-west.yaml
+```
+
+```yaml
+# my-values.yaml
+kubeconfigSecret: teia-kubeconfigs   # mounted read-only at /etc/teia/kube
+config:
+  clusters:
+    - name: prod-east
+      sources:
+        kubernetes: {kubeconfig: /etc/teia/kube/prod-east.yaml}
+        prometheus: [{url: https://prometheus.prod-east.example.com}]
+        tempo: [{url: https://tempo.prod-east.example.com, headers: {X-Scope-OrgID: prod-east}}]
+    - name: prod-west
+      sources:
+        kubernetes: {} # the cluster teia runs in: its own ServiceAccount
+        prometheus: [{url: http://prometheus-operated.monitoring:9090}]
+```
+
+With `config.clusters`, the chart drops its default top-level inventory and adds the shared flows; any other
+top-level source is rejected, since it would mix clusters.
+
+The cluster teia runs in can use `kubernetes: {}` (its in-cluster account). The pod needs network access to each
+cluster's API server and telemetry backends.
+
 ## Journey membership
 
 Single membership can use the existing `journey`, `app.kubernetes.io/part-of` or `system` label. For a workload

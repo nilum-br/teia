@@ -94,6 +94,11 @@ spec:
             - name: flows
               mountPath: /etc/teia/flows
               readOnly: true
+            {{- if .Values.kubeconfigSecret }}
+            - name: kubeconfigs
+              mountPath: /etc/teia/kube
+              readOnly: true
+            {{- end }}
             {{- if .Values.persistence.enabled }}
             - name: history
               mountPath: /var/lib/teia/history
@@ -110,6 +115,12 @@ spec:
         - name: flows
           configMap:
             name: {{ include "teia.flowsConfigMap" . }}
+        {{- if .Values.kubeconfigSecret }}
+        - name: kubeconfigs
+          secret:
+            secretName: {{ .Values.kubeconfigSecret }}
+            defaultMode: 0440
+        {{- end }}
             optional: true
       {{- with .Values.nodeSelector }}
       nodeSelector:

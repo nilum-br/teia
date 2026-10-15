@@ -23,6 +23,10 @@ failing and why, and what teia cannot see, with the same data the map shows.
 | `teia_journeys` | Ownership journeys: members, frames and boundary ports (`key` picks another journey label). |
 | `teia_dimensions` | Business dimensions and the values the calls carried. |
 
+With [several clusters](configuration.md#clusters), every tool takes `cluster` (the first when empty) and every answer
+carries the `cluster` it describes; `teia_overview` lists them. A tool never mixes clusters: compare clusters by calling
+it once per cluster.
+
 Every tool that reads the map takes `slice`, as `?slice=` does on the API: `journey:checkout` or
 `journey:checkout,tenant:acme` keeps only the calls that carried those values, with their own metrics (see
 [journeys](journeys.md#slices-follow-the-calls)). The result carries `slice.matched`; an empty map with

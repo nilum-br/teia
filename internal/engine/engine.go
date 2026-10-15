@@ -39,6 +39,9 @@ type Options struct {
 	Retention     time.Duration
 	Notifiers     []Notifier
 	EvidenceLinks []evidencelinks.Template
+	// Cluster names the cluster these sources describe, when teia maps
+	// several: it is stamped on every snapshot and change.
+	Cluster string
 }
 
 // Notifier receives the changes of every round that has some.
@@ -222,6 +225,7 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 	e.mu.RUnlock()
 
 	snap := model.Snapshot{
+		Cluster:     e.opts.Cluster,
 		Round:       prev.Round + 1,
 		GeneratedAt: now,
 		TimeMode:    "current",
@@ -235,6 +239,9 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 	snap.Journeys = journey.Build(snap, "")
 	snap.Operations = operationContract(results, g)
 	snap.Changes = e.differ.Diff(prev, snap, now)
+	for i := range snap.Changes {
+		snap.Changes[i].Cluster = e.opts.Cluster
+	}
 	evidencelinks.Apply(&snap, e.opts.EvidenceLinks)
 	if _, err := e.opts.History.Save(snap); err != nil {
 		e.log.Error("saving observation history", "round", snap.Round, "err", err)
@@ -316,6 +323,7 @@ func (e *Engine) Sliced(sel slice.Selector) model.Snapshot {
 		fromSources = append(fromSources, r.Observation.Findings...)
 	}
 	snap := model.Snapshot{
+		Cluster:     base.Cluster,
 		Round:       base.Round,
 		GeneratedAt: base.GeneratedAt,
 		TimeMode:    base.TimeMode,

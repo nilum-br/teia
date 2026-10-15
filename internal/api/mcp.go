@@ -32,6 +32,9 @@ How to read the values:
   and some requestRate as 0.
 - latencyApproximate=true means percentiles of several series were combined by traffic.
 - state "ghost" is observed but not declared; "stale" is declared but not observed.
+- With several clusters, every tool reads one cluster: pass cluster (teia_overview lists them; the
+  first is read when it is empty) and check the cluster field of each answer. Services with the same
+  name in two clusters are different services: compare clusters by calling a tool once per cluster.
 - slice (such as "journey:checkout,tenant:acme") keeps only the calls that carried those values,
   with their own metrics. teia_dimensions lists the values seen. An empty result with
   slice.matched=false means no call carried the selection, not that the whole map is empty.`
@@ -42,7 +45,12 @@ func readOnly(title string) *mcp.ToolAnnotations {
 	return &mcp.ToolAnnotations{Title: title, ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closed}
 }
 
+type clusterInput struct {
+	Cluster string `json:"cluster,omitempty" jsonschema:"the cluster to read, as teia_overview lists them; the first when empty"`
+}
+
 type sliceInput struct {
+	clusterInput
 	Slice string `json:"slice,omitempty" jsonschema:"only the calls carrying these business dimensions, such as journey:checkout or journey:checkout,tenant:acme"`
 }
 
@@ -68,6 +76,7 @@ type findingsInput struct {
 }
 
 type changesInput struct {
+	clusterInput
 	Limit int `json:"limit,omitempty" jsonschema:"the most recent changes to return, 50 by default, at most 500"`
 }
 
@@ -158,15 +167,36 @@ func count[T any](items []T, key func(T) string) map[string]int {
 
 // newMCPServer exposes the last round to agents over the Model Context
 // Protocol: the same snapshots, slices and token as the HTTP API.
-func newMCPServer(eng Snapshotter, version string) *mcp.Server {
+func newMCPServer(clusters []Cluster, version string) *mcp.Server {
 	if version == "" {
 		version = "dev"
 	}
 	s := mcp.NewServer(&mcp.Implementation{Name: "teia", Title: "teia service communication map", Version: version},
 		&mcp.ServerOptions{Instructions: mcpInstructions})
 
-	// snapshotFor is the whole round, or only the calls a slice selects.
-	snapshotFor := func(raw string) (model.Snapshot, error) {
+	names := make([]string, len(clusters))
+	for i, c := range clusters {
+		names[i] = c.Name
+	}
+	// pick is the named cluster, or the first: never a mix of them.
+	pick := func(name string) (Cluster, error) {
+		if name == "" {
+			return clusters[0], nil
+		}
+		for _, c := range clusters {
+			if c.Name == name {
+				return c, nil
+			}
+		}
+		return Cluster{}, errors.New(unknownCluster(name, clusters))
+	}
+	// snapshotFor is a cluster's whole round, or only the calls a slice selects.
+	snapshotFor := func(cluster, raw string) (model.Snapshot, error) {
+		c, err := pick(cluster)
+		if err != nil {
+			return model.Snapshot{}, err
+		}
+		eng := c.Engine
 		sel, err := slice.Parse(raw)
 		if err != nil {
 			return model.Snapshot{}, err
@@ -186,11 +216,12 @@ func newMCPServer(eng Snapshotter, version string) *mcp.Server {
 		Description: "Summary of the last discovery round: when it ran, how many components and connections per health and state, coverage, the state of every source, the business dimensions seen and findings per severity.",
 		Annotations: readOnly("Overview"),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in sliceInput) (*mcp.CallToolResult, any, error) {
-		snap, err := snapshotFor(in.Slice)
+		snap, err := snapshotFor(in.Cluster, in.Slice)
 		if err != nil {
 			return nil, nil, err
 		}
-		return nil, map[string]any{
+		out := map[string]any{
+			"cluster":          snap.Cluster,
 			"round":            snap.Round,
 			"generatedAt":      snap.GeneratedAt.Format(time.RFC3339),
 			"timeMode":         snap.TimeMode,
@@ -204,7 +235,11 @@ func newMCPServer(eng Snapshotter, version string) *mcp.Server {
 			"coverage":         snap.Coverage,
 			"sources":          snap.Sources,
 			"dimensions":       snap.Dimensions,
-		}, nil
+		}
+		if len(clusters) > 1 {
+			out["clusters"] = names
+		}
+		return nil, out, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -212,7 +247,7 @@ func newMCPServer(eng Snapshotter, version string) *mcp.Server {
 		Description: "The topology: every component and connection with health, state, signals, rate, error share and p95, without evidence. Optionally only one component's neighbourhood, or only the calls of a slice.",
 		Annotations: readOnly("Map"),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in mapInput) (*mcp.CallToolResult, any, error) {
-		snap, err := snapshotFor(in.Slice)
+		snap, err := snapshotFor(in.Cluster, in.Slice)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -234,7 +269,7 @@ func newMCPServer(eng Snapshotter, version string) *mcp.Server {
 		if in.Node != "" && !slices.ContainsFunc(nodes, func(n mapNode) bool { return n.ID == in.Node }) {
 			return nil, nil, fmt.Errorf("no component %q in this map", in.Node)
 		}
-		return nil, map[string]any{"generatedAt": snap.GeneratedAt.Format(time.RFC3339), "slice": snap.Slice, "nodes": nodes, "edges": edges}, nil
+		return nil, map[string]any{"cluster": snap.Cluster, "generatedAt": snap.GeneratedAt.Format(time.RFC3339), "slice": snap.Slice, "nodes": nodes, "edges": edges}, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -242,7 +277,7 @@ func newMCPServer(eng Snapshotter, version string) *mcp.Server {
 		Description: "One component in full (health reasons, evidence per source, links to the telemetry, labels, measures) with the connections it makes and receives.",
 		Annotations: readOnly("Component"),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in componentInput) (*mcp.CallToolResult, any, error) {
-		snap, err := snapshotFor(in.Slice)
+		snap, err := snapshotFor(in.Cluster, in.Slice)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -265,7 +300,7 @@ func newMCPServer(eng Snapshotter, version string) *mcp.Server {
 				findings = append(findings, f)
 			}
 		}
-		return nil, map[string]any{"slice": snap.Slice, "component": snap.Nodes[i], "outgoing": outgoing, "incoming": incoming, "findings": findings}, nil
+		return nil, map[string]any{"cluster": snap.Cluster, "slice": snap.Slice, "component": snap.Nodes[i], "outgoing": outgoing, "incoming": incoming, "findings": findings}, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -273,7 +308,7 @@ func newMCPServer(eng Snapshotter, version string) *mcp.Server {
 		Description: "The connections from one component to another in full: declared and observed state, health reasons, evidence per source with its evaluation time, links to the telemetry, and the business dimensions seen on it.",
 		Annotations: readOnly("Connection"),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in connectionInput) (*mcp.CallToolResult, any, error) {
-		snap, err := snapshotFor(in.Slice)
+		snap, err := snapshotFor(in.Cluster, in.Slice)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -286,7 +321,7 @@ func newMCPServer(eng Snapshotter, version string) *mcp.Server {
 		if len(found) == 0 {
 			return nil, nil, fmt.Errorf("no connection from %q to %q in this map", in.From, in.To)
 		}
-		return nil, map[string]any{"slice": snap.Slice, "connections": found}, nil
+		return nil, map[string]any{"cluster": snap.Cluster, "slice": snap.Slice, "connections": found}, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -299,7 +334,7 @@ func newMCPServer(eng Snapshotter, version string) *mcp.Server {
 		default:
 			return nil, nil, fmt.Errorf("severity must be critical, warning or info, not %q", in.Severity)
 		}
-		snap, err := snapshotFor(in.Slice)
+		snap, err := snapshotFor(in.Cluster, in.Slice)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -309,7 +344,7 @@ func newMCPServer(eng Snapshotter, version string) *mcp.Server {
 				findings = append(findings, f)
 			}
 		}
-		return nil, map[string]any{"slice": snap.Slice, "findings": findings}, nil
+		return nil, map[string]any{"cluster": snap.Cluster, "slice": snap.Slice, "findings": findings}, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -324,7 +359,11 @@ func newMCPServer(eng Snapshotter, version string) *mcp.Server {
 		case limit > 500:
 			limit = 500
 		}
-		changes := slices.Clone(eng.Changes())
+		c, err := pick(in.Cluster)
+		if err != nil {
+			return nil, nil, err
+		}
+		changes := slices.Clone(c.Engine.Changes())
 		slices.Reverse(changes)
 		if len(changes) > limit {
 			changes = changes[:limit]
@@ -332,7 +371,7 @@ func newMCPServer(eng Snapshotter, version string) *mcp.Server {
 		if changes == nil {
 			changes = []model.Change{}
 		}
-		return nil, map[string]any{"changes": changes}, nil
+		return nil, map[string]any{"cluster": c.Name, "changes": changes}, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -340,7 +379,7 @@ func newMCPServer(eng Snapshotter, version string) *mcp.Server {
 		Description: "Journeys by ownership label: which components belong to each, their frames and the ports to components outside them. For the calls a journey actually makes, use a slice instead.",
 		Annotations: readOnly("Journeys"),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in journeysInput) (*mcp.CallToolResult, any, error) {
-		snap, err := snapshotFor(in.Slice)
+		snap, err := snapshotFor(in.Cluster, in.Slice)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -348,19 +387,23 @@ func newMCPServer(eng Snapshotter, version string) *mcp.Server {
 		if contract == nil || (in.Key != "" && in.Key != contract.Key) {
 			contract = journey.Build(snap, in.Key)
 		}
-		return nil, map[string]any{"slice": snap.Slice, "journeys": contract}, nil
+		return nil, map[string]any{"cluster": snap.Cluster, "slice": snap.Slice, "journeys": contract}, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "teia_dimensions",
 		Description: "The business dimensions (journey, tenant...) and the values the calls carried, for use as a slice.",
 		Annotations: readOnly("Dimensions"),
-	}, func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, any, error) {
-		dims := eng.Snapshot().Dimensions
+	}, func(_ context.Context, _ *mcp.CallToolRequest, in clusterInput) (*mcp.CallToolResult, any, error) {
+		c, err := pick(in.Cluster)
+		if err != nil {
+			return nil, nil, err
+		}
+		dims := c.Engine.Snapshot().Dimensions
 		if dims == nil {
 			dims = map[string][]string{}
 		}
-		return nil, map[string]any{"dimensions": dims}, nil
+		return nil, map[string]any{"cluster": c.Name, "dimensions": dims}, nil
 	})
 	return s
 }
@@ -368,8 +411,8 @@ func newMCPServer(eng Snapshotter, version string) *mcp.Server {
 // mcpHandler serves the MCP server over streamable HTTP. It is stateless and
 // answers in JSON: every call reads the current round, so there is no
 // session to keep.
-func mcpHandler(eng Snapshotter, version string, log *slog.Logger) http.Handler {
-	server := newMCPServer(eng, version)
+func mcpHandler(clusters []Cluster, version string, log *slog.Logger) http.Handler {
+	server := newMCPServer(clusters, version)
 	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, Logger: log})
 }

@@ -1,0 +1,34 @@
+# teia mapping several clusters from one place. Each cluster is discovered on
+# its own, from its own inventory and telemetry: a service with the same name
+# in two clusters stays two services, each with its own traffic and health.
+# The UI, the API (?cluster=), the MCP tools and /metrics say which cluster
+# they describe. Every other key is the same as in examples/teia.yaml.
+
+listen: :8080
+interval: 30s
+
+clusters:
+  - name: prod-east
+    sources:
+      kubernetes:
+        kubeconfig: /etc/teia/kube/prod-east.yaml   # a read-only account in that cluster
+      prometheus:
+        - url: https://prometheus.prod-east.example.com
+      tempo:
+        - url: https://tempo.prod-east.example.com
+          headers:
+            X-Scope-OrgID: prod-east
+  - name: prod-west
+    sources:
+      kubernetes:
+        kubeconfig: /etc/teia/kube/prod-west.yaml
+      prometheus:
+        - url: https://prometheus.prod-west.example.com
+      tempo:
+        - url: https://tempo.prod-west.example.com
+
+# Shared by every cluster: declarations are not per cluster. Telemetry and
+# inventory sources belong under a cluster; here they would mix clusters.
+sources:
+  declared:
+    paths: [./flows]
