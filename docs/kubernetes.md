@@ -219,7 +219,7 @@ add the token header, and import the dashboard. The steps are in the README, und
   when your platform manages the reader account and its bindings. Its token still mounts for inventory. Set
   `serviceAccount.automountServiceAccountToken: false` only when in-cluster inventory is disabled.
 - **Resources:** the defaults (50m CPU, 64 Mi requested, 512 Mi limit) fit a few hundred services. Memory grows with
-  the number of services and connections teia keeps.
+  the number of services and connections teia keeps. Measured sizes, for many clusters and connections: [capacity](capacity.md).
 - **One replica:** a second one would only double the queries to your telemetry. If the pod moves, the map is back
   after one round.
 - **Its own health:** `serviceMonitor.enabled: true` scrapes `/metrics` (with the token, when there is one). The

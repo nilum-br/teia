@@ -913,18 +913,25 @@ button.label { cursor: pointer; }
 
   // reasonTag is the few words a card or line shows for its worst reason:
   // what crossed its limit, and where it most likely comes from.
+  // causeWords words a reason's cause. A switch, not a lookup: a cause from
+  // the data never names a method to call (constructor, toString...).
+  function causeWords(r) {
+    switch (r.cause) {
+      case 'errors': return `${pct(r.value)} errors${r.coverage > 0 && r.coverage < 1 ? ` (${pct(r.coverage)} covered)` : ''}`;
+      case 'latency': return `${r.approximate ? '≈ ' : ''}p95 ${fmtMs(r.value)}`;
+      case 'saturation': return `${pct(r.value)} ${r.what || 'used'}`;
+      case 'backlog': return `${compact(r.value)} ${r.what || 'waiting'}`;
+      case 'lag': return `${fmtSec(r.value)} ${r.what || 'behind'}`;
+      case 'locks': return `${compact(r.value)} on locks`;
+      case 'restarts': return `${compact(r.value)} restarts`;
+      case 'evictions': return `${compact(r.value)} evictions`;
+      case 'rejections': return `${compact(r.value)} rejected clients`;
+      // An unknown cause (unsanitized data, a newer server) says what it can.
+      default: return String(r.summary || r.cause || 'unhealthy');
+    }
+  }
   function reasonTag(r, more = 0) {
-    const what = {
-      errors: () => `${pct(r.value)} errors${r.coverage > 0 && r.coverage < 1 ? ` (${pct(r.coverage)} covered)` : ''}`,
-      latency: () => `${r.approximate ? '≈ ' : ''}p95 ${fmtMs(r.value)}`,
-      saturation: () => `${pct(r.value)} ${r.what || 'used'}`,
-      backlog: () => `${compact(r.value)} ${r.what || 'waiting'}`,
-      lag: () => `${fmtSec(r.value)} ${r.what || 'behind'}`,
-      locks: () => `${compact(r.value)} on locks`,
-      restarts: () => `${compact(r.value)} restarts`,
-      evictions: () => `${compact(r.value)} evictions`,
-      rejections: () => `${compact(r.value)} rejected clients`,
-    }[r.cause]();
+    const what = causeWords(r);
     const via = r.via ? (r.cause === 'locks' ? ` held by ${r.via}` : ` from ${r.via}`) : r.subject ? ` · ${r.subject}` : '';
     return what + via + (more > 0 ? ` +${more}` : '');
   }

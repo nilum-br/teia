@@ -22,7 +22,11 @@ const mcpInstructions = `teia maps how services communicate from the telemetry a
 logs, Kubernetes inventory) and compares it with the flows teams declared.
 
 Start with teia_overview, then teia_map for the topology, and teia_component or teia_connection
-for the evidence behind one service or one call. Every tool is read-only.
+for the evidence behind one service or one call. teia_impact says who is hit when a component
+fails (and which journeys), teia_path how a request travels between two components, teia_compare
+what changed since a stored snapshot (teia_history lists them), teia_operations the sampled request
+paths, and teia_propose_flow drafts the declaration of an undeclared connection. Every tool is
+read-only: none writes to teia, the cluster or the telemetry.
 
 How to read the values:
 - requestRate is requests per second; errorRate is the failed share (0..1); latencies are milliseconds.
@@ -405,6 +409,7 @@ func newMCPServer(clusters []Cluster, version string) *mcp.Server {
 		}
 		return nil, map[string]any{"cluster": c.Name, "dimensions": dims}, nil
 	})
+	addInvestigationTools(s, clusters, pick, snapshotFor)
 	return s
 }
 

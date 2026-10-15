@@ -26,7 +26,7 @@ else
 NODE_SH := $(NODE) sh -c
 endif
 
-.PHONY: test check check-go check-ui lint build lab-up lab-down lab-report lab-grant lab-revoke
+.PHONY: test check check-go check-ui lint build lab-up lab-down lab-report lab-grant lab-revoke stress stress-full
 
 test:            ## vet and unit tests
 	$(GO) sh -c 'go vet ./... && go test ./...'
@@ -75,6 +75,12 @@ lab-down:        ## stop the lab and drop its data
 
 lab-report:      ## one discovery round, printed
 	$(COMPOSE) exec -T teia teia discover
+
+stress:          ## capacity check, two scenarios (~6 min; needs go, jq, bc, k6): compare with docs/capacity.md
+	lab/stress/ladder.sh quick
+
+stress-full:     ## capacity check, every scenario of docs/capacity.md (~25 min)
+	lab/stress/ladder.sh full
 
 lab-grant:       ## follow the advisor: let teia see inside orders-db
 	$(COMPOSE) exec -T orders-db psql -U postgres -d orders -c 'GRANT pg_monitor TO teia;'

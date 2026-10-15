@@ -86,3 +86,27 @@ func TestRetentionKeepsEdgesButNotOldTraffic(t *testing.T) {
 		}
 	}
 }
+
+// Subjects without an override share one copy of the global rules; an
+// override gets its own, and never changes the shared one.
+func TestGlobalHealthRulesAreSharedNotCopied(t *testing.T) {
+	g := Build([]Result{result("metrics", "prometheus", source.Observation{Edges: []source.EdgeObservation{
+		{From: "a", To: "b", RequestRate: 1}, {From: "b", To: "c", RequestRate: 1}, {From: "c", To: "d", RequestRate: 1, LatencyP95Ms: 900},
+	}})}, nil, nil)
+	strict := DefaultHealth
+	strict.LatencyDegradedMs, strict.LatencyFailingMs = 100, 800
+	ApplyHealth(g, DefaultHealth, HealthOverride{Name: "strict", Target: "edge", ID: "c->d", Causes: []model.Cause{model.CauseLatency}, Limits: strict})
+	ab, bc, cd := g.Edges["a->b"], g.Edges["b->c"], g.Edges["c->d"]
+	if &ab.HealthRules[0] != &bc.HealthRules[0] || &ab.HealthRules[0] != &g.Nodes["a"].HealthRules[0] {
+		t.Fatal("subjects without an override must share the global rules")
+	}
+	if &cd.HealthRules[0] == &ab.HealthRules[0] || cd.HealthRules[1].Name != "strict" || cd.Health != model.HealthFailing {
+		t.Fatalf("the override gets its own rules: %+v %s", cd.HealthRules[1], cd.Health)
+	}
+	if ab.HealthRules[1].Name != "global" || ab.HealthRules[1].Failing != DefaultHealth.LatencyFailingMs {
+		t.Fatalf("the shared rules must stay global: %+v", ab.HealthRules[1])
+	}
+	if cap(ab.HealthRules) != len(ab.HealthRules) {
+		t.Fatal("an append must never write into the shared rules")
+	}
+}

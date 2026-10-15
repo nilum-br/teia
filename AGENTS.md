@@ -54,6 +54,23 @@ inventory, the browser UI) must also be checked against a running lab before it 
 - If the lab cannot run (no container runtime, blocked network), say so explicitly and list which checks were
   skipped; do not report them as passed.
 
+## Capacity checks
+
+A change to what runs every round or on every request can make teia slower or hungrier at scale, which unit
+tests and the labs do not show: sources (`internal/source/*`), `internal/graph`, `internal/engine`,
+`internal/slice`, `internal/advisor`, and the API's snapshot, stream, Grafana, metrics and MCP handlers.
+
+- Run `make stress` (two scenarios, about 6 minutes; needs Go, jq, bc and [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/))
+  before and after such a change, on the same machine, and compare both tables with
+  [docs/capacity.md](docs/capacity.md). Memory within about 10% and latencies within about 30% are noise.
+- Report the before and after tables in the pull request. A regression needs a reason; an improvement updates
+  docs/capacity.md (`make stress-full` for every row).
+- For a memory regression, read the heap profile the run keeps
+  (`go tool pprof -top -sample_index=inuse_space <scenario>/bin/teiaprof <scenario>/heap.pprof`) and fix what it
+  shows, with a test that pins the fix (shared data stays shared, work done once stays once).
+- Report failed requests (the `Failed` column) even when they do not repeat; do not round them away.
+- Results stay out of Git (they go to `$TMPDIR` by default).
+
 ## Hygiene
 
 - No real company names, hostnames, credentials or production data in code, tests, examples or docs.

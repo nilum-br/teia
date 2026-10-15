@@ -42,6 +42,10 @@ type Options struct {
 	// Cluster names the cluster these sources describe, when teia maps
 	// several: it is stamped on every snapshot and change.
 	Cluster string
+	// Phase delays Run's first round. Clusters spread their rounds across
+	// the interval instead of querying every backend and building every
+	// graph at the same moment.
+	Phase time.Duration
 }
 
 // Notifier receives the changes of every round that has some.
@@ -150,8 +154,16 @@ func (e *Engine) Subscribe() (<-chan []byte, func()) {
 	}
 }
 
-// Run refreshes immediately and then on every interval until ctx ends.
+// Run refreshes after Phase (immediately without one) and then on every
+// interval until ctx ends.
 func (e *Engine) Run(ctx context.Context) {
+	if e.opts.Phase > 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(e.opts.Phase):
+		}
+	}
 	ticker := time.NewTicker(e.opts.Interval)
 	defer ticker.Stop()
 	for {

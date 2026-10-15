@@ -63,6 +63,8 @@ type Source struct {
 	name   string
 	cfg    Config
 	client *promapi.Client
+	// dimOrder is the configured dimensions, sorted: slice keys follow it.
+	dimOrder []string
 }
 
 func New(name string, cfg Config) *Source {
@@ -73,7 +75,12 @@ func New(name string, cfg Config) *Source {
 	if cfg.Window == 0 {
 		cfg.Window = 5 * time.Minute
 	}
-	return &Source{name: name, cfg: cfg, client: promapi.New(cfg.URL, path, cfg.Headers)}
+	order := make([]string, 0, len(cfg.Dimensions))
+	for dim := range cfg.Dimensions {
+		order = append(order, dim)
+	}
+	sort.Strings(order)
+	return &Source{name: name, cfg: cfg, client: promapi.New(cfg.URL, path, cfg.Headers), dimOrder: order}
 }
 
 func (s *Source) Name() string { return s.name }
@@ -128,6 +135,8 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	edges := map[string]*acc{}
 	var order []string
 	skipped := 0
+	// Combinations repeat across edges: one dimensions map each, shared.
+	interned := map[string]map[string]string{}
 	for _, smp := range samples {
 		from, to, ok := s.ends(smp.Metric)
 		if !ok {
@@ -150,10 +159,14 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 			a.busiest = smp.Value
 			a.edge.Protocol = s.protocol(smp.Metric)
 		}
-		if dims := s.dims(smp.Metric); dims != nil {
-			sk := sliceKey(dims)
+		if sk := s.dimsKey(smp.Metric); sk != "" {
 			sl := a.slices[sk]
 			if sl == nil {
+				dims := interned[sk]
+				if dims == nil {
+					dims = s.dims(smp.Metric)
+					interned[sk] = dims
+				}
 				sl = &sliceAcc{slice: source.Slice{Dims: dims, NoErrors: s.cfg.Errors == ""}}
 				a.slices[sk] = sl
 				a.sliceOrder = append(a.sliceOrder, sk)
@@ -177,7 +190,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 			if from, to, ok := s.ends(smp.Metric); ok && edges[from+"->"+to] != nil {
 				a := edges[from+"->"+to]
 				a.failed += smp.Value
-				if sl := a.slices[sliceKey(s.dims(smp.Metric))]; sl != nil {
+				if sl := a.slices[s.dimsKey(smp.Metric)]; sl != nil {
 					sl.failed += smp.Value
 				}
 			}
@@ -208,7 +221,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 				a := edges[from+"->"+to]
 				a.p95Sum += smp.Value * 1000
 				a.p95Count++
-				if sl := a.slices[sliceKey(s.dims(smp.Metric))]; sl != nil {
+				if sl := a.slices[s.dimsKey(smp.Metric)]; sl != nil {
 					sl.p95Sum += smp.Value * 1000
 					sl.p95Count++
 				}
@@ -273,6 +286,17 @@ func (s *Source) dims(m map[string]string) map[string]string {
 		}
 	}
 	return out
+}
+
+// dimsKey is sliceKey(s.dims(m)) without building the map.
+func (s *Source) dimsKey(m map[string]string) string {
+	var b strings.Builder
+	for _, dim := range s.dimOrder {
+		if v := strings.TrimSpace(m[s.cfg.Dimensions[dim]]); v != "" {
+			b.WriteString(dim + "=" + v + "\x00")
+		}
+	}
+	return b.String()
 }
 
 // sliceKey identifies a combination of dimension values.

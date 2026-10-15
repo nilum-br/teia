@@ -257,7 +257,7 @@ traffic. See [docs/flows-spec.md](docs/flows-spec.md).
 ## Docs
 
 [Signals and sources](docs/sources.md) · [Configuration](docs/configuration.md) · [Kubernetes / Helm](docs/kubernetes.md) · [Architecture](docs/architecture.md) ·
-[Journeys](docs/journeys.md) · [Investigation](docs/investigation.md) · [Sampled operations](docs/operations.md) · [Agents (MCP)](docs/mcp.md) ·
+[Journeys](docs/journeys.md) · [Investigation](docs/investigation.md) · [Sampled operations](docs/operations.md) · [Agents (MCP)](docs/mcp.md) · [Capacity](docs/capacity.md) ·
 [Identity resolution](docs/identity-resolution.md) · [Contract proposals](docs/review-proposals.md) · [Advisor rules](docs/advisor.md) ·
 [Icon library](docs/icons.md) · [Flows spec](docs/flows-spec.md) · [Roadmap](docs/roadmap.md) · [Landscape](docs/landscape.md)
 

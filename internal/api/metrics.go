@@ -16,10 +16,22 @@ import (
 //
 //	count(teia_edge_info{state="ghost"}) > 0
 //	teia_coverage_ratio{scope="visibility"} < 0.8
+//
+// metricsHandler writes every cluster's series, or with ?cluster=name only
+// that cluster's, so each cluster can be its own scrape target.
 func metricsHandler(snaps func() []model.Snapshot) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		all := snaps()
+		if name := r.URL.Query().Get("cluster"); name != "" {
+			i := slices.IndexFunc(all, func(s model.Snapshot) bool { return s.Cluster == name })
+			if i < 0 {
+				writeError(w, http.StatusNotFound, fmt.Sprintf("no cluster %q", name))
+				return
+			}
+			all = all[i : i+1]
+		}
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		writeMetrics(w, snaps()...)
+		writeMetrics(w, all...)
 	}
 }
 

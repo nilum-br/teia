@@ -79,3 +79,19 @@ func TestDimensionsSplitEdgesIntoSlices(t *testing.T) {
 		t.Fatalf("series without dimensions count in the edge but form no slice: %+v", redis)
 	}
 }
+
+// dimsKey is the key of the dimensions map, without building it; slices of
+// one combination share one map.
+func TestDimensionKeysMatchAndMapsAreShared(t *testing.T) {
+	src := New("calls", Config{URL: "http://p", Query: "q", From: "source", To: "target",
+		Dimensions: map[string]string{"journey": "j", "tenant": "t", "region": "r"}})
+	for _, m := range []map[string]string{
+		{"j": "checkout", "t": " acme ", "r": ""},
+		{"j": "checkout"},
+		{},
+	} {
+		if got, want := src.dimsKey(m), sliceKey(src.dims(m)); got != want {
+			t.Fatalf("dimsKey(%v) = %q, sliceKey = %q", m, got, want)
+		}
+	}
+}

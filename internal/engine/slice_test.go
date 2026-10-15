@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nilum-br/teia/internal/model"
 	"github.com/nilum-br/teia/internal/slice"
@@ -274,4 +275,23 @@ func (g *growingSource) Discover(context.Context) (source.Observation, error) {
 		return source.Observation{Dimensions: g.obs.Dimensions}, nil
 	}
 	return g.obs, nil
+}
+
+// Run waits for its phase before the first round.
+func TestRunStartsAtItsPhase(t *testing.T) {
+	eng := New(nil, Options{Interval: time.Hour, Phase: 300 * time.Millisecond}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go eng.Run(ctx)
+	time.Sleep(100 * time.Millisecond)
+	if r := eng.Snapshot().Round; r != 0 {
+		t.Fatalf("round %d before the phase", r)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for eng.Snapshot().Round == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("no round after the phase")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
