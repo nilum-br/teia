@@ -114,9 +114,12 @@ for (const surface of ['standalone', 'grafana'] as const) {
     expect(edge).toBeDefined();
     await page.goto(surface === 'standalone' ? base + '/?flow=0&live=0' : '/d-solo/teia-overview/teia?panelId=1&theme=light&refresh=');
     const root = surface === 'standalone' ? page.locator('#teia') : page.getByTestId('teia-panel');
-    // Accessible edge name begins with its stable endpoint pair.
+    // Accessible edge name begins with its stable endpoint pair. When the
+    // layout puts both cards on one row, the connection is a straight
+    // horizontal line whose box has no height, which Playwright reports as
+    // hidden although it is drawn and focusable: wait for it in the tree.
     const target = root.getByRole('button', { name: /^catalog to catalog-db,/ });
-    await expect(target).toBeVisible({ timeout: 30_000 });
+    await expect(target).toBeAttached({ timeout: 30_000 });
     await target.focus(); await page.keyboard.press('Enter');
     await expect(root.locator('#pane-details h2')).toContainText('catalog → catalog-db');
     const link = root.getByRole('link', { name: 'Search traces for these endpoints' });
