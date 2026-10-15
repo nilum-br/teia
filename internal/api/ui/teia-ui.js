@@ -76,6 +76,11 @@ header {
 .brand svg { width: 30px; height: 30px; }
 .brand b { font-size: 17px; letter-spacing: .02em; }
 .brand small { display: block; color: var(--muted); font-size: 11px; margin-top: -2px; }
+.cluster { display: flex; align-items: center; gap: 8px; border: 1.5px solid var(--accent); border-radius: 10px; padding: 3px 4px 3px 10px; min-height: 34px; max-width: 100%; }
+.cluster[hidden] { display: none; }
+.cluster-label { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.cluster-name { font-size: 14px; padding-right: 6px; overflow-wrap: anywhere; }
+.cluster select { font-weight: 700; max-width: 220px; }
 .rings { display: flex; gap: 14px; }
 .ring { display: flex; align-items: center; gap: 8px; }
 .ring svg { width: 38px; height: 38px; transform: rotate(-90deg); }
@@ -399,6 +404,11 @@ button.label { cursor: pointer; }
   <circle cx="104.7" cy="40.5" r="5.2" fill="#020f59" stroke="#a9f549" stroke-width="2.8"/>
   <circle cx="64" cy="64" r="8" fill="#a9f549" stroke="#020f59" stroke-width="2.5"/></svg>
     <div><b>teia</b><small>service communication map</small></div>
+  </div>
+  <div class="cluster" id="clusterBox" role="group" aria-label="Cluster" hidden>
+    <span class="cluster-label">Cluster</span>
+    <b class="cluster-name" id="clusterName"></b>
+    <select class="btn" id="clusterPick" aria-label="Cluster shown on the map" hidden></select>
   </div>
   <div class="rings" id="rings"></div>
   <div class="spacer"></div>
@@ -756,6 +766,7 @@ button.label { cursor: pointer; }
       changes: Array.isArray(s.changes) ? s.changes : [],
       dimensions: dimensionsOf(s.dimensions),
       slice: sliceOf(s.slice),
+      cluster: typeof s.cluster === 'string' ? s.cluster.slice(0, 128) : '',
     };
   }
 
@@ -779,7 +790,7 @@ button.label { cursor: pointer; }
 
   // signature identifies what is drawn, so refreshes with the same data are no-ops.
   function signature(snap) {
-    return JSON.stringify([snap.nodes, snap.edges, snap.findings, snap.sources, snap.coverage, snap.journeys, snap.operations, snap.operationContext, snap.timeMode, snap.history, snap.drift, snap.slice, snap.dimensions]);
+    return JSON.stringify([snap.nodes, snap.edges, snap.findings, snap.sources, snap.coverage, snap.journeys, snap.operations, snap.operationContext, snap.timeMode, snap.history, snap.drift, snap.slice, snap.dimensions, snap.cluster]);
   }
 
   function indexSnapshot(snap) {
@@ -1790,6 +1801,9 @@ button.label { cursor: pointer; }
     const state = {
       snap: null, sig: '', pending: null, connected: false, error: '', lastData: 0,
       historyId: '', historyLoading: false, slice: '',
+      // cluster is the one asked for ('' is the server's default); clusters
+      // lists every cluster the server maps.
+      cluster: '', clusters: [],
       investigation: { mode: 'all', focus: '', target: '', depth: 1, direction: 'both' }, display: 'graph', tablePage: 0, tableSort: 'health', operation: { id: '', traceId: '' },
       view: { x: 0, y: 0, k: 1 }, fitted: false, userMoved: false,
       positions: stored('positions', {}),
@@ -1958,7 +1972,7 @@ button.label { cursor: pointer; }
       return [[...f.journeys].sort().join(','), ...Object.keys(f.facets).sort().map(k => k + '=' + [...f.facets[k]].sort().join(','))].join('|').toLowerCase();
     };
     // ("@scope:" keeps layouts saved before frames, laid out for stubs, out)
-    const posKey = () => 'positions' + (state.slice ? '@slice:' + state.slice : '') + (filtersActive(state.filters) ? '@scope:' + scopeKey() : '');
+    const posKey = () => 'positions' + (state.cluster ? '@cluster:' + state.cluster : '') + (state.slice ? '@slice:' + state.slice : '') + (filtersActive(state.filters) ? '@scope:' + scopeKey() : '');
 
     let ports = [];
     function renderMap() {
@@ -3418,7 +3432,7 @@ button.label { cursor: pointer; }
       st.textContent = `svg{${vars.map(v => `${v}:${css(v)}`).join(';')};font-family:Outfit,system-ui,sans-serif}` + st.textContent;
       clone.insertBefore(sv('rect', { width: '100%', height: '100%', fill: css('--bg') }), clone.firstChild.nextSibling);
       const text = new XMLSerializer().serializeToString(clone);
-      const name = `teia-map-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`;
+      const name = `teia-map-${state.snap?.cluster ? state.snap.cluster.replace(/[^\w.-]+/g, '_') + '-' : ''}${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`;
       if (kind === 'svg') { download(new Blob([text], { type: 'image/svg+xml' }), name + '.svg'); return; }
       // Browsers refuse canvases over ~16k px a side or ~120M pixels.
       const scale = Math.max(0.1, Math.min(2, 16000 / Math.max(w, h), Math.sqrt(120e6 / (w * h))));
@@ -3559,7 +3573,7 @@ button.label { cursor: pointer; }
       updateComparison();
       if (!opts.api) { workspaceStatus('Query mode: upload two exported snapshots or capture two received observations. Server history is available in direct API mode.'); return; }
       const epoch = workspaceEpoch;
-      fetch(opts.api + 'history', { signal: aborter.signal }).then(async response => {
+      fetch(apiURL('history'), { signal: aborter.signal }).then(async response => {
         if (!response.ok) throw new Error('Stored history could not be loaded. You can still compare uploaded snapshots.');
         return response.json();
       }).then(listing => {
@@ -3572,7 +3586,7 @@ button.label { cursor: pointer; }
           select.addEventListener('change', async () => {
             const id = select.value; if (!id) return;
             try {
-              const response = await fetch(opts.api + 'history/' + encodeURIComponent(id), { signal: aborter.signal });
+              const response = await fetch(apiURL('history/' + encodeURIComponent(id)), { signal: aborter.signal });
               if (!response.ok) throw new Error('This stored observation is unavailable or expired. No traffic conclusion can be drawn.');
               const raw = await response.json(); if (destroyed || epoch !== workspaceEpoch || select.value !== id) return;
               if (raw.history?.id !== id) throw new Error('The response does not match the selected observation.');
@@ -3749,7 +3763,7 @@ button.label { cursor: pointer; }
         }
         const button = event.currentTarget; button.disabled = true; workspaceStatus('Validating the reviewed capture…');
         try {
-          const response = await fetch(opts.api + 'review/proposals', { method: 'POST', signal: aborter.signal, headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(request) });
+          const response = await fetch(apiURL('review/proposals'), { method: 'POST', signal: aborter.signal, headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(request) });
           if (!response.ok) { const message = await response.text(); throw new Error(response.status === 409 ? 'The capture changed. Close this review, inspect the latest evidence and start a new proposal.' : `Proposal rejected (${response.status}): ${message.slice(0, 500)}`); }
           const proposal = await response.json(); if (epoch !== workspaceEpoch || destroyed) return;
           output.append(el('h4', {}, proposal.title), el('p', {}, `Proposal ${proposal.id} · input ${proposal.source?.inputKind} · snapshot ${proposal.source?.snapshotId}`));
@@ -3780,6 +3794,7 @@ button.label { cursor: pointer; }
     function apply(raw, fresh, force = false) {
       if (destroyed) return;
       const base = sanitize(raw);
+      if (opts.api && state.cluster && base.cluster !== state.cluster) return;
       const snap = state.operation.id ? operationSnapshot(base, state.operation.id, state.operation.traceId) : base;
       state.connected = true;
       state.error = '';
@@ -3798,6 +3813,7 @@ button.label { cursor: pointer; }
       const changed = sig !== state.sig;
       const isNew = !state.snap || snap.round !== state.snap.round;
       state.snap = snap;
+      renderCluster();
       state.baseSnapshot = base;
       state.rawSnapshot = raw;
       state.lastData = Date.now();
@@ -3811,7 +3827,7 @@ button.label { cursor: pointer; }
     // updates are paused, for a view the user just asked for.
     async function load(signal, force = false) {
       if (state.historyId) { await replay(state.historyId); return; }
-      const get = path => fetch(opts.api + path, { signal, headers: { Accept: 'application/json' } }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+      const get = path => fetch(apiURL(path), { signal, headers: { Accept: 'application/json' } }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
       const [snap, changes] = await Promise.all([get('snapshot' + sliceQuery()), get('changes').catch(() => [])]);
       if (destroyed) return;
       if (snap.generatedAt && !String(snap.generatedAt).startsWith('0001')) apply(snap, false, force);
@@ -3824,7 +3840,7 @@ button.label { cursor: pointer; }
       state.historyLoading = true;
       if (es) { es.close(); es = null; }
       try {
-        const response = await fetch(opts.api + (id ? 'history/' + encodeURIComponent(id) : 'snapshot'), { signal: aborter.signal });
+        const response = await fetch(apiURL(id ? 'history/' + encodeURIComponent(id) : 'snapshot'), { signal: aborter.signal });
         if (!response.ok) throw new Error(id ? 'Historical snapshot unavailable. It may have expired; this does not mean no traffic.' : 'Current state could not be loaded.');
         const snap = await response.json();
         if (destroyed || request !== historyRequest) return;
@@ -3848,7 +3864,7 @@ button.label { cursor: pointer; }
       const query = from && to ? '?from=' + encodeURIComponent(new Date(from + 'Z').toISOString()) + '&to=' + encodeURIComponent(new Date(to + 'Z').toISOString()) : '';
       $('#historyStatus').textContent = 'Loading history…'; $('#historyList').replaceChildren();
       try {
-        const response = await fetch(opts.api + 'history' + query, { signal: aborter.signal });
+        const response = await fetch(apiURL('history' + query), { signal: aborter.signal });
         if (!response.ok) throw new Error('History could not be loaded. Check the UTC range and source connection.');
         const result = await response.json();
         if (destroyed || request !== historyListRequest) return;
@@ -3865,6 +3881,60 @@ button.label { cursor: pointer; }
     }
 
     const sliceQuery = () => state.slice ? '?slice=' + encodeURIComponent(state.slice) : '';
+    // apiURL is an API path for the cluster on the map: every request names
+    // it, so no answer can come from another cluster.
+    function apiURL(path) {
+      if (!state.cluster) return opts.api + path;
+      return opts.api + path + (path.includes('?') ? '&' : '?') + 'cluster=' + encodeURIComponent(state.cluster);
+    }
+    function refreshApiLinks() {
+      if (opts.api) app.querySelectorAll('[data-api]').forEach(a => a.setAttribute('href', apiURL(a.dataset.api)));
+    }
+    // renderCluster shows which cluster every number on the map comes from:
+    // the one the server says it answered for, not just the one asked for.
+    function renderCluster() {
+      const current = state.snap?.cluster || state.cluster, names = state.clusters;
+      const box = $('#clusterBox'), pick = $('#clusterPick'), name = $('#clusterName');
+      box.hidden = !current && names.length < 2;
+      if (box.hidden) return;
+      pick.hidden = names.length < 2;
+      name.hidden = !pick.hidden;
+      name.textContent = current;
+      if (!pick.hidden) {
+        if (pick.options.length !== names.length || [...pick.options].some((o, i) => o.value !== names[i])) pick.replaceChildren(...names.map(n => el('option', { value: n }, n)));
+        pick.value = current;
+      }
+      box.title = `Every component, connection and number on this map comes from cluster ${current} only`;
+      if (page && typeof document !== 'undefined') document.title = `teia · ${current}`;
+    }
+    // setCluster shows another cluster: its own sources, graph, numbers,
+    // history and activity. Nothing of the previous cluster stays on screen.
+    function setCluster(next) {
+      next = String(next || '').trim();
+      if (next === (state.cluster || state.snap?.cluster || '')) return Promise.resolve();
+      state.cluster = next;
+      state.pending = null;
+      state.historyId = '';
+      state.operation = { id: '', traceId: '' };
+      state.activity = []; renderActivity();
+      select(null);
+      state.positions = stored(posKey(), {});
+      topologyKey = '';
+      state.fitted = false;
+      if (page && typeof history !== 'undefined' && typeof location !== 'undefined') {
+        const url = new URL(location.href);
+        if (next) url.searchParams.set('cluster', next); else url.searchParams.delete('cluster');
+        history.replaceState(null, '', url);
+      }
+      syncSharedURL();
+      refreshApiLinks();
+      renderCluster();
+      if (es) { es.close(); es = null; }
+      if (!opts.api) return Promise.resolve();
+      const loaded = load(aborter.signal, true).catch(error => { state.error = error.message; renderLive(); }).finally(() => { state.fitted = fit(); connect(); });
+      $('#announce').textContent = `Cluster ${next}`;
+      return loaded;
+    }
     // setSlice shows only the calls whose telemetry carried these dimension
     // values (journey:x,tenant:y), with their own metrics; '' is the whole map.
     function setSlice(next) {
@@ -3895,7 +3965,7 @@ button.label { cursor: pointer; }
 
     function connect() {
       if (destroyed || es || !state.live || state.historyId || state.historyLoading || !opts.api || opts.stream === false) return;
-      try { es = new EventSource(opts.api + 'stream' + sliceQuery()); } catch { return; }
+      try { es = new EventSource(apiURL('stream' + sliceQuery())); } catch { return; }
       es.addEventListener('snapshot', ev => {
         reconnectDelay = 1000;
         try { apply(JSON.parse(ev.data), true); } catch { /* a malformed event is skipped */ }
@@ -4014,7 +4084,7 @@ button.label { cursor: pointer; }
     app.querySelectorAll('[data-export]').forEach(b => b.addEventListener('click', () => exportMap(b.dataset.export)));
     function viewState() {
       return { version: 1, ...filtersToParams(state.filters), group: state.groupBy, query: state.query, select: state.selected?.id || (!state.restoredSelect && opts.select) || '',
-        flow: state.flow, values: state.values, live: state.live, journeyKey: state.journeyKey, slice: state.slice, states: state.states, signals: [...state.signals], history: state.historyId, expanded: [...state.expanded], investigation: state.investigation, display: state.display, operation: state.operation };
+        flow: state.flow, values: state.values, live: state.live, journeyKey: state.journeyKey, slice: state.slice, cluster: state.cluster, states: state.states, signals: [...state.signals], history: state.historyId, expanded: [...state.expanded], investigation: state.investigation, display: state.display, operation: state.operation };
     }
     function syncSharedURL() {
       if (typeof location === 'undefined' || typeof history === 'undefined') return;
@@ -4089,6 +4159,7 @@ button.label { cursor: pointer; }
       if (params.has('journeyKey')) state.journeyKey = params.get('journeyKey').trim();
       if (params.has('values')) state.values = params.get('values') !== '0';
       if (params.has('slice')) state.slice = params.get('slice').trim();
+      if (params.has('cluster')) state.cluster = params.get('cluster').trim();
     }
     if (opts.journey) state.filters.journeys = [String(opts.journey).trim()];
     let hostJourney = opts.journey || '';
@@ -4100,6 +4171,7 @@ button.label { cursor: pointer; }
         state.filters = filtersFromParams(new URLSearchParams({ journey: text(view.journey), filter: text(view.filter) }));
         state.groupBy = text(view.group); state.query = text(view.query); $('#search').value = state.query;
         state.journeyKey = text(view.journeyKey); opts.select = text(view.select); state.slice = text(view.slice);
+        if (opts.api && text(view.cluster)) state.cluster = text(view.cluster);
         if (opts.api) state.historyId = text(view.history);
         state.expanded = new Set(strings(view.expanded));
         state.investigation = { mode: oneOf(view.investigation?.mode, ['all','neighbors','path'], 'all'), focus: text(view.investigation?.focus), target: text(view.investigation?.target), depth: Math.max(1, Math.min(3, finite(view.investigation?.depth) || 1)), direction: oneOf(view.investigation?.direction, ['both','in','out'], 'both') };
@@ -4114,7 +4186,8 @@ button.label { cursor: pointer; }
     if (opts.theme) host.dataset.theme = opts.theme;
 
     // API links only make sense when teia's API is reachable from the browser.
-    app.querySelectorAll('[data-api]').forEach(a => { if (opts.api) a.setAttribute('href', opts.api + a.dataset.api); else a.remove(); });
+    app.querySelectorAll('[data-api]').forEach(a => { if (!opts.api) a.remove(); });
+    refreshApiLinks();
     $('#stepsBtn').addEventListener('click', () => { const open = !$('aside').classList.contains('open'); setDrawer(open); if (open) showTab('steps'); });
     $('#drawerClose').addEventListener('click', () => { setDrawer(false); $('#stepsBtn').focus(); });
     setDrawer(false);
@@ -4126,6 +4199,15 @@ button.label { cursor: pointer; }
     renderLive();
     const ticker = setInterval(renderLive, 1000);
     if (opts.api) {
+      $('#clusterPick').addEventListener('change', ev => setCluster(ev.currentTarget.value));
+      fetch(opts.api + 'clusters', { signal: aborter.signal, headers: { Accept: 'application/json' } })
+        .then(r => r.ok ? r.json() : null)
+        .then(list => {
+          if (destroyed || !Array.isArray(list?.clusters)) return;
+          state.clusters = list.clusters.map(c => String(c?.name || '')).filter(Boolean);
+          renderCluster();
+        })
+        .catch(() => { /* an older server maps one scope */ });
       load(aborter.signal)
         .then(() => { if (!destroyed && opts.select) locate(opts.select, { move: false }); })
         .catch(() => { /* the stream will bring it */ })

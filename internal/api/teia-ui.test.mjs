@@ -764,6 +764,18 @@ describe('filters', () => {
   });
 });
 
+describe('clusters', () => {
+  it('keeps the cluster a snapshot describes, and never mistakes one cluster for another', () => {
+    const nodes = [node('app-a'), node('app-b')], edges = [edge('app-a', 'app-b', { requestRate: 2 })];
+    const east = snap(nodes, edges, { cluster: 'east' });
+    const west = snap(nodes, edges, { cluster: 'west' });
+    assert.equal(east.cluster, 'east');
+    assert.equal(snap(nodes, edges).cluster, '', 'a single scope has no cluster');
+    assert.equal(snap(nodes, edges, { cluster: 7 }).cluster, '', 'only a string names a cluster');
+    assert.notEqual(signature(east), signature(west), 'the same topology in two clusters is two different drawings');
+  });
+});
+
 describe('dimension slices', () => {
   it('keeps the slice scope and dimension values, and redraws when the slice changes', () => {
     const edges = [edge('app-a', 'app-b', { dimensions: { journey: ['notification', 'whatsapp'] } })];

@@ -9,10 +9,12 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/nilum-br/teia/internal/export"
 	"github.com/nilum-br/teia/internal/history"
@@ -65,16 +67,131 @@ type Options struct {
 	// editing it: changes show on the next browser reload. Nil means the
 	// embedded copy.
 	UI fs.FS
+	// Version is reported to MCP clients as the server's version.
+	Version string
 }
 
-// Handler returns the HTTP handler for the API and the UI.
+// Cluster is one cluster's engine and observation history, when teia maps
+// several. Each one answers on its own: nothing is merged across clusters.
+type Cluster struct {
+	Name    string
+	Engine  Snapshotter
+	History *history.Store
+}
+
+// Handler returns the HTTP handler for the API and the UI of one scope.
 func Handler(eng Snapshotter, opts Options) http.Handler {
+	return Clusters([]Cluster{{Engine: eng, History: opts.History}}, opts)
+}
+
+// Clusters serves several clusters. Every /api/v1 request reads one of them,
+// chosen by ?cluster=name (the first when absent), and every answer says
+// which: an unknown name is a 404, never another cluster's map.
+// GET /api/v1/clusters lists them; /metrics labels each series with its
+// cluster; the MCP tools take a cluster argument.
+func Clusters(clusters []Cluster, opts Options) http.Handler {
 	if opts.MaxStreams <= 0 {
 		opts.MaxStreams = DefaultMaxStreams
 	}
 	if opts.Log == nil {
 		opts.Log = slog.New(slog.DiscardHandler)
 	}
+	// Streams of every cluster share one cap.
+	slots := make(chan struct{}, opts.MaxStreams)
+	byName := make(map[string]http.Handler, len(clusters))
+	for _, c := range clusters {
+		o := opts
+		o.History = c.History
+		byName[c.Name] = routes(c.Engine, o, slots)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /metrics", metricsHandler(func() []model.Snapshot {
+		snaps := make([]model.Snapshot, 0, len(clusters))
+		for _, c := range clusters {
+			snaps = append(snaps, c.Engine.Snapshot())
+		}
+		return snaps
+	}))
+	mux.HandleFunc("GET /api/v1/clusters", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, opts.Log, clusterList(clusters))
+	})
+	dispatch := func(w http.ResponseWriter, r *http.Request) {
+		name := r.URL.Query().Get("cluster")
+		if name == "" {
+			name = clusters[0].Name
+		}
+		h, ok := byName[name]
+		if !ok {
+			writeError(w, http.StatusNotFound, unknownCluster(name, clusters))
+			return
+		}
+		h.ServeHTTP(w, r)
+	}
+	mux.HandleFunc("GET /api/v1/", dispatch)
+	mux.HandleFunc("POST /api/v1/", dispatch)
+
+	// The Model Context Protocol, for agents: the same data, read-only.
+	mcpH := mcpHandler(clusters, opts.Version, opts.Log)
+	for _, method := range []string{"POST", "GET", "DELETE"} {
+		mux.Handle(method+" /mcp", mcpH)
+	}
+
+	mux.Handle("GET /", uiHandler(opts.UI))
+
+	// CORS answers preflights before auth: browsers never send credentials
+	// on them.
+	return allowOrigins(requireToken(mux, opts.Token), opts.AllowedOrigins, opts.Token != "")
+}
+
+// clusterSummary is one entry of GET /api/v1/clusters.
+type clusterSummary struct {
+	Name        string         `json:"name"`
+	Round       int64          `json:"round"`
+	GeneratedAt time.Time      `json:"generatedAt,omitzero"`
+	Nodes       int            `json:"nodes"`
+	Edges       int            `json:"edges"`
+	Health      map[string]int `json:"health"`
+	Sources     int            `json:"sources"`
+	SourcesOK   int            `json:"sourcesOk"`
+}
+
+// clusterList summarises every cluster in configuration order; the first
+// is the default. A single scope is one entry with an empty name.
+func clusterList(clusters []Cluster) map[string]any {
+	out := make([]clusterSummary, 0, len(clusters))
+	for _, c := range clusters {
+		s := c.Engine.Snapshot()
+		sum := clusterSummary{Name: c.Name, Round: s.Round, GeneratedAt: s.GeneratedAt, Nodes: len(s.Nodes),
+			Edges: len(s.Edges), Health: map[string]int{}, Sources: len(s.Sources)}
+		for _, n := range s.Nodes {
+			sum.Health[string(n.Health)]++
+		}
+		for _, src := range s.Sources {
+			if src.State == model.SourceOK {
+				sum.SourcesOK++
+			}
+		}
+		out = append(out, sum)
+	}
+	return map[string]any{"default": clusters[0].Name, "clusters": out}
+}
+
+func unknownCluster(name string, clusters []Cluster) string {
+	if len(clusters) == 1 && clusters[0].Name == "" {
+		return fmt.Sprintf("no cluster %q: this teia maps a single scope (no clusters in its config)", name)
+	}
+	names := make([]string, len(clusters))
+	for i, c := range clusters {
+		names[i] = c.Name
+	}
+	return fmt.Sprintf("no cluster %q; GET /api/v1/clusters lists them (%s)", name, strings.Join(names, ", "))
+}
+
+// routes is the API of one cluster (or of the single scope).
+func routes(eng Snapshotter, opts Options, slots chan struct{}) *http.ServeMux {
 	mux := http.NewServeMux()
 	registerHistory(mux, opts)
 	registerReview(mux, eng, opts)
@@ -99,14 +216,10 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 	}
 	snap := func() model.Snapshot { return eng.Snapshot() }
 
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("GET /metrics", metricsHandler(snap))
 	mux.HandleFunc("GET /api/v1/changes", func(w http.ResponseWriter, _ *http.Request) {
 		send(w, eng.Changes())
 	})
-	mux.HandleFunc("GET /api/v1/stream", streamHandler(eng, opts.MaxStreams))
+	mux.HandleFunc("GET /api/v1/stream", streamHandler(eng, slots))
 	mux.HandleFunc("GET /api/v1/snapshot", func(w http.ResponseWriter, r *http.Request) {
 		if s, ok := snapOf(w, r); ok {
 			send(w, s)
@@ -208,11 +321,7 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 		send(w, changes)
 	})
 
-	mux.Handle("GET /", uiHandler(opts.UI))
-
-	// CORS answers preflights before auth: browsers never send credentials
-	// on them.
-	return allowOrigins(requireToken(mux, opts.Token), opts.AllowedOrigins, opts.Token != "")
+	return mux
 }
 
 // uiHandler serves the built-in UI: the embedded copy, or files when set.

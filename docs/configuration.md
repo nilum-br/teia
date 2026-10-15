@@ -251,6 +251,40 @@ configured units and the existing measurement qualifications.
 | `notify.webhooks[].events` | all | Change types to send: `edge.added`, `edge.removed`, `edge.state`, `edge.health`, `node.added`, `node.removed`, `node.health`, `node.visibility`, `finding.opened`, `finding.resolved`. |
 | `notify.webhooks[].headers` | none | Map of extra request headers, such as `Authorization`. |
 
+## Clusters
+
+One teia can map several clusters. Each cluster is discovered **on its own**, from its own inventory and telemetry:
+services with the same name in two clusters stay two services, each with its own traffic, errors, latency and health.
+Without `clusters`, every source describes one scope, as before.
+
+```yaml
+clusters:
+  - name: prod-east
+    sources:
+      kubernetes: {kubeconfig: /etc/teia/kube/prod-east.yaml}
+      prometheus: [{url: https://prometheus.prod-east.example.com}]
+      tempo: [{url: https://tempo.prod-east.example.com}]
+  - name: prod-west
+    sources: {...}
+sources:
+  declared: {paths: [./flows]}   # shared: declarations are not per cluster
+```
+
+| Key | Default | Description |
+|---|---|---|
+| `clusters` | none | The clusters teia maps, in the order the UI lists them; the first is the default. Each one gets its own discovery round, snapshot, history and activity. See [Kubernetes](kubernetes.md#several-clusters-from-one-teia). |
+| `clusters[].name` | required | Unique name shown in the UI and API (`?cluster=`), on `/metrics` series (`cluster="…"`), in webhook messages and MCP answers. 1–128 bytes, without `,` `:` `=` `/`. |
+| `clusters[].sources` | required | The cluster's sources, with the same keys as `sources` below. Source names only need to be unique within a cluster. |
+
+With `clusters`, the top-level `sources` holds only `declared`, which applies to every cluster; a telemetry or
+inventory source there would be read into every cluster and mix them, so it is rejected. `history.directory` gets one
+subdirectory per cluster, and each cluster's history has the configured limits.
+
+Why not one map: two backends that observe the **same** calls (a mesh and traces) are merged per connection, and the
+busiest observation wins, so nothing is counted twice. Two clusters observe **different** calls; merging them would
+show one cluster's numbers as the other's. Calls between clusters show as calls to an external or unknown component
+of the calling cluster.
+
 ## Sources
 
 | Key | Description |

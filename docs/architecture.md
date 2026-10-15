@@ -27,7 +27,7 @@ return into one graph, and runs the advisor on that graph.
 | `internal/advisor` | Rules that turn the graph into findings with a next step |
 | `internal/engine` | The discovery loop, snapshots, change events, subscribers and notifiers |
 | `internal/notify` | Webhooks (JSON, Slack) |
-| `internal/api` | JSON API, SSE stream, `/metrics`, Grafana frames, built-in UI (`ui/teia-ui.js`, shared with the Grafana panel) |
+| `internal/api` | JSON API, SSE stream, `/metrics`, Grafana frames, MCP server for agents (`/mcp`), built-in UI (`ui/teia-ui.js`, shared with the Grafana panel) |
 | `internal/export` | Flow matrix (CSV) |
 | `cmd/teia` | `serve`, `discover`, `detect`, `export matrix`, `validate` |
 | `plugins/grafana` | `nilum-teia-panel`, the Grafana panel plugin |

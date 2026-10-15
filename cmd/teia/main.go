@@ -109,12 +109,11 @@ func newLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 }
 
-func newEngine(cfg *config.Config, log *slog.Logger, stores ...*history.Store) *engine.Engine {
-	var archive *history.Store
-	if len(stores) > 0 {
-		archive = stores[0]
-	}
-	return engine.New(cfg.BuildSources(), engine.Options{
+// newEngine builds the engine of one scope: a cluster, or every source when
+// the config has no clusters.
+func newEngine(cfg *config.Config, scope config.Scope, log *slog.Logger, archive *history.Store) *engine.Engine {
+	return engine.New(scope.Sources, engine.Options{
+		Cluster:         scope.Cluster,
 		History:         archive,
 		Interval:        cfg.Interval,
 		Timeout:         cfg.Timeout,
@@ -126,6 +125,35 @@ func newEngine(cfg *config.Config, log *slog.Logger, stores ...*history.Store) *
 		Notifiers:       cfg.Notifiers(),
 		EvidenceLinks:   cfg.EvidenceLinks,
 	}, log)
+}
+
+// scopeFor is the named cluster's scope, or the first one when name is
+// empty (the only one without clusters).
+func scopeFor(cfg *config.Config, name string) (config.Scope, error) {
+	scopes := cfg.BuildScopes()
+	if name == "" {
+		return scopes[0], nil
+	}
+	var names []string
+	for _, s := range scopes {
+		if s.Cluster == name {
+			return s, nil
+		}
+		names = append(names, s.Cluster)
+	}
+	if len(cfg.Clusters) == 0 {
+		return config.Scope{}, fmt.Errorf("--cluster %q: the config has no clusters", name)
+	}
+	return config.Scope{}, fmt.Errorf("--cluster %q: not in the config (%s)", name, strings.Join(names, ", "))
+}
+
+// clusterHistory gives each cluster its own history directory, below the
+// configured one, so one cluster's snapshots never replay as another's.
+func clusterHistory(cfg history.Config, cluster string) history.Config {
+	if cluster != "" && cfg.Directory != "" {
+		cfg.Directory = filepath.Join(cfg.Directory, cluster)
+	}
+	return cfg
 }
 
 func serve(args []string) error {
@@ -149,23 +177,27 @@ func serve(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	archive, err := history.Open(cfg.History)
-	if err != nil {
-		return fmt.Errorf("opening observation history: %w", err)
+	var clusters []api.Cluster
+	for _, scope := range cfg.BuildScopes() {
+		archive, err := history.Open(clusterHistory(cfg.History, scope.Cluster))
+		if err != nil {
+			return fmt.Errorf("opening observation history: %w", err)
+		}
+		eng := newEngine(cfg, scope, log.With("cluster", scope.Cluster), archive)
+		go eng.Run(ctx)
+		clusters = append(clusters, api.Cluster{Name: scope.Cluster, Engine: eng, History: archive})
 	}
-	eng := newEngine(cfg, log, archive)
-	go eng.Run(ctx)
 
 	if cfg.Auth.Token == "" {
 		log.Warn("the API has no auth.token: anyone who can reach this address can read the map", "addr", cfg.Listen)
 	}
-	srv := newServer(cfg.Listen, api.Handler(eng, api.Options{
-		History:        archive,
+	srv := newServer(cfg.Listen, api.Clusters(clusters, api.Options{
 		Token:          cfg.Auth.Token,
 		AllowedOrigins: cfg.CORS.AllowedOrigins,
 		MaxStreams:     cfg.MaxStreams,
 		Log:            log,
 		UI:             ui,
+		Version:        version,
 	}))
 	go func() {
 		<-ctx.Done()
@@ -211,6 +243,7 @@ func discover(args []string) error {
 	path := fs.String("config", defaultConfig(), "config file (env TEIA_CONFIG)")
 	output := fs.String("output", "text", "text or json")
 	failOn := fs.String("fail-on", "", "exit 1 if a finding of this severity or worse exists: critical, warning, info")
+	cluster := fs.String("cluster", "", "with clusters in the config, the cluster to discover (default: the first)")
 	_ = fs.Parse(args)
 
 	threshold, err := parseFailOn(*failOn)
@@ -221,8 +254,12 @@ func discover(args []string) error {
 	if err != nil {
 		return err
 	}
+	scope, err := scopeFor(cfg, *cluster)
+	if err != nil {
+		return err
+	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	snap := newEngine(cfg, log).Refresh(context.Background())
+	snap := newEngine(cfg, scope, log, nil).Refresh(context.Background())
 
 	switch *output {
 	case "json":
@@ -270,6 +307,9 @@ func failOnFindings(findings []model.Finding, threshold model.Severity) error {
 }
 
 func printReport(w io.Writer, s model.Snapshot) {
+	if s.Cluster != "" {
+		fmt.Fprintf(w, "Cluster    %s\n", s.Cluster)
+	}
 	c := s.Coverage
 	fmt.Fprintf(w, "Coverage   visibility %s   declared %s   observed %s   (%d nodes, %d edges)\n\n",
 		pct(c.Visibility), pct(c.Declared), pct(c.Observed), c.Nodes, c.Edges)
@@ -322,13 +362,18 @@ func export(args []string) error {
 	path := fs.String("config", defaultConfig(), "config file (env TEIA_CONFIG)")
 	lang := fs.String("lang", "en", "header language: en or pt-BR")
 	declaredOnly := fs.Bool("declared-only", false, "only intended communication (what a firewall request should contain)")
+	cluster := fs.String("cluster", "", "with clusters in the config, the cluster to export (default: the first)")
 	_ = fs.Parse(args[1:])
 
 	cfg, err := config.Load(*path)
 	if err != nil {
 		return err
 	}
-	snap := newEngine(cfg, slog.New(slog.NewTextHandler(io.Discard, nil))).Refresh(context.Background())
+	scope, err := scopeFor(cfg, *cluster)
+	if err != nil {
+		return err
+	}
+	snap := newEngine(cfg, scope, slog.New(slog.NewTextHandler(io.Discard, nil)), nil).Refresh(context.Background())
 	return exp.Matrix(os.Stdout, snap, exp.MatrixOptions{Lang: *lang, DeclaredOnly: *declaredOnly})
 }
 

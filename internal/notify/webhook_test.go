@@ -168,3 +168,13 @@ func TestRedact(t *testing.T) {
 		}
 	}
 }
+
+func TestSlackNamesTheCluster(t *testing.T) {
+	text := slackText([]model.Change{
+		{Type: model.ChangeEdgeHealth, Subject: "app-a->app-b", To: "failing", Message: "app-a->app-b is failing", Cluster: "east"},
+		{Type: model.ChangeEdgeHealth, Subject: "app-a->app-b", To: "healthy", Message: "app-a->app-b is healthy"},
+	})
+	if !strings.Contains(text, "[east] app-a-&gt;app-b is failing") || !strings.Contains(text, " app-a-&gt;app-b is healthy") || strings.Contains(text, "[] ") {
+		t.Fatalf("slack text:\n%s", text)
+	}
+}

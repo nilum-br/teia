@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -15,60 +16,88 @@ import (
 //
 //	count(teia_edge_info{state="ghost"}) > 0
 //	teia_coverage_ratio{scope="visibility"} < 0.8
-func metricsHandler(snap func() model.Snapshot) http.HandlerFunc {
+func metricsHandler(snaps func() []model.Snapshot) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		writeMetrics(w, snap())
+		writeMetrics(w, snaps()...)
 	}
 }
 
-func writeMetrics(w io.Writer, s model.Snapshot) {
+// writeMetrics writes one series per value of every snapshot, each family
+// once. With clusters, every series carries cluster="name".
+func writeMetrics(w io.Writer, snaps ...model.Snapshot) {
 	gauge := func(name, help string) {
 		fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s gauge\n", name, help, name)
 	}
+	// labels prefixes a snapshot's cluster to a series' own labels.
+	labels := func(s model.Snapshot, own string) string {
+		switch {
+		case s.Cluster == "" && own == "":
+			return ""
+		case s.Cluster == "":
+			return "{" + own + "}"
+		case own == "":
+			return "{cluster=" + q(s.Cluster) + "}"
+		}
+		return "{cluster=" + q(s.Cluster) + "," + own + "}"
+	}
 
 	gauge("teia_coverage_ratio", "Coverage of the last discovery round (0..1).")
-	fmt.Fprintf(w, "teia_coverage_ratio{scope=\"visibility\"} %g\n", s.Coverage.Visibility)
-	fmt.Fprintf(w, "teia_coverage_ratio{scope=\"declared\"} %g\n", s.Coverage.Declared)
-	fmt.Fprintf(w, "teia_coverage_ratio{scope=\"observed\"} %g\n", s.Coverage.Observed)
+	for _, s := range snaps {
+		fmt.Fprintf(w, "teia_coverage_ratio%s %g\n", labels(s, `scope="visibility"`), s.Coverage.Visibility)
+		fmt.Fprintf(w, "teia_coverage_ratio%s %g\n", labels(s, `scope="declared"`), s.Coverage.Declared)
+		fmt.Fprintf(w, "teia_coverage_ratio%s %g\n", labels(s, `scope="observed"`), s.Coverage.Observed)
+	}
 
 	gauge("teia_node_info", "One series per node in the graph.")
-	for _, n := range s.Nodes {
-		fmt.Fprintf(w, "teia_node_info{id=%s,kind=%s,visibility=%s} 1\n", q(n.ID), q(string(n.Kind)), q(string(n.Visibility)))
+	for _, s := range snaps {
+		for _, n := range s.Nodes {
+			fmt.Fprintf(w, "teia_node_info%s 1\n", labels(s, fmt.Sprintf("id=%s,kind=%s,visibility=%s", q(n.ID), q(string(n.Kind)), q(string(n.Visibility)))))
+		}
 	}
 
 	gauge("teia_edge_info", "One series per communication; state is ok, ghost (undeclared) or stale (not observed).")
-	for _, e := range s.Edges {
-		fmt.Fprintf(w, "teia_edge_info{from=%s,to=%s,state=%s,protocol=%s,sources=%s} 1\n",
-			q(e.From), q(e.To), q(string(e.State)), q(e.Protocol), q(strings.Join(e.Sources, ",")))
+	for _, s := range snaps {
+		for _, e := range s.Edges {
+			fmt.Fprintf(w, "teia_edge_info%s 1\n", labels(s, fmt.Sprintf("from=%s,to=%s,state=%s,protocol=%s,sources=%s",
+				q(e.From), q(e.To), q(string(e.State)), q(e.Protocol), q(strings.Join(e.Sources, ",")))))
+		}
 	}
 
 	gauge("teia_findings", "Open findings by rule and severity.")
-	counts := map[[3]string]int{}
-	for _, f := range s.Findings {
-		counts[[3]string{f.Rule, string(f.Kind), string(f.Severity)}]++
-	}
-	keys := make([][3]string, 0, len(counts))
-	for k := range counts {
-		keys = append(keys, k)
-	}
-	sort.Slice(keys, func(i, j int) bool { return strings.Join(keys[i][:], "|") < strings.Join(keys[j][:], "|") })
-	for _, k := range keys {
-		fmt.Fprintf(w, "teia_findings{rule=%s,kind=%s,severity=%s} %d\n", q(k[0]), q(k[1]), q(k[2]), counts[k])
+	for _, s := range snaps {
+		counts := map[[3]string]int{}
+		for _, f := range s.Findings {
+			counts[[3]string{f.Rule, string(f.Kind), string(f.Severity)}]++
+		}
+		keys := make([][3]string, 0, len(counts))
+		for k := range counts {
+			keys = append(keys, k)
+		}
+		sort.Slice(keys, func(i, j int) bool { return strings.Join(keys[i][:], "|") < strings.Join(keys[j][:], "|") })
+		for _, k := range keys {
+			fmt.Fprintf(w, "teia_findings%s %d\n", labels(s, fmt.Sprintf("rule=%s,kind=%s,severity=%s", q(k[0]), q(k[1]), q(k[2]))), counts[k])
+		}
 	}
 
 	gauge("teia_source_up", "1 when the source worked in the last round (state says whether it saw everything).")
-	for _, src := range s.Sources {
-		up := 1
-		if src.State == model.SourceError {
-			up = 0
+	for _, s := range snaps {
+		for _, src := range s.Sources {
+			up := 1
+			if src.State == model.SourceError {
+				up = 0
+			}
+			fmt.Fprintf(w, "teia_source_up%s %d\n", labels(s, fmt.Sprintf("source=%s,type=%s,state=%s", q(src.Name), q(src.Type), q(string(src.State)))), up)
 		}
-		fmt.Fprintf(w, "teia_source_up{source=%s,type=%s,state=%s} %d\n", q(src.Name), q(src.Type), q(string(src.State)), up)
 	}
 
-	if !s.GeneratedAt.IsZero() {
+	if slices.ContainsFunc(snaps, func(s model.Snapshot) bool { return !s.GeneratedAt.IsZero() }) {
 		gauge("teia_last_round_timestamp_seconds", "When the last discovery round finished.")
-		fmt.Fprintf(w, "teia_last_round_timestamp_seconds %d\n", s.GeneratedAt.Unix())
+		for _, s := range snaps {
+			if !s.GeneratedAt.IsZero() {
+				fmt.Fprintf(w, "teia_last_round_timestamp_seconds%s %d\n", labels(s, ""), s.GeneratedAt.Unix())
+			}
+		}
 	}
 }
 

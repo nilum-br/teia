@@ -196,6 +196,8 @@ export interface TeiaChange {
 }
 
 export interface TeiaSnapshot {
+  /** The cluster the snapshot describes, when teia maps several. */
+  cluster?: string;
   operations?: TeiaOperationContract;
   journeys?: TeiaJourneyContract;
   timeMode?: 'current' | 'query' | 'mixed' | 'historical';

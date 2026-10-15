@@ -63,6 +63,10 @@ is always read as a string.
 {{- $_ := set $auth "token" "${TEIA_TOKEN:-}" }}
 {{- $_ := set $config "auth" $auth }}
 {{- $sources := default (dict) $config.sources }}
+{{- if $config.clusters }}
+{{- /* With clusters, each cluster lists its own inventory: drop the chart's default one. */}}
+{{- $_ := unset $sources "kubernetes" }}
+{{- end }}
 {{- $_ := set $sources "declared" (dict "paths" (list "/etc/teia/flows")) }}
 {{- $_ := set $config "sources" $sources }}
 {{- toYaml $config | replace "token: ${TEIA_TOKEN:-}" "token: \"${TEIA_TOKEN:-}\"" }}

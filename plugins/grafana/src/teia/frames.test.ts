@@ -57,6 +57,14 @@ describe('framesToSnapshot', () => {
       { name: 'historyId', values: ['stored-one'] }, { name: 'history', values: [JSON.stringify(history)] }] });
     expect(framesToSnapshot([toDataFrame({ refId: 'nodes', fields: [] }), emptyCoverage], 5).snapshot).toMatchObject({ timeMode: 'historical', history, nodes: [] });
   });
+  it('names the cluster of the frames, and never lets one cluster pass for another', () => {
+    const east = toDataFrame({ refId: 'nodes', fields: [{ name: 'id', values: ['app-a', 'app-b'] }, { name: 'cluster', values: ['east', 'east'] }] });
+    const eastEdges = toDataFrame({ refId: 'edges', fields: [{ name: 'source', values: ['app-a'] }, { name: 'target', values: ['app-b'] }, { name: 'cluster', values: ['east'] }] });
+    expect(framesToSnapshot([east, eastEdges], 1).snapshot?.cluster).toBe('east');
+    const westEdges = toDataFrame({ refId: 'edges', fields: [{ name: 'source', values: ['app-a'] }, { name: 'target', values: ['app-b'] }, { name: 'cluster', values: ['west'] }] });
+    expect(framesToSnapshot([east, westEdges], 2).snapshot?.cluster).toBe('several clusters: east, west');
+    expect(framesToSnapshot([nodes, edges], 3).snapshot?.cluster).toBeUndefined();
+  });
   it('accepts historical context in custom metadata for every role and rejects a mismatched auxiliary query', () => {
     const history = { id: 'stored-one', availability: 'stored-snapshot', recordedAt: '2026-10-15T12:00:00Z', nodes: {}, edges: {} };
     const metadata = { timeMode: 'historical', historyId: history.id, snapshotAt: '2026-10-15T11:59:00Z', history };

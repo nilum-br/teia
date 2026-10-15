@@ -43,6 +43,7 @@ type grafanaNode struct {
 	History            string    `json:"history,omitempty"`    // JSON replay metadata on first node row
 	Links              string    `json:"links"`
 	TimeMode           string    `json:"timeMode"`
+	Cluster            string    `json:"cluster,omitempty"` // every row names its cluster, when teia maps several
 	SnapshotAt         time.Time `json:"snapshotAt"`
 	Evidence           string    `json:"evidence"`
 	ID                 string    `json:"id"`
@@ -84,6 +85,7 @@ type grafanaEdge struct {
 	Frequency                string    `json:"frequency"`
 	Links                    string    `json:"links"`
 	TimeMode                 string    `json:"timeMode"`
+	Cluster                  string    `json:"cluster,omitempty"`
 	SnapshotAt               time.Time `json:"snapshotAt"`
 	Evidence                 string    `json:"evidence"`
 	ID                       string    `json:"id"`
@@ -140,7 +142,7 @@ func grafanaNodes(s model.Snapshot) []grafanaNode {
 			Identity:  jsonList(n.Identity),
 			HistoryID: frameHistoryID(s),
 			Links:     jsonList(n.Links),
-			TimeMode:  frameTimeMode(s), SnapshotAt: s.GeneratedAt, Evidence: jsonList(n.Evidence),
+			TimeMode:  frameTimeMode(s), Cluster: s.Cluster, SnapshotAt: s.GeneratedAt, Evidence: jsonList(n.Evidence),
 			ID: n.ID, Title: n.ID, Subtitle: subtitle(n), MainStat: main, SecondaryStat: secondary,
 			Color: healthColor[n.Health], Kind: string(n.Kind), Tech: n.Tech, Health: string(n.Health), Visibility: string(n.Visibility),
 			RequestRate: n.RequestRate, ErrorRate: n.ErrorRate, ErrorsUnknown: n.ErrorsUnknown, LatencyP50Ms: n.LatencyP50Ms, LatencyP95Ms: n.LatencyP95Ms,
@@ -180,7 +182,7 @@ func grafanaEdges(s model.Snapshot) []grafanaEdge {
 			HistoryID:                frameHistoryID(s),
 			ExpectedFrequencySeconds: e.ExpectedFrequencySeconds, Frequency: string(frequency),
 			Links:    jsonList(e.Links),
-			TimeMode: frameTimeMode(s), SnapshotAt: s.GeneratedAt, Evidence: jsonList(e.Evidence),
+			TimeMode: frameTimeMode(s), Cluster: s.Cluster, SnapshotAt: s.GeneratedAt, Evidence: jsonList(e.Evidence),
 			ID: e.Key(), Source: e.From, Target: e.To, MainStat: string(e.State),
 			Color: healthColor[e.Health], StrokeDasharray: stateDash[e.State], Thickness: 1,
 			State: string(e.State), Health: string(e.Health), Protocol: e.Protocol, Port: e.Port, Reason: e.Reason,
@@ -219,12 +221,13 @@ func grafanaEdges(s model.Snapshot) []grafanaEdge {
 // coherent historical snapshot.
 type grafanaTemporal struct {
 	TimeMode   string    `json:"timeMode"`
+	Cluster    string    `json:"cluster,omitempty"`
 	HistoryID  string    `json:"historyId,omitempty"`
 	SnapshotAt time.Time `json:"snapshotAt"`
 }
 
 func frameMetadata(s model.Snapshot) grafanaTemporal {
-	return grafanaTemporal{TimeMode: frameTimeMode(s), HistoryID: frameHistoryID(s), SnapshotAt: s.GeneratedAt}
+	return grafanaTemporal{TimeMode: frameTimeMode(s), Cluster: s.Cluster, HistoryID: frameHistoryID(s), SnapshotAt: s.GeneratedAt}
 }
 
 type grafanaFinding struct {
@@ -314,15 +317,20 @@ func sliceMetadata(s model.Snapshot) (slice, dimensions string) {
 	return slice, dimensions
 }
 
+// grafanaChange spells out the temporal fields instead of embedding
+// grafanaTemporal: both would carry "cluster", and encoding/json drops a
+// name two embedded fields share. The change's own cluster is the one.
 type grafanaChange struct {
 	model.Change
-	grafanaTemporal
+	TimeMode   string    `json:"timeMode"`
+	HistoryID  string    `json:"historyId,omitempty"`
+	SnapshotAt time.Time `json:"snapshotAt"`
 }
 
 func historicalChanges(s model.Snapshot) []grafanaChange {
 	out := make([]grafanaChange, 0, len(s.Changes))
 	for _, change := range s.Changes {
-		out = append(out, grafanaChange{Change: change, grafanaTemporal: frameMetadata(s)})
+		out = append(out, grafanaChange{Change: change, TimeMode: frameTimeMode(s), HistoryID: frameHistoryID(s), SnapshotAt: s.GeneratedAt})
 	}
 	return out
 }
