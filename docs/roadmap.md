@@ -30,6 +30,8 @@ are separate release gates and must not be represented as already passed.
 differentiator easier to use. Bounded focus with a table, visual comparison of captures, guided onboarding,
 contract proposals, sampled operations and identity provenance have implemented deliverables and automated
 validation; see the [investigation guide](investigation.md). Their human-pilot evaluation joins T12.
+[Slices](journeys.md#slices-follow-the-calls) also split sampled operations, and the Grafana panel picks them
+through a dashboard variable its queries pass to teia.
 
 P0 protects the interpretation of data; P1 completes the primary investigation and adoption experience; P2
 extends the product after those foundations. Size is relative scope (S small, M medium, L large), not a delivery
@@ -431,8 +433,8 @@ Limits: publishing the PR remains with the operator and the repository's own rev
       root outcomes and the range of sampled durations without a percentile.
 
 Limits: Tempo only. The sampling policy is unknown, so no rate, coverage or population error share is
-inferred. Asynchronous links are kept but not followed. Slices do not split operations: a sliced snapshot
-carries none. See [sampled operations](operations.md).
+inferred. Asynchronous links are kept but not followed. In a slice, an operation keeps the traces whose entry
+carried it and, in them, the calls that did. See [sampled operations](operations.md).
 
 ### T22: Explain how each identity was resolved
 
@@ -485,8 +487,10 @@ above rather than treated as separate duplicate work.
 - [x] Grafana panel plugin `nilum-teia-panel` sharing the map component; icon library with technology detection
 - [x] Recycled IPs are never attributed to the wrong workload; annotation `teia.nilum.io/node-id`
 - [x] Binaries for Linux, macOS, Windows (amd64, arm64); multi-arch image; CI on all three OSes; lab end-to-end check in CI
-- [ ] Identity confidence and provenance per resolution; IP history in the Kubernetes inventory (today it knows
-      since when each current address is held, not who held it before)
+- [x] Identity provenance per resolution: method, sources, original times and candidates (T22). No confidence
+      percentage is assigned: the method and its evidence say how far to trust a match.
+- [ ] IP history in the Kubernetes inventory (today it knows since when each current address is held, not who held
+      it before)
 - [x] `teia diff` for reviewable snapshot/declaration changes and accepted Flows fragments (T14).
 - [ ] Automated PR creation/comment publication (future integration).
 - [x] Opt-in persisted snapshots with first/last seen, source evidence, bounded retention and exact replay (T13).

@@ -245,7 +245,9 @@ sources:
 
 Slices are a filter, not access control: anyone who can read the whole snapshot can read every slice. They follow
 the attributes your telemetry carries; a sampled trace source only knows the journeys of the traces it sampled.
-The Grafana panel reads slices through the frame endpoints (`?slice=`); its own slice picker is not implemented.
+In Grafana, the panel's **Calls of** buttons set a dashboard variable its queries pass as `?slice=` (see the
+[panel README](../plugins/grafana/README.md#feeding-it)); the frames carry the slice they hold, so the panel labels
+sliced data even where no variable is set up.
 
 ## Separate operation mode
 

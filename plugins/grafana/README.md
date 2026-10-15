@@ -96,6 +96,12 @@ with these refIds:
 Only `nodes` and `edges` are required. With `auth.token`, add the header `Authorization: Bearer <token>` in the data
 source (from a secret, not in the dashboard JSON).
 
+**Slices.** To pick [slices](../../docs/journeys.md#slices-follow-the-calls) on the panel, add a dashboard variable (a
+hidden textbox named `slice`, as in the lab's dashboard) and pass it to teia in the `nodes`, `edges`, `findings` and
+`coverage` queries as `?slice=${slice:percentencode}`. The panel's **Calls of** buttons then set the variable, the
+frames that come back say which slice they hold, and ✕ empties it for every call. Without the variable the panel
+offers no buttons but still labels frames a query sliced. Direct mode slices through teia's API instead.
+
 ### Numeric frame contract
 
 For queries with different column names, use the panel's setup form or the optional **Column mapping (JSON)**
@@ -208,6 +214,7 @@ then follows `stream` (Server-Sent Events), so:
 | Values on lines | Traffic and p95 latency on every line; an amber or red line shows why instead. |
 | Group by label | Initial grouping, for example `team`, `system` or `k8s.namespace`. Viewers can change it. |
 | Animate traffic | Dots travel along each communication at the speed of its traffic; red dots are errors. |
+| Slice variable | The dashboard variable the queries pass as `?slice=` (default `slice`); the **Calls of** buttons set it. Empty turns the buttons off. Not used in direct mode. |
 | teia API URL | Direct mode, described above. |
 
 The map's **Share / export** dialog encodes filters, grouping, expanded hierarchy, selection and display
