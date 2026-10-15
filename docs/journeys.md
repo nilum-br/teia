@@ -257,6 +257,8 @@ without merging their intermediate calls. Labels, global health and global traff
 operation attribution or operation measurements.
 
 The mode reports sampled roots and incomplete traces; sampling coverage and total traffic remain unknown.
+A slice does not split operations: they follow whole traces, so a sliced snapshot carries none, and choosing
+a slice closes an operation shown on the map.
 The shared [operation acceptance fixture](../internal/journey/testdata/operation-contract.json) verifies
 separate checkout/browse calls, an incomplete checkout trace and an orphan that ownership cannot attribute.
 Declared journey documents, journey-specific notifications and operation metric aggregation remain separate

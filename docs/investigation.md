@@ -19,7 +19,8 @@ already follows: missing data stays unknown, and a view that leaves part of the 
 
 A focused view shows at most 200 components. A bar above the map counts the components outside the view and
 the connections that cross its border. A path longer than the limit is rejected rather than shortened. Journey
-and facet filters still apply first. **Reset investigation** restores the whole map, and shared links keep
+and facet filters still apply first, and so does a [slice](journeys.md#slices-follow-the-calls): the view then
+starts from the selected calls only. **Reset investigation** restores the whole map, and shared links keep
 the investigation scope and presentation.
 
 ## Compare snapshots
@@ -43,6 +44,10 @@ Unchanged items are muted. A table lists every difference, with buttons that loc
 "Only before" means absent from the second capture. It does not prove that traffic stopped or that a
 declaration should be removed: each capture is a discrete observation, not continuous coverage.
 
+Captures are compared only within the same scope. With a slice on the map, "the snapshot currently shown" holds
+only the selected calls, while stored observations hold every call; a slice against the whole map, or against
+another slice, is not compared, because everything outside the slice would read as a difference.
+
 ## Connect data
 
 - **Source status:** one card per configured source with its state, the components and connections it
@@ -64,7 +69,8 @@ calls descended from those sampled entry spans. Health, rates and error shares a
 a sample neither establishes service health nor counts traffic. The workspace states the Tempo query period,
 how many traces were requested and returned, structural gaps, root outcomes and the range of sampled root
 durations, which is not a percentile. Ownership journeys remain a separate, topological view.
-See [sampled operations](operations.md) for instrumentation and limits.
+Operations follow whole traces, so none are listed while a slice is shown: **Show every call** returns to the
+whole map and the list. See [sampled operations](operations.md) for instrumentation and limits.
 
 ## Identity and provenance
 

@@ -126,7 +126,17 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 		}
 		send(w, dims)
 	})
-	mux.HandleFunc("GET /api/v1/operations", func(w http.ResponseWriter, _ *http.Request) {
+	// Sampled operations follow whole traces, which a slice does not split:
+	// ?slice= is refused rather than answered with every call's operations.
+	mux.HandleFunc("GET /api/v1/operations", func(w http.ResponseWriter, r *http.Request) {
+		switch sel, err := slice.Parse(r.URL.Query().Get("slice")); {
+		case err != nil:
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		case sel != nil:
+			writeError(w, http.StatusBadRequest, "operations are sampled from whole traces and are not split by dimension; omit slice")
+			return
+		}
 		contract := snap().Operations
 		if contract == nil {
 			contract = model.EmptyOperations()

@@ -8,8 +8,35 @@ import (
 	"time"
 
 	"github.com/nilum-br/teia/internal/model"
+	"github.com/nilum-br/teia/internal/slice"
 	"github.com/nilum-br/teia/internal/source"
 )
+
+// A slice keeps the calls that carried its dimensions; an operation follows
+// whole traces, so a slice must not present every journey's operations as
+// its own.
+func TestSlicesLeaveOutSampledOperations(t *testing.T) {
+	contract := model.EmptyOperations()
+	contract.Sources = []model.OperationSource{{Source: "tempo", Status: "sampled"}}
+	contract.Scopes = []model.OperationScope{{ID: model.OperationID("tempo", "web", "GET /browse"), Source: "tempo", EntryService: "web", Operation: "GET /browse", SampledRootCount: 1,
+		Nodes: []model.OperationNode{{ID: "web", Kind: model.KindService}, {ID: "catalog", Kind: model.KindService}},
+		Edges: []model.OperationEdge{{From: "web", To: "catalog", TraceIDs: []string{"a"}}}}}
+	traces := sliceSource{"tempo", "tempo", source.Observation{Dimensions: []string{"journey"}, Operations: contract, Edges: []source.EdgeObservation{
+		{From: "web", To: "orders", Signal: source.SignalTraces, SampleCount: 1, NoErrors: true, Slices: []source.Slice{{Dims: map[string]string{"journey": "checkout"}, SampleCount: 1, NoErrors: true}}},
+		{From: "web", To: "catalog", Signal: source.SignalTraces, SampleCount: 1, NoErrors: true, Slices: []source.Slice{{Dims: map[string]string{"journey": "browse"}, SampleCount: 1, NoErrors: true}}},
+	}}}
+	eng := New([]source.Source{traces}, Options{}, quiet())
+	if whole := eng.Refresh(context.Background()); whole.Operations == nil || len(whole.Operations.Scopes) != 1 {
+		t.Fatalf("whole round operations = %+v", whole.Operations)
+	}
+	sliced := eng.Sliced(slice.Selector{"journey": "checkout"})
+	if sliced.Slice == nil || !sliced.Slice.Matched || len(sliced.Edges) != 1 {
+		t.Fatalf("slice = %+v, edges = %+v", sliced.Slice, sliced.Edges)
+	}
+	if sliced.Operations != nil {
+		t.Fatalf("the checkout slice carried the browse operation: %+v", sliced.Operations)
+	}
+}
 
 func TestOperationSamplesAreCanonicalAndNeverRetainedAsCurrent(t *testing.T) {
 	at := time.Now().UTC()

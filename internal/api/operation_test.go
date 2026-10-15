@@ -39,3 +39,19 @@ func TestOperationEndpointAndEmptyTopologyFramePreserveSamplingContract(t *testi
 		t.Fatal("operation contract must be attached once per nodes frame")
 	}
 }
+
+// Operations follow whole traces: a slice is refused instead of being
+// answered with every journey's operations.
+func TestOperationEndpointRefusesSlices(t *testing.T) {
+	engine := newFakeEngine()
+	engine.snap.Operations = model.EmptyOperations()
+	h := Handler(engine, Options{})
+	for query, want := range map[string]int{"": http.StatusOK, "?slice=": http.StatusOK, "?slice=journey:checkout": http.StatusBadRequest, "?slice=journey": http.StatusBadRequest} {
+		if rec := get(h, "/api/v1/operations"+query, nil); rec.Code != want {
+			t.Errorf("%q: status %d, want %d (%s)", query, rec.Code, want, rec.Body)
+		}
+	}
+	if rec := get(h, "/api/v1/operations?slice=journey:checkout", nil); !strings.Contains(rec.Body.String(), "not split by dimension") {
+		t.Errorf("the refusal must say why: %s", rec.Body)
+	}
+}

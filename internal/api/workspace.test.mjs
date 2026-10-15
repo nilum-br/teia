@@ -46,6 +46,21 @@ test('comparison reports identity decisions, not their collection times or absen
   assert.equal(compareSnapshots(legacy, capture('name', '2026-10-15T12:00:00Z')).counts.changed, 0, 'missing metadata is not comparable');
 });
 
+test('comparison refuses captures that hold different calls', () => {
+  const capture = (journey, nodes) => sanitize({ nodes: nodes.map(id => ({ id })), edges: nodes.slice(1).map(id => ({ from: 'web', to: id })),
+    slice: journey ? { selector: { journey }, matched: true, metrics: 'scoped', sources: ['tempo'] } : undefined });
+  const whole = capture('', ['web', 'orders', 'catalog']), checkout = capture('checkout', ['web', 'orders']), browse = capture('browse', ['web', 'catalog']);
+  const mixed = compareSnapshots(whole, checkout);
+  assert.equal(mixed.comparable, false, 'a slice is not the whole map minus what changed');
+  assert.deepEqual(mixed.scope, { before: '', after: 'journey:checkout' });
+  assert.deepEqual([mixed.nodes, mixed.edges, mixed.counts], [[], [], { added: 0, removed: 0, changed: 0, unchanged: 0 }]);
+  assert.equal(compareSnapshots(checkout, browse).comparable, false);
+  const same = compareSnapshots(checkout, capture('checkout', ['web', 'orders', 'db']));
+  assert.equal(same.comparable, true);
+  assert.deepEqual(same.counts, { added: 2, removed: 0, changed: 0, unchanged: 3 });
+  assert.equal(compareSnapshots(whole, whole).comparable, true);
+});
+
 test('operation projection excludes global health, rates, other operations and async links', () => {
   const operations = JSON.parse(readFileSync(new URL('../journey/testdata/operation-runtime.json', import.meta.url)));
   const names = [...new Set(operations.scopes.flatMap(s => s.nodes.map(n => n.id)))];

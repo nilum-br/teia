@@ -769,6 +769,8 @@ button.label { cursor: pointer; }
   }
   // sliceText writes a selector the way the API reads it: journey:x,tenant:y.
   const sliceText = selector => Object.keys(selector || {}).sort().map(k => k + ':' + selector[k]).join(',');
+  // sliceLabel reads that form to people: journey = x · tenant = y.
+  const sliceLabel = text => String(text || '').split(',').map(p => p.replace(':', ' = ')).join(' · ');
 
   // signature identifies what is drawn, so refreshes with the same data are no-ops.
   function signature(snap) {
@@ -1676,11 +1678,17 @@ button.label { cursor: pointer; }
         return { type, id, status: !a ? 'added' : !b ? 'removed' : changes.length ? 'changed' : 'unchanged', before: a, after: b, changes };
       });
     };
+    const count = rows => Object.fromEntries(['added', 'removed', 'changed', 'unchanged'].map(status => [status, rows.filter(row => row.status === status).length]));
+    // A slice holds only the calls that carried its dimensions. Against the
+    // whole map or another slice it differs in scope, not by change.
+    const scopeOf = snap => snap.slice ? sliceText(snap.slice.selector) : '';
+    const scope = { before: scopeOf(before), after: scopeOf(after) };
+    if (scope.before !== scope.after) return { comparable: false, scope, nodes: [], edges: [], counts: count([]) };
     const nodes = compare('node', before.nodes, after.nodes, ['kind', 'tech', 'health', 'visibility', 'labels', 'addresses', 'errorsUnknown', 'identity'], n => n.id,
       n => ({ ...n, identity: decisions(n.identity) }));
     const edges = compare('edge', before.edges, after.edges, ['state', 'health', 'declared', 'observed', 'protocol', 'port', 'errorsUnknown', 'identity'], e => e.from + '->' + e.to,
       e => ({ ...e, identity: [...decisions(e.identity?.from, 'caller '), ...decisions(e.identity?.to, 'callee ')] }));
-    return { nodes, edges, counts: Object.fromEntries(['added', 'removed', 'changed', 'unchanged'].map(status => [status, [...nodes, ...edges].filter(row => row.status === status).length])) };
+    return { comparable: true, scope, nodes, edges, counts: count([...nodes, ...edges]) };
   }
 
   // ============================================================== mount
@@ -2827,7 +2835,7 @@ button.label { cursor: pointer; }
     function sliceBar() {
       const sl = state.snap?.slice, dims = state.snap?.dimensions || {};
       if (state.slice) {
-        const label = state.slice.split(',').map(p => p.replace(':', ' = ')).join(' · ');
+        const label = sliceLabel(state.slice);
         const out = [el('span', { class: 'fchip slice' }, 'Calls of ' + label,
           el('button', { type: 'button', 'aria-label': 'Show every call', title: 'Show every call', onclick: () => setSlice('') }, '✕'))];
         if (sl && !sl.matched) out.push(el('span', { class: 'caption slice-note' }, 'no call carried this selection'));
@@ -3435,7 +3443,8 @@ button.label { cursor: pointer; }
     function renderFocusSetup(pane, preset) {
       const current = { ...state.investigation, ...preset }, selected = state.selected?.type === 'node' ? state.selected.id : '';
       const names = el('datalist', { id: 'investigationNames' }, ...(state.snap?.nodes || []).map(n => el('option', { value: n.id })));
-      pane.append(el('p', {}, 'A topology path shows directed relationships, not proof that one request traversed them. Existing journey and facet filters still apply.'),
+      pane.append(el('p', {}, 'A topology path shows directed relationships, not proof that one request traversed them. Existing journey and facet filters still apply' +
+          (state.slice ? `, and so does the slice: only calls with ${sliceLabel(state.slice)}.` : '.')),
         el('div', { class: 'workspace-grid' },
           choice('Scope', 'investigationMode', [['all','Whole filtered map'],['neighbors','Limited neighborhood'],['path','Shortest directed path']], current.mode),
           el('label', {}, 'Start component', el('input', { id: 'investigationFocus', list: 'investigationNames', value: current.focus || selected, autocomplete: 'off' })),
@@ -3504,6 +3513,7 @@ button.label { cursor: pointer; }
     }
     function renderComparisonSetup(pane) {
       pane.append(el('p', {}, 'Compare exact observations. “Only before” is absence from the second capture, not proof that traffic stopped or that a declaration should be deleted. Rate jitter is excluded from structural changes.'));
+      if (state.slice) pane.append(el('p', {}, `The map shows only calls with ${sliceLabel(state.slice)}, and “Capture current snapshot” takes that slice. Stored observations hold every call, so compare a slice with another capture of the same slice.`));
       const inputs = el('div', { class: 'workspace-grid' });
       for (const side of ['before','after']) {
         const upload = el('input', { type: 'file', accept: '.json,application/json', 'aria-label': `Upload ${side} snapshot` });
@@ -3552,11 +3562,17 @@ button.label { cursor: pointer; }
     function updateComparison() {
       for (const side of ['before','after']) {
         const snap = comparison[side];
-        $('#compare-label-' + side).textContent = snap ? `${snap.generatedAt || 'Capture time unknown'} · ${snap.history?.id || 'uploaded/captured observation'} · ${snap.nodes.length} components` : 'No observation selected';
+        $('#compare-label-' + side).textContent = snap ? `${snap.generatedAt || 'Capture time unknown'} · ${snap.history?.id || 'uploaded/captured observation'} · ${snap.nodes.length} components` +
+          (snap.slice ? ` · only calls with ${sliceLabel(sliceText(snap.slice.selector))}` : '') : 'No observation selected';
       }
       clearComparisonMaps(); const result = $('#comparisonResult'); result.replaceChildren();
       if (!comparison.before || !comparison.after) return;
       const diff = compareSnapshots(comparison.before, comparison.after);
+      if (!diff.comparable) {
+        const holds = scope => scope ? 'only calls with ' + sliceLabel(scope) : 'every call';
+        result.append(el('p', { role: 'status' }, `Not compared: “before” holds ${holds(diff.scope.before)} and “after” holds ${holds(diff.scope.after)}. Their differences would be the scope, not changes. Choose two captures of the same scope.`));
+        return;
+      }
       result.append(el('p', { role: 'status' }, `${diff.counts.added} only after · ${diff.counts.removed} only before · ${diff.counts.changed} changed · ${diff.counts.unchanged} unchanged`));
       if (Date.parse(comparison.before.generatedAt) > Date.parse(comparison.after.generatedAt)) result.append(el('p', {}, 'The selected “before” capture is newer than “after”. The comparison preserves your selected order.'));
       result.append(el('p', {}, 'Map marks: + only after (green outline) · − only before (red dashed outline) · ~ changed health, state, kind, labels, addresses or identity resolution (amber outline). Unmarked items are unchanged and muted.'));
@@ -3639,6 +3655,16 @@ button.label { cursor: pointer; }
     function renderOperations(pane) {
       const operations = state.baseSnapshot?.operations;
       pane.append(el('h3', {}, 'Investigate a sampled operation'), el('p', {}, 'Operations use span ancestry and normalized route/RPC attributes. Ownership journeys remain a separate topological view. Sample outcomes and durations do not establish service health, request rates or total traffic coverage.'));
+      // A slice keeps only some calls of each trace; an operation follows the whole trace.
+      const sliced = state.slice || (state.baseSnapshot?.slice ? sliceText(state.baseSnapshot.slice.selector) : '');
+      if (sliced) {
+        pane.append(el('p', {}, `The map shows only calls with ${sliceLabel(sliced)}. Operations follow whole sampled traces, which a slice does not split, so none are listed for it.`));
+        if (state.slice && opts.api) pane.append(el('button', { type: 'button', class: 'btn', onclick: () => setSlice('').then(() => {
+          if (state.workspace === 'operations' && $('#investigateDialog').open) { openWorkspace('operations'); $('#operationSelect')?.focus(); }
+        }) }, 'Show every call'));
+        pane.append(el('p', { id: 'workspaceStatus', role: 'status' }));
+        return;
+      }
       if (!operations?.scopes.length) {
         pane.append(el('p', {}, 'No attributed operations in this capture. Connect Tempo and instrument http.route + method, RPC service/method, or teia.operation. Missing metadata is not evidence that no requests occurred.'));
       }
@@ -3815,10 +3841,13 @@ button.label { cursor: pointer; }
     // values (journey:x,tenant:y), with their own metrics; '' is the whole map.
     function setSlice(next) {
       next = String(next || '').trim();
-      if (next === state.slice) return;
+      if (next === state.slice) return Promise.resolve();
       state.slice = next;
       // An update held while paused belongs to the previous selection.
       state.pending = null;
+      // A slice carries no sampled operations (they follow whole traces), so
+      // an operation shown on the map closes when a slice is chosen.
+      if (next) state.operation = { id: '', traceId: '' };
       state.positions = stored(posKey(), {});
       topologyKey = '';
       state.fitted = false;
@@ -3829,9 +3858,10 @@ button.label { cursor: pointer; }
       }
       syncSharedURL();
       if (es) { es.close(); es = null; }
-      if (!opts.api) return;
-      load(aborter.signal, true).catch(error => { state.error = error.message; renderLive(); }).finally(() => { state.fitted = fit(); connect(); });
+      if (!opts.api) return Promise.resolve();
+      const loaded = load(aborter.signal, true).catch(error => { state.error = error.message; renderLive(); }).finally(() => { state.fitted = fit(); connect(); });
       $('#announce').textContent = next ? `Only calls with ${next.replaceAll(',', ', ')}` : 'Whole map';
+      return loaded;
     }
 
     function connect() {
@@ -4051,6 +4081,8 @@ button.label { cursor: pointer; }
         state.signals = new Set(strings(view.signals).filter(s => has(SIGNAL, s)));
       }
     } catch { /* invalid shared views leave the normal dashboard controls available */ }
+    // A slice carries no sampled operations: a link naming both opens the slice.
+    if (state.slice) state.operation = { id: '', traceId: '' };
     state.positions = stored(posKey(), {});
     if (opts.theme) host.dataset.theme = opts.theme;
 

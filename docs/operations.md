@@ -86,6 +86,11 @@ Coverage transport also works when the global topology has no nodes. Generic ext
 contract do not acquire inferred operation correlation. Explicit node aliases are applied to operation IDs
 and endpoints; platform health and metric aggregates are not copied into operation scopes.
 
+[Slices](journeys.md#slices-follow-the-calls) do not split operations. An operation follows whole sampled
+traces, while a slice keeps only the calls that carried its dimensions, so a sliced snapshot, graph or frame
+carries no `operations`, and `GET /api/v1/operations?slice=…` answers 400 instead of every journey's
+operations. To follow an operation, show every call (✕ on the slice chip, or drop `?slice=` from the frame query).
+
 When snapshot history is enabled, the original operation contract is stored inside each snapshot. Historical
 replay preserves its original trace IDs, query interval and collection time; replay does not requery Tempo.
 Retention of a Teia snapshot does not guarantee that Tempo still retains the referenced trace.
