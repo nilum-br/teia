@@ -31,6 +31,7 @@ func TestShippedConfigsLoad(t *testing.T) {
 			"declared", "prometheus/main", "prometheus/mesh", "tempo/traces", "loki/access-logs",
 			"prometheus/kafka-clients", "prometheus/app-calls", "prometheus/egress-flows", "kubernetes", "docker", "postgres/orders-db",
 		}},
+		{"../../examples/teia-clusters.yaml", nil},
 		{"../../lab/teia.yaml", []string{"declared", "prometheus", "tempo", "loki/access-logs", "docker", "postgres/orders-db"}},
 		{"../../lab/teia.host.yaml", []string{"declared", "prometheus", "tempo", "loki/access-logs", "docker", "postgres/orders-db"}},
 	}
@@ -39,6 +40,9 @@ func TestShippedConfigsLoad(t *testing.T) {
 			cfg, err := Load(tt.path)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if tt.sources == nil {
+				return
 			}
 			var got []string
 			for _, s := range cfg.BuildSources() {
@@ -61,17 +65,27 @@ var exampleSkips = map[string]string{
 func TestExampleAndReferenceCoverEveryKey(t *testing.T) {
 	keys := map[string]bool{}
 	structKeys(reflect.TypeOf(Config{}), "", keys)
+	// A cluster's sources are the sources above, documented once.
+	for k := range keys {
+		if strings.HasPrefix(k, "clusters[].sources.") {
+			delete(keys, k)
+		}
+	}
 
-	data, err := os.ReadFile("../../examples/teia.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		t.Fatal(err)
-	}
+	// examples/teia.yaml maps one scope; the clusters keys are set in
+	// examples/teia-clusters.yaml, since a file uses one or the other.
 	set := map[string]bool{}
-	yamlKeys(&doc, "", set)
+	for _, path := range []string{"../../examples/teia.yaml", "../../examples/teia-clusters.yaml"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc yaml.Node
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			t.Fatal(err)
+		}
+		yamlKeys(&doc, "", set)
+	}
 
 	reference, err := os.ReadFile("../../docs/configuration.md")
 	if err != nil {

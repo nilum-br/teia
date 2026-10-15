@@ -154,7 +154,11 @@ func slackText(changes []model.Change) string {
 		case string(model.HealthHealthy):
 			icon = ":large_green_circle:"
 		}
-		line := icon + " " + slackEscaper.Replace(truncate(c.Message, slackMaxLineSize)) + "\n"
+		message := c.Message
+		if c.Cluster != "" {
+			message = "[" + c.Cluster + "] " + message
+		}
+		line := icon + " " + slackEscaper.Replace(truncate(message, slackMaxLineSize)) + "\n"
 		if i == slackMaxLines || b.Len()+len(line) > slackMaxBytes {
 			fmt.Fprintf(&b, "...and %d more\n", len(changes)-i)
 			break

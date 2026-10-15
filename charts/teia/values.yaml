@@ -53,6 +53,13 @@ flows: {}
 #          port: 8080
 #          reason: charge the customer
 
+# Several clusters from one teia (config.clusters): a Secret you manage with
+# one kubeconfig per remote cluster, mounted read-only at /etc/teia/kube. Each
+# cluster's sources.kubernetes.kubeconfig then names its file, such as
+# /etc/teia/kube/prod-east.yaml. Use read-only accounts (get, list and watch on
+# pods, services and namespaces).
+kubeconfigSecret: ""
+
 # A ConfigMap you manage instead (from CI or GitOps), each key a flows file.
 # When set, flows above is ignored.
 flowsConfigMap: ""

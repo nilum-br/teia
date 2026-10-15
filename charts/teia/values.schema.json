@@ -42,6 +42,7 @@
       "additionalProperties": { "type": "string" }
     },
     "flowsConfigMap": { "type": "string" },
+    "kubeconfigSecret": { "type": "string" },
     "auth": {
       "type": "object",
       "additionalProperties": false,

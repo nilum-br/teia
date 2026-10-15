@@ -277,6 +277,17 @@ export function coverageOf(nodes: TeiaNode[], edges: TeiaEdge[]): TeiaSnapshot['
 }
 
 /** Turns the panel's data frames into the snapshot the map renders. */
+// clusterOf names the cluster the frames describe. Frames from several
+// clusters on one panel are not one map: the name says so instead of
+// letting one cluster pass for the other.
+export function clusterOf(records: Row[]): string | undefined {
+  const names = [...new Set(records.map(r => r.cluster).filter((c): c is string => typeof c === 'string' && c !== ''))].sort();
+  if (names.length === 0) {
+    return undefined;
+  }
+  return names.length === 1 ? names[0] : `several clusters: ${names.join(', ')}`;
+}
+
 export function framesToSnapshot(series: DataFrame[], round: number): { snapshot?: TeiaSnapshot; changes: TeiaChange[] } {
   const byRole: Partial<Record<Role, Row[]>> = {};
   const metadata: Row[] = [];
@@ -329,6 +340,7 @@ export function framesToSnapshot(series: DataFrame[], round: number): { snapshot
   return {
     snapshot: {
       round,
+      cluster: clusterOf(allMetadata),
       ...temporal(allMetadata.some(r => r.timeMode === 'historical') ? allMetadata : metadata),
       nodes,
       edges,

@@ -235,3 +235,43 @@ func TestSliceLeavesOutDeclaredFlowsItsCallsNeverMade(t *testing.T) {
 		t.Fatalf("the whole map keeps every declared flow: %v", edges)
 	}
 }
+
+// A cluster's engine says which cluster every snapshot, change and slice
+// describes.
+func TestClusterIsStampedOnEverything(t *testing.T) {
+	metrics := &growingSource{sliceSource: sliceSource{"prometheus/calls", "prometheus-query", source.Observation{Dimensions: []string{"journey", "tenant"}, Edges: []source.EdgeObservation{
+		{From: "app-a", To: "app-b", Signal: source.SignalMetrics, RequestRate: 1, Slices: []source.Slice{{Dims: dims("checkout", "b"), RequestRate: 1}}},
+	}}}}
+	eng := New([]source.Source{metrics}, Options{Cluster: "east"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	eng.Refresh(context.Background())
+	snap := eng.Refresh(context.Background())
+	if snap.Cluster != "east" || len(snap.Changes) == 0 {
+		t.Fatalf("snapshot cluster %q, %d changes", snap.Cluster, len(snap.Changes))
+	}
+	for _, c := range eng.Changes() {
+		if c.Cluster != "east" {
+			t.Fatalf("change without its cluster: %+v", c)
+		}
+	}
+	if s := eng.Sliced(mustParse(t, "journey:checkout")); s.Cluster != "east" {
+		t.Fatalf("slice cluster %q", s.Cluster)
+	}
+	if New(nil, Options{}, slog.New(slog.NewTextHandler(io.Discard, nil))).Refresh(context.Background()).Cluster != "" {
+		t.Fatal("a single scope has no cluster")
+	}
+}
+
+// growingSource sees nothing in its first round and its calls afterwards,
+// so the second round has changes.
+type growingSource struct {
+	sliceSource
+	rounds int
+}
+
+func (g *growingSource) Discover(context.Context) (source.Observation, error) {
+	g.rounds++
+	if g.rounds == 1 {
+		return source.Observation{Dimensions: g.obs.Dimensions}, nil
+	}
+	return g.obs, nil
+}

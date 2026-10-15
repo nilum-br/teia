@@ -18,6 +18,7 @@ What it runs, what it reads, the permissions it needs, and how flows files get i
 | `config` | inventory only | `teia.yaml` as is ([configuration](../../docs/configuration.md)). Add your Prometheus, Tempo and Loki under `config.sources`. The chart sets `listen`, `auth.token` and `sources.declared` itself. |
 | `flows` | `{}` | Flows files, one key per file, mounted at `/etc/teia/flows`. |
 | `flowsConfigMap` | empty | A ConfigMap you manage instead, each key a flows file. |
+| `kubeconfigSecret` | empty | A Secret with one kubeconfig per remote cluster, mounted read-only at `/etc/teia/kube`, for [several clusters](../../docs/kubernetes.md#several-clusters-from-one-teia) (`config.clusters`). With clusters, the chart drops its default top-level inventory. |
 | `auth.existingSecret` / `auth.token` | empty | Turns on the API token: a Secret with the key `token`, or a token the chart stores. Empty leaves the API open. |
 | `env` / `envFrom` | empty | Extra environment, such as passwords that `config` reads with `${NAME}`. |
 | `persistence.enabled` | `false` | Persist observation history at `/var/lib/teia/history`; sets `config.history.directory`, uses `Recreate` and defaults the pod storage group to 65532. |

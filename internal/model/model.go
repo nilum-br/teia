@@ -433,6 +433,8 @@ type Change struct {
 	From    string     `json:"from,omitempty"` // previous value
 	To      string     `json:"to,omitempty"`   // new value
 	Message string     `json:"message"`
+	// Cluster names the cluster the change happened in, when teia maps several.
+	Cluster string `json:"cluster,omitempty"`
 	// ID is the finding's ID on finding changes, so an opened and a resolved
 	// finding can be matched when several rules share a subject.
 	ID string `json:"id,omitempty"`
@@ -440,6 +442,10 @@ type Change struct {
 
 // Snapshot is the result of one discovery round.
 type Snapshot struct {
+	// Cluster names the cluster this snapshot describes when teia maps
+	// several (clusters in the config); empty for a single scope. Each
+	// cluster is discovered on its own: nothing is shared or merged across.
+	Cluster     string             `json:"cluster,omitempty"`
 	Operations  *OperationContract `json:"operations,omitempty"`
 	History     *HistoryContext    `json:"history,omitempty"`
 	Journeys    *JourneyContract   `json:"journeys,omitempty"`
