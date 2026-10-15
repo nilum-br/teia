@@ -27,7 +27,7 @@ It runs as a single binary on Linux, macOS and Windows, and shows up where your 
 
 ## Why
 
-Service maps are a commodity: Grafana, Kiali, Hubble and every APM draw one. None of them answers:
+Service maps are established in Grafana, Kiali, Hubble and APMs. teia focuses on three questions together:
 
 - **Drift.** Which communications happen that nobody declared, and which declared ones never happen?
 - **Coverage.** How much am I *not* seeing, and what exactly would fix that?
@@ -84,7 +84,7 @@ The map, in Grafana (`nilum-teia-panel`) or in teia's own UI, is the same compon
 
 Views are shareable links: `?journey=checkout`, `?filter=k8s.namespace:shop,health:failing`, `?group=team`, `?q=kind:database`, `?select=orders-db`, `?theme=light`, `?flow=1`, `?values=0`, `?legend=icons`.
 
-![The checkout journey in its frame, its datastores and gateways in a lane on the right, a port where it leaves to browse, and its headline: orders → payments, errors](docs/assets/screenshots/teia-journey.png)
+![The checkout journey in its frame, datastores and gateways on the right, ports to other journeys, and a headline identifying its failing dependency](docs/assets/screenshots/teia-journey.png)
 
 <p align="center"><img src="docs/assets/icon-library.svg" alt="The teia icon library: one pictogram per kind of component" width="820"></p>
 
@@ -141,9 +141,20 @@ docker run --rm teia detect --prometheus http://prometheus:9090 --tempo http://t
 docker run -d --name teia -p 8480:8080 -v "$PWD/teia.yaml:/etc/teia/teia.yaml:ro" teia
 ```
 
-Add `--kubernetes` or `--docker` to `detect` so teia also knows the workloads that emit nothing. On a cluster, run it
-as a Deployment with a read-only ServiceAccount. Open http://localhost:8480: if the map is there, teia is reading
-your telemetry.
+Add `--kubernetes` or `--docker` to `detect` so teia also knows the workloads that emit nothing. Open
+http://localhost:8480: if the map is there, teia is reading your telemetry.
+
+**Running on Kubernetes?** Use the [Helm installation guide](docs/kubernetes.md): build/push the image until the
+first release, create an API token Secret, and point `config.sources` at your telemetry in `my-values.yaml`:
+
+```sh
+helm upgrade --install teia ./charts/teia -n teia --create-namespace -f my-values.yaml
+helm test teia -n teia
+```
+
+The chart runs one read-only pod with inventory permissions. It installs no operator or CRD. Grafana in the same
+cluster can use `http://teia.teia.svc:8080` as the data source URL in step 3. The guide explains RBAC, flows files,
+token rotation and the optional Ingress and ServiceMonitor.
 
 **2. Install the panel plugin** (`nilum-teia-panel`). Until it is signed and in the catalog, build it and load it as
 an unsigned plugin:
@@ -205,12 +216,18 @@ happens with local builds. The lab stamps each build with its own version.
 - **From source** (today): `go build ./cmd/teia` (Go 1.27+). Docker and Kubernetes endpoints follow `DOCKER_HOST` / kubeconfig, including Docker Desktop, Colima, OrbStack, Podman and Windows named pipes.
 - **Releases** (from the first tag on): binaries for Linux, macOS and Windows (amd64, arm64), a multi-arch image at `ghcr.io/nilum-br/teia` and the Grafana panel zip.
 - **Grafana panel:** see [plugins/grafana](plugins/grafana).
+- **Kubernetes:** [Helm chart and deployment guide](docs/kubernetes.md). Releases also package the chart and publish
+  it to `oci://ghcr.io/nilum-br/charts/teia`, with the same version as the image.
 
 Then `teia detect` prints what your platform offers and a starting `teia.yaml`, and `teia serve` runs the API and
 the UI. Before exposing the API beyond localhost, set `auth.token` (and `cors.allowedOrigins` for the Grafana
 panel's direct mode): see [Configuration](docs/configuration.md) and [Exposing the API](docs/architecture.md#exposing-the-api).
 
 ## Declaring flows
+
+`Flows` is a **file format, not a Kubernetes CRD**. `apiVersion` and `kind` identify the format; do not run
+`kubectl apply` on this file. Keep it in the service's repository. On Kubernetes the chart mounts these files
+from `flows` or `flowsConfigMap`, and teia re-reads them each round. See [how to supply flows](docs/kubernetes.md#flows-files-not-a-crd).
 
 ```yaml
 apiVersion: teia.nilum.io/v1alpha1
@@ -236,7 +253,7 @@ traffic. See [docs/flows-spec.md](docs/flows-spec.md).
 
 ## Docs
 
-[Signals and sources](docs/sources.md) · [Configuration](docs/configuration.md) · [Architecture](docs/architecture.md) ·
+[Signals and sources](docs/sources.md) · [Configuration](docs/configuration.md) · [Kubernetes / Helm](docs/kubernetes.md) · [Architecture](docs/architecture.md) ·
 [Journeys](docs/journeys.md) · [Advisor rules](docs/advisor.md) · [Icon library](docs/icons.md) · [Flows spec](docs/flows-spec.md) · [Roadmap](docs/roadmap.md) ·
 [Landscape](docs/landscape.md)
 

@@ -2520,7 +2520,7 @@ button.label { cursor: pointer; }
       row('protocol', [e.protocol || '—', e.port ? ':' + e.port : ''].join(''));
       if (e.requestRate > 0) {
         row('traffic', `${fmtRate(e.requestRate)} req/s`);
-        row('errors', e.errorsUnknown ? 'not measured: the source counts requests, not failures (see Next steps)' : pct(e.errorRate));
+        row('errors', e.errorsUnknown ? 'not measured in the current round (see Sources and Next steps)' : pct(e.errorRate));
       }
       if (e.latencyP95Ms > 0) row('latency', `p50 ${fmtMs(e.latencyP50Ms)} · p95 ${fmtMs(e.latencyP95Ms)}`);
       for (const m of e.measures) row(m.what, measureText(m));

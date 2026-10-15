@@ -1,9 +1,22 @@
 # Roadmap
 
-teia wins on what nobody else does: **drift between declared and observed**, an **advisor that turns blind
-spots into exact next steps**, and a **flow matrix** security teams can act on. Drawing the graph and
-per-edge RED metrics is what Grafana, Kiali and the APMs already do well, so teia links to them instead of
-competing. See [landscape.md](landscape.md).
+teia focuses on **drift between declared and observed**, an **advisor that turns blind spots into exact next
+steps**, and a **flow matrix** security teams can act on. Graphs and per-edge RED metrics are established in
+Grafana, Kiali and APMs. Integration with their detailed evidence is a priority, not yet a completed feature.
+See the [comparison and implementation audit](landscape.md).
+
+## Next, based on the October 2026 audit
+
+- [x] Preserve topology without presenting retained rates, latency or capacity readings as live health.
+- [x] Keep health unknown when a saturation reading has no known capacity or its cause cannot be judged.
+- [x] Validate externally managed Kubernetes credentials and chart-managed token rotation.
+- [x] Add Helm lint, chart regression tests and versioned packaging to CI/release workflows.
+- [ ] Expose measurement age, time window and coverage per signal in the API and details panel.
+- [ ] Label node/group percentile summaries as approximations; prefer aggregated histograms when available.
+- [ ] Link a component or connection directly to traces, logs and dashboards with its context preserved.
+- [ ] Bring journeys into the backend and support targeted health thresholds; distinguish labels from actual
+      operation-specific traffic.
+- [ ] Execute the first tagged release and validate chart/image/plugin downloads from their public destinations.
 
 ## v0.1: useful on a real platform
 
@@ -25,7 +38,7 @@ competing. See [landscape.md](landscape.md).
 - [ ] `teia diff` for pull requests: drift introduced by a change, as a PR comment
 - [ ] Persist aggregated edges (first seen, last seen, sources) so short windows do not erase history; today edges
       live in memory for `retention`
-- [ ] Helm chart
+- [x] Helm chart: one read-only pod, no CRD/operator, optional auth/Ingress/ServiceMonitor, hot-reloaded flows
 
 ## v0.2: where developers work
 

@@ -114,6 +114,66 @@ func TestRefreshReusesLastGoodObservation(t *testing.T) {
 	}
 }
 
+func TestFailedTelemetryRetainsTopologyWithoutOldHealth(t *testing.T) {
+	reading := []model.Measure{{Cause: model.CauseSaturation, What: "memory", Value: 10, Max: 100}}
+	observed := source.Observation{
+		Nodes:    []source.NodeObservation{{ID: "cache", Kind: model.KindCache, Measures: reading}},
+		Edges:    []source.EdgeObservation{{From: "web", To: "cache", RequestRate: 10, LatencyP95Ms: 20}},
+		Readings: []source.Reading{{Candidates: []string{"cache"}, Measures: reading}},
+	}
+	src := &scripted{name: "metrics", typ: "prometheus", steps: []func(context.Context) (source.Observation, error){
+		returns(observed), fails(errors.New("unavailable")), returns(observed),
+	}}
+	e := New([]source.Source{src}, Options{Retention: time.Minute}, quiet())
+	first := e.Refresh(context.Background())
+	if len(first.Edges) != 1 || first.Edges[0].Health != model.HealthHealthy {
+		t.Fatalf("expected measured healthy traffic: %+v", first.Edges)
+	}
+	failed := e.Refresh(context.Background())
+	if len(failed.Edges) != 1 || !failed.Edges[0].Observed {
+		t.Fatal("keep topology during a temporary failure")
+	}
+	for _, edge := range failed.Edges {
+		if edge.Health != model.HealthUnknown || edge.RequestRate != 0 || edge.LatencyP95Ms != 0 || !edge.ErrorsUnknown {
+			t.Errorf("old traffic must not look current: %+v", edge)
+		}
+	}
+	for _, node := range failed.Nodes {
+		if node.Health != model.HealthUnknown || len(node.Measures) != 0 {
+			t.Errorf("old readings must not make a node healthy: %+v", node)
+		}
+	}
+	if statusOf(t, failed, "metrics").State != model.SourceError {
+		t.Fatal("report the source failure")
+	}
+	recovered := e.Refresh(context.Background())
+	if recovered.Edges[0].Health != model.HealthHealthy || recovered.Edges[0].RequestRate != 10 {
+		t.Fatal("recovery must restore measurements, without mutating the source's observation")
+	}
+	if first.Edges[0].RequestRate != 10 {
+		t.Fatal("retention must not mutate a previous snapshot")
+	}
+}
+
+func TestFreshTelemetryStillJudgesAnEdgeDuringAnotherSourceOutage(t *testing.T) {
+	old := source.Observation{Edges: []source.EdgeObservation{{From: "web", To: "orders", RequestRate: 100, LatencyP95Ms: 3000}}}
+	fresh := source.Observation{Edges: []source.EdgeObservation{{From: "web", To: "orders", RequestRate: 2, LatencyP95Ms: 30}}}
+	flaky := &scripted{name: "flaky", typ: "prometheus", steps: []func(context.Context) (source.Observation, error){
+		returns(old), fails(errors.New("unavailable")),
+	}}
+	working := &scripted{name: "working", typ: "prometheus", steps: []func(context.Context) (source.Observation, error){returns(fresh)}}
+	e := New([]source.Source{flaky, working}, Options{Retention: time.Minute}, quiet())
+	e.Refresh(context.Background())
+	next := e.Refresh(context.Background())
+	if len(next.Edges) != 1 {
+		t.Fatalf("want one merged edge, got %d", len(next.Edges))
+	}
+	edge := next.Edges[0]
+	if edge.RequestRate != 2 || edge.LatencyP95Ms != 30 || edge.Health != model.HealthHealthy || edge.ErrorsUnknown {
+		t.Fatalf("current telemetry must win over retained topology: %+v", edge)
+	}
+}
+
 func TestRefreshKeepsInventoryNamesWhileItFails(t *testing.T) {
 	inventory := source.Observation{Nodes: []source.NodeObservation{{ID: "orders", Kind: model.KindService, Addresses: []string{"10.0.0.2"}}}}
 	sessions := source.Observation{Edges: []source.EdgeObservation{{From: source.AddressID("10.0.0.2"), To: "orders-db", Signal: source.SignalDatabase}}}

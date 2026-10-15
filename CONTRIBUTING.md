@@ -187,6 +187,20 @@ A preset teaches the `prometheus` source one family of metrics. All of them live
 4. Document it in the Presets table of `docs/sources.md` and the preset list in `docs/configuration.md`. The config
    accepts the new name on its own (`prometheus.Lookup`).
 
+## Checking the Helm chart
+
+With Helm on PATH, run the chart checks from the repository root:
+
+```sh
+helm lint charts/teia --strict
+helm lint charts/teia --strict -f charts/teia/ci/full-values.yaml
+go test -v ./charts/tests
+```
+
+The tests render the real chart and check external ServiceAccount credentials, token rotation, flows reload and
+rejected configuration. They skip when Helm is absent; the dedicated CI job installs Helm and runs them. The
+release workflow packages the chart with the release's version and image tag; a manual workflow run does not publish.
+
 ## Troubleshooting
 
 **Behind a TLS-inspecting proxy.** Corporate proxies that re-sign TLS break `go mod download`, `npm ci` and Grafana's

@@ -144,6 +144,29 @@ jobs:
           path: plugins/grafana/dist
           if-no-files-found: error
 
+  helm-chart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.3.0
+      - name: lint defaults and all optional resources
+        run: |
+          helm lint charts/teia --strict
+          helm lint charts/teia --strict -f charts/teia/ci/full-values.yaml
+          helm template teia charts/teia -f charts/teia/ci/full-values.yaml > /dev/null
+      - name: chart integration tests
+        run: go test -v ./charts/tests
+      - name: package chart
+        run: helm package charts/teia --destination dist
+
   image:
     runs-on: ubuntu-latest
     timeout-minutes: 30

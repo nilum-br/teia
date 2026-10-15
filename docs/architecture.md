@@ -56,10 +56,13 @@ An `Observation` carries:
 
 A source that returns an error, panics or ignores its `timeout` is reported as `error`. So that one bad round
 (a broken flows file, an inventory restart) does not turn every `ok` edge into a ghost or every name back into an
-address, teia keeps using the source's last good observation for up to `retention` and says so in the status
+address, teia keeps the topology from the source's last good observation for up to `retention` and says so in the status
 (`failed: ...; using the last good observation from 40s ago`). After that, the source contributes nothing until it
 recovers. A source that has not answered a little after `timeout` is given up on for the round, and skipped while
-it is still busy.
+it is still busy. Retention preserves relationships and identities, not live measurements: old traffic, latency,
+locks and capacity readings are removed. Without another source measuring health now, the component or connection
+becomes `unknown`. The same rule applies to an edge retained between samples: it stays on the map without replaying
+its previous traffic as current.
 
 Every source is read-only and talks to systems you already run. teia ships no agent. Where the API it reads can
 do more than read, give teia a narrower door: an RBAC role for Kubernetes, a socket proxy for Docker (see

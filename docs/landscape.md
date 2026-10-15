@@ -1,70 +1,79 @@
 # Landscape
 
-How teia relates to what already exists, as of October 2026, based on public documentation, GitHub activity
-and plugin catalog data gathered at that date.
-
-## The short version
-
-**Mapping who talks to whom is a commodity. Reconciling it with what teams declared is not.**
-
-- Every active open source tool *observes*: Kiali, Hubble, Coroot, Pixie, Kubeshark, Retina, NetObserv,
-  Beyla/OBI, Tempo service graphs.
-- Only Backstage's catalog graph and Otterize *declare*.
-- The only one that compared the two (Otterize's shadow mode) lived in a SaaS that stopped after the company
-  was acquired in 2025.
-- Commercial APMs come closest:
-  - Datadog shows declared and observed dependencies side by side, but does not diff them.
-  - New Relic and Dynatrace turn blindness into a score and a button, but the answer is always "install our agent".
-
-Nobody gives advice at the level of a **data source permission** ("grant `pg_monitor`"), across OTel, mesh,
-eBPF and databases at once.
-
-## Open source
-
-| Tool | Observes | Declares | Drift | Tells you where it is blind | Backstage | Status |
-|---|---|---|---|---|---|---|
-| Tempo service graphs / OTel `servicegraph` | traces | no | no | implicitly (virtual nodes) | no | active; **teia's main source** |
-| Kiali | Istio telemetry | no | Istio config only | "Missing Sidecar", validations | community plugin | active |
-| Hubble / Hubble UI | Cilium eBPF flows | no | policy verdicts | no | no | active, Cilium only |
-| Coroot | eBPF + DB agents | no | no | some inspections | no | active, own UI |
-| Beyla / OBI, Odigos | eBPF / auto-instrumentation | no | no | no | no | active; **sources for teia** |
-| Otterize | eBPF/DNS, Istio, Kafka | ClientIntents | shadow mode (in SaaS) | no | no | stalled since 06/2025 (acquired) |
-| Caretta | eBPF TCP | no | no | no | no | no commits in a year |
-| Weave Scope | /proc, conntrack | no | no | no | no | unmaintained (company closed) |
-| Novatec SDG panel | any table | no | no | no | no | ~13.5M downloads, no commits in a year |
-| Backstage catalog-graph | declared relations | yes | no | no | core | active |
-
-## Commercial
-
-| Product | Declared + observed | Drift | Coverage advice |
-|---|---|---|---|
-| Datadog | yes (imports `catalog-info.yaml`) | side by side, no diff | inferred services |
-| Dynatrace | topology injection | no | Discovery & Coverage: "install OneAgent here" |
-| New Relic | user-defined relations | no | dotted uninstrumented entities, "Instrument what's missing", score |
-| ServiceNow Discovery | manual CIs | no | **the reference UX**: stable error codes, root cause, remediation |
-| Tufin / AlgoSec | application connectivity | partial | firewall-centric; CSV "communication matrix" |
-
-## Internal developer portals
-
-Backstage, Port, Cortex, OpsLevel and Roadie treat dependencies as declared data. Some import an APM's
-service map. None shows the difference: Cortex and Port merge and de-duplicate, which hides drift.
+Reviewed on 14 October 2026 against official product documentation and this repository. This compares documented
+capabilities; it is not proof that a competitor lacks every feature not mentioned. Priorities are our assessment.
 
 ## Where teia fits
 
-| teia does | teia leaves to others |
-|---|---|
-| drift (ghost / stale) as a first-class concept, vendor-neutral | drawing graphs with RED metrics (link to Grafana / Kiali instead) |
-| coverage advisor at the permission level, across sources | eBPF capture (consume Beyla / OBI / Hubble / Retina) |
-| datastore-side discovery (`pg_stat_activity`) for clients nothing else sees | NetworkPolicy from observed traffic only (Kubescape, Inspektor Gadget, RHACS) |
-| a declared contract in git, next to `catalog-info.yaml` | |
-| flow matrix export for firewall and security reviews | |
+teia's strongest proposition combines **declared communication contracts, observed traffic and actionable
+coverage advice**, using telemetry a platform already runs. Service maps and RED metrics are established
+capabilities elsewhere. The defensible differences are:
 
-## Lessons from those that stopped
+- **A reviewable contract:** flows in Git describe destination, protocol, port and reason; observed traffic is
+  reconciled with that intent as `ghost` and `stale`, rather than merely added to a diagram.
+- **Advice at the missing permission or integration:** the advisor can suggest `pg_monitor`, an adapter or
+  instrumentation, with a concrete snippet to review.
+- **Heterogeneous and legacy discovery:** traces, mesh, network telemetry, logs, inventory and PostgreSQL-side
+  discovery contribute to one graph without requiring a teia agent.
+- **One relationship for operations and architecture review:** the graph explains a problem while the flow matrix
+  supports platform/security review. Automated pull requests remain future work.
+- **Evidence that can be evaluated:** attribution and unknown health exist. Age and confidence per measurement
+  would strengthen this proposition further.
 
-They did not stop for lack of users. They stopped because the open source part was a funnel for a SaaS, or
-a showcase, and the company changed course, or because maintaining their own agent and UI was too expensive.
-teia's answer:
+These are differentiating combinations, not claims of worldwide exclusivity.
 
-- a small maintenance surface: no eBPF of its own, UI inside Backstage and Grafana;
-- the core features stay fully open source;
-- neutral governance as it grows.
+## References worth learning from
+
+| Reference | Documented capabilities | Application to teia |
+|---|---|---|
+| Kiali | Service/workload/application graphs, filtering, operations, ranking, side panels and replay. [Topology](https://kiali.io/docs/features/topology/) | Make the path from a failing journey to its dependency and evidence short. Filters and replay are benchmarks, not exclusive features. |
+| Grafana / Tempo | A graph connected to metrics and spans, with virtual nodes for some uninstrumented dependencies. [Service graph view](https://grafana.com/docs/tempo/latest/metrics-from-traces/service_graphs/service-graph-view/), [virtual nodes](https://grafana.com/docs/tempo/latest/metrics-from-traces/service_graphs/) | Open traces, logs and dashboards with the selected service and period; distinguish inferred from directly observed identity. |
+| Hubble | Service dependency maps built from Cilium network flows. [Hubble UI](https://docs.cilium.io/en/stable/observability/hubble/hubble-ui/) | Keep network evidence distinct from application failures and missing instrumentation; consume established capture tools. |
+| Coroot | Application, infrastructure and datastore inspections; PostgreSQL inspections include blockers and replication. [Inspections](https://docs.coroot.com/inspections/), [PostgreSQL](https://docs.coroot.com/inspections/postgres/) | Explain DB/cache/queue problems with their own measurements. Broad component coverage alone is not unique. |
+| Datadog | Discovered and manually declared catalog dependencies, plus inferred databases, queues and APIs. [Dependencies](https://docs.datadoghq.com/internal_developer_portal/use_cases/dependency_management/), [inferred services](https://docs.datadoghq.com/tracing/services/inferred_services/) | Position teia around explicit reconciliation across vendors, rather than claiming nobody combines declared and observed dependencies. |
+
+## What the code supports today
+
+| Capability | Status | Implementation and limits |
+|---|---|---|
+| Journeys, filters and shareable views | Available | `internal/api/ui/teia-ui.js`: labels, scope, ports and facets; same component in Grafana. |
+| User-operation journeys | Partial | Label membership and graph expansion can include unrelated traffic through a shared service. This is not an end-to-end transaction trace; the backend has no Journey entity. |
+| Services, SQL/document databases, caches and queues | Available | `internal/source/prometheus/probes.go` reads supported exporters. Coverage depends on supplied telemetry and identity labels. |
+| Discovery inside a datastore | Partial | PostgreSQL explorer exists. Redis/MySQL/Kafka exporter metrics are not equivalent to explorers of clients or consumer groups. |
+| Unknown health and reasons | Available, with limits | `internal/graph/health.go` only judges interpretable readings. Retained topology does not replay old measurements. Explicit age and partial coverage per signal remain to be exposed. |
+| Per-service or operation thresholds | Not implemented | Thresholds are global in `internal/config`. Kiali supports targeted rules. [Kiali health configuration](https://kiali.io/docs/configuration/health/) |
+| Drift, coverage advisor and generated flows | Available | `internal/graph`, `internal/advisor`, `internal/export`: ghost/stale, snippets and flow matrix. |
+| History and Grafana time range | Partial | Retention and a change feed exist in memory. `internal/api/grafana.go` serves the current snapshot; `TeiaPanel.tsx` does not use the historical `timeRange`. |
+| Links to traces/logs/dashboards | Not implemented in the inspected UI | Details offer internal navigation and source information. Configurable evidence links remain a priority. [Grafana data links](https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/configure-data-links/) |
+| Kubernetes/Grafana installation | Partial | Helm, schema, RBAC, token, Ingress, ServiceMonitor and chart checks exist. Panel uses Infinity or direct API; native data source, signing and catalog distribution remain future work. |
+| Git review and Backstage | Partial | Flows and CSV exist. Backstage, `teia diff` and opening a PR to accept a flow remain roadmap items. |
+
+## Priorities
+
+**P0: confidence in health and measurements.** Distinguish absent, zero, inferred and expired data. Tests cover
+uninterpretable saturation, source failure/recovery and retained edges. Next, expose observation time and coverage
+per signal, and identify aggregated latency correctly: current node/group p95 summaries are weighted approximations,
+not the percentile of a combined distribution or an end-to-end journey. Percentiles cannot generally be aggregated;
+aggregate histogram buckets first where available. [Prometheus guidance](https://prometheus.io/docs/practices/histograms/)
+
+**P1: finish the diagnostic path.** Show value, threshold, period, source and age together, then open the relevant
+trace/log/dashboard. Bring journey scope to the backend and allow targeted thresholds, keeping membership distinct
+from operation-specific traffic.
+
+**P1: repeatable installation.** Validate upgrades, authentication and platform-managed accounts; package the chart
+with the release. Complete signed Grafana distribution and assess a native data source before adding an operator.
+
+**P2: close the contract-review loop.** Persist first/last observation, account for expected frequency of batch jobs,
+compare before/after, and produce a reviewable Git change to accept observed communication as declared.
+
+Component additions to evaluate: oldest-message age, consumers without progress, unacknowledged messages and
+dead-letter queues; Redis evictions/rejected clients; PostgreSQL old transactions and replication delay. Keep
+measurements separate from estimates: backlog divided by consumption rate estimates drain time, not necessarily
+the age of the oldest message.
+
+## Scope to preserve
+
+- Consume established telemetry rather than shipping another eBPF agent.
+- Keep the contract and advisor useful independently of the graph UI.
+- Integrate with Grafana and Backstage where teams investigate and review architecture.
+- Keep core reconciliation and advice open source.

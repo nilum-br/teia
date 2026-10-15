@@ -22,6 +22,7 @@ What it runs, what it reads, the permissions it needs, and how flows files get i
 | `env` / `envFrom` | empty | Extra environment, such as passwords that `config` reads with `${NAME}`. |
 | `rbac.create` | `true` | The read-only ClusterRole: `get`, `list`, `watch` on pods, services and namespaces. |
 | `serviceAccount.*` | created | Name and annotations of teia's ServiceAccount. |
+| `serviceAccount.automountServiceAccountToken` | `true` | Mount the inventory credential, including for an externally managed account. Independent of `rbac.create`. |
 | `service.*` | ClusterIP, 8080 | The Service in front of the UI, API and `/metrics`. |
 | `ingress.*` | off | An Ingress for the UI and API. |
 | `serviceMonitor.*` | off | A Prometheus Operator ServiceMonitor for `/metrics`, with the token when there is one. |
@@ -32,3 +33,12 @@ What it runs, what it reads, the permissions it needs, and how flows files get i
 `values.schema.json` checks these, so a misspelt key fails the install.
 
 `helm test teia -n teia` calls `/healthz` from inside the cluster.
+
+Changing `auth.token` rolls out the pod. For `auth.existingSecret`, rotate the Secret and restart the Deployment
+so it reloads the token from its environment. Use top-level `auth`, not `config.auth.token` (rejected by the schema).
+
+CI runs strict lint with defaults and all optional resources, renders the chart, and checks account credentials,
+token rotation and flows reload behavior with `go test ./charts/tests` (requires Helm on PATH).
+
+Tagged releases package the chart with matching chart/app versions, attach it to the release with checksums,
+and push it to `oci://ghcr.io/nilum-br/charts/teia` after the image is published. Manual release runs only build.

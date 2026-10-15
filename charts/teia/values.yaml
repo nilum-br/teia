@@ -80,6 +80,9 @@ rbac:
 
 serviceAccount:
   create: true
+  # Inventory needs a credential even when RBAC is managed outside this chart.
+  # Set false only when not using in-cluster Kubernetes inventory.
+  automountServiceAccountToken: true
   # Defaults to the release's full name.
   name: ""
   annotations: {}

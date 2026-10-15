@@ -100,8 +100,20 @@ kubectl -n teia exec deploy/teia -- teia detect --prometheus http://prometheus-o
 
 ```sh
 helm install teia ./charts/teia -n teia -f my-values.yaml
+helm test teia -n teia
 kubectl -n teia port-forward svc/teia 8480:8080      # then open http://localhost:8480/?token=...
 ```
+
+After the first tagged release, the chart will also be available as a release asset and in GHCR. For example,
+once `v0.1.0-alpha.1` is published:
+
+```sh
+helm upgrade --install teia oci://ghcr.io/nilum-br/charts/teia --version 0.1.0-alpha.1 \
+  -n teia --create-namespace -f my-values.yaml
+```
+
+The packaged chart's version and default image tag match the release. Until then, use the local chart and your
+own image as above.
 
 The **Next steps** tab lists what teia cannot see yet and how to fix each one, such as a missing permission or a
 service with no telemetry of its own.
@@ -152,6 +164,12 @@ add the token header, and import the dashboard. The steps are in the README, und
 
 - **Upgrades:** `helm upgrade`. A change to `config` restarts the pod (its checksum is on the pod); a change to flows
   does not.
+- **Token rotation:** changing `auth.token` through Helm restarts the pod automatically. If you manage the Secret
+  with `auth.existingSecret`, update it and run `kubectl -n teia rollout restart deployment/teia`: environment
+  variables are read only when the process starts. Update Grafana's data source credential too.
+- **Existing permissions:** use `rbac.create: false`, `serviceAccount.create: false` and `serviceAccount.name`
+  when your platform manages the reader account and its bindings. Its token still mounts for inventory. Set
+  `serviceAccount.automountServiceAccountToken: false` only when in-cluster inventory is disabled.
 - **Resources:** the defaults (50m CPU, 64 Mi requested, 512 Mi limit) fit a few hundred services. Memory grows with
   the number of services and connections teia keeps.
 - **One replica:** a second one would only double the queries to your telemetry. If the pod moves, the map is back

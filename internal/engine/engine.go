@@ -171,7 +171,7 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 			// otherwise turn every ok edge into a ghost, and a failed
 			// inventory every name back into an address.
 			age := now.Sub(last.at).Round(time.Second)
-			results[i] = graph.Result{Source: src, Observation: last.obs}
+			results[i] = graph.Result{Source: src, Observation: topologyOnly(last.obs)}
 			statuses[i] = status(src, last.obs, nil, a.took)
 			statuses[i].State = model.SourceError
 			statuses[i].Message = fmt.Sprintf("failed: %v; using the last good observation from %s ago", a.err, age)
@@ -260,6 +260,27 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 		}
 	}
 	return snap
+}
+
+// topologyOnly preserves identities and intent during a source outage, but
+// old traffic and readings cannot establish the current health of a service.
+// Clone the slices we change: a source may reuse its observation on recovery.
+func topologyOnly(obs source.Observation) source.Observation {
+	obs.Nodes = slices.Clone(obs.Nodes)
+	for i := range obs.Nodes {
+		obs.Nodes[i].Measures = nil
+	}
+	obs.Edges = slices.Clone(obs.Edges)
+	for i := range obs.Edges {
+		edge := &obs.Edges[i]
+		edge.RequestRate, edge.ErrorRate = 0, 0
+		edge.LatencyP50Ms, edge.LatencyP95Ms = 0, 0
+		edge.NoErrors = true
+		edge.Measures = nil
+	}
+	obs.Readings = nil
+	obs.UnknownCallers = nil
+	return obs
 }
 
 // answer is what one source returned in a round.

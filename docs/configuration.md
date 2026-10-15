@@ -40,7 +40,7 @@ binary, for working on it. It is a flag, not a config key.
 |---|---|---|
 | `interval` | `30s` | Time between discovery rounds. |
 | `timeout` | `20s` | How long each source may take in a round. A source still busy a little after that is given up on for the round, and skipped while it is busy. |
-| `retention` | 3 × `interval` | How long an observed edge stays after it was last seen, so sampled signals do not make it blink. A failing source's last good observation is reused for as long, and the status says so. |
+| `retention` | 3 × `interval` | How long an observed edge stays after it was last seen, so sampled signals do not make it blink. A failing source's last good topology is reused for as long, and the status says so. Old rates, latency and readings are not reused as current health. |
 | `aliases` | none | Map of name → node ID: both sides are one node. Matched case-insensitively. A key may be an address no inventory knows, such as `"ip:192.0.2.10"` (quote it). One hop: aliases do not chain. |
 | `ignore` | none | Node IDs to leave out of the graph, with their edges and findings. Containers can say the same with the label `teia.ignore=true`, pods with the annotation `teia.nilum.io/ignore: "true"`. |
 | `health` | | Limits of each golden signal. A node or edge takes the worst of its signals, and the map says which one (its `reasons`). |

@@ -1,8 +1,8 @@
 name: release
 
 # Push a tag vX.Y.Z to release. CI runs first; then the binaries (Linux, macOS
-# and Windows, amd64 and arm64) and the Grafana panel zip are attached to a
-# draft release, the multi-arch image is pushed to ghcr.io, and only then is
+# and Windows, amd64 and arm64), Grafana panel zip and Helm chart are attached to a
+# draft release, the multi-arch image and chart are pushed to ghcr.io, and only then is
 # the release published. A tag with a hyphen (v1.2.0-rc.1) is a pre-release.
 #
 # Run it by hand (workflow_dispatch) to build everything without publishing.
@@ -104,8 +104,35 @@ jobs:
           path: plugins/grafana/package/*.zip
           if-no-files-found: error
 
+  chart:
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.3.0
+      - name: package the chart with the release's image tag
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            helm package charts/teia --version "${VERSION#v}" --app-version "${VERSION#v}" --destination dist
+          else
+            # A manual build validates the package without inventing a release.
+            helm package charts/teia --destination dist
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: chart
+          path: dist/teia-*.tgz
+          if-no-files-found: error
+
   draft:
-    needs: [binaries, panel]
+    needs: [binaries, panel, chart]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -121,6 +148,10 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: panel
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: chart
           path: dist
       - name: checksums
         working-directory: dist
@@ -191,8 +222,31 @@ jobs:
           sbom: ${{ github.ref_type == 'tag' }}
           provenance: ${{ github.ref_type == 'tag' && 'mode=max' || 'false' }}
 
-  publish:
+  chart-registry:
     needs: [draft, image]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      packages: write
+    steps:
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.3.0
+      - uses: actions/download-artifact@v8
+        with:
+          name: chart
+          path: dist
+      - name: push the chart after its image is available
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GH_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          # Keep OCI charts separate from the container image of the same name.
+          helm push "dist/teia-${VERSION#v}.tgz" "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts"
+
+  publish:
+    needs: [draft, image, chart-registry]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 5

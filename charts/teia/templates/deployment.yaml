@@ -21,6 +21,10 @@ spec:
       annotations:
         # A new teia.yaml restarts the pod; flows are re-read without one.
         checksum/config: {{ include "teia.config" . | sha256sum }}
+        {{- if and .Values.auth.token (not .Values.auth.existingSecret) }}
+        # The process reads this Secret through its environment at startup.
+        checksum/auth: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
         # teia leaves itself off the map it draws.
         teia.nilum.io/ignore: "true"
         {{- with .Values.podAnnotations }}
@@ -28,7 +32,7 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "teia.serviceAccountName" . }}
-      automountServiceAccountToken: {{ .Values.rbac.create }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

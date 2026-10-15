@@ -454,7 +454,7 @@ func TestRememberedEdgesForgetMomentaryMeasures(t *testing.T) {
 	later := Build(nil, nil, nil)
 	m.Retain(later, now.Add(10*time.Second))
 	if e := later.Edges["orders->orders-db"]; e == nil || len(e.Measures) != 0 {
-		t.Errorf("a remembered edge keeps its traffic, not the locks of ten seconds ago: %+v", e)
+		t.Errorf("a remembered edge keeps its relationship, not the locks of ten seconds ago: %+v", e)
 	}
 }
 

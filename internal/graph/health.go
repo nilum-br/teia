@@ -48,10 +48,10 @@ type Signals struct {
 // limits: traffic whose failures nobody measured is unknown, not healthy.
 func (t HealthThresholds) Judge(s Signals) (model.Health, []model.Reason) {
 	errorsJudged := s.RequestRate > 0 && !s.ErrorsUnknown
-	if !errorsJudged && s.LatencyP95Ms <= 0 && len(s.Measures) == 0 {
+	reasons, measuresJudged := t.judgeMeasures(s.Measures)
+	if !errorsJudged && s.LatencyP95Ms <= 0 && !measuresJudged {
 		return model.HealthUnknown, nil
 	}
-	reasons := t.judgeMeasures(s.Measures)
 	if errorsJudged {
 		if r, ok := limit(model.CauseErrors, s.ErrorRate, t.Degraded, t.Failing); ok {
 			r.Summary = model.FormatPercent(s.ErrorRate) + " errors, over " + model.FormatPercent(r.Limit)
@@ -67,8 +67,9 @@ func (t HealthThresholds) Judge(s Signals) (model.Health, []model.Reason) {
 }
 
 // judgeMeasures turns measures past their limits into reasons.
-func (t HealthThresholds) judgeMeasures(measures []model.Measure) []model.Reason {
+func (t HealthThresholds) judgeMeasures(measures []model.Measure) ([]model.Reason, bool) {
 	var reasons []model.Reason
+	judged := false
 	for _, m := range measures {
 		var r model.Reason
 		var ok bool
@@ -105,13 +106,16 @@ func (t HealthThresholds) judgeMeasures(measures []model.Measure) []model.Reason
 			if r, ok = limit(m.Cause, m.Value, t.RestartsDegraded, t.RestartsFailing); ok {
 				r.Summary = fmt.Sprintf("%s %s, over %s", model.FormatCount(m.Value), m.What, model.FormatCount(r.Limit))
 			}
+		default:
+			continue
 		}
+		judged = true
 		if ok {
 			r.What, r.Via = m.What, m.Via
 			reasons = append(reasons, r)
 		}
 	}
-	return reasons
+	return reasons, judged
 }
 
 // limit compares value with two limits; ok is false within both. A limit
@@ -318,8 +322,6 @@ func (m *Memory) Retain(g *Graph, now time.Time) {
 			g.Edges[key] = e
 		} else {
 			e.Observed = true
-			e.RequestRate, e.ErrorRate, e.ErrorsUnknown = r.edge.RequestRate, r.edge.ErrorRate, r.edge.ErrorsUnknown
-			e.LatencyP50Ms, e.LatencyP95Ms = r.edge.LatencyP50Ms, r.edge.LatencyP95Ms
 			for _, s := range r.edge.Sources {
 				e.Sources = appendUnique(e.Sources, s)
 			}
@@ -327,6 +329,10 @@ func (m *Memory) Retain(g *Graph, now time.Time) {
 				e.Signals = appendUnique(e.Signals, s)
 			}
 		}
+		// Retain the relationship, never replay old rates or latency as live.
+		e.RequestRate, e.ErrorRate, e.ErrorsUnknown = 0, 0, true
+		e.LatencyP50Ms, e.LatencyP95Ms = 0, 0
+		e.Health, e.Reasons = model.HealthUnknown, nil
 		for _, id := range []string{e.From, e.To} {
 			if _, ok := g.Nodes[id]; !ok {
 				g.Nodes[id] = &model.Node{ID: id, Kind: model.KindUnknown, Sources: e.Sources}

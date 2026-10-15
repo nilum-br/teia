@@ -297,7 +297,7 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 	}
 
 	for key, e := range g.Edges {
-		e.ErrorsUnknown = e.RequestRate > 0 && errorsRate[key] == 0
+		e.ErrorsUnknown = errorsRate[key] == 0
 	}
 	markOutside(g, results, canonical, selfReported)
 	attachReadings(g, results, resolve)

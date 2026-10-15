@@ -26,7 +26,7 @@ já olha: no **Grafana**.
 
 ## Por quê
 
-Mapa de serviços virou commodity. Nenhum deles responde:
+Mapas de serviços já existem no Grafana, Kiali, Hubble e nos APMs. A teia reúne três perguntas:
 
 - **Drift**: que comunicações acontecem sem ninguém ter declarado, e quais declaradas nunca acontecem?
 - **Cobertura**: quanto do quadro eu **não** estou vendo, e o que exatamente resolve?
@@ -123,9 +123,21 @@ docker run --rm teia detect --prometheus http://prometheus:9090 --tempo http://t
 docker run -d --name teia -p 8480:8080 -v "$PWD/teia.yaml:/etc/teia/teia.yaml:ro" teia
 ```
 
-Adicione `--kubernetes` ou `--docker` ao `detect` para a teia conhecer também os workloads que não emitem nada. Num
-cluster, rode como Deployment com uma ServiceAccount só de leitura. Abra http://localhost:8480: se o mapa aparece, a
-teia está lendo sua telemetria.
+Adicione `--kubernetes` ou `--docker` ao `detect` para a teia conhecer também os workloads que não emitem nada.
+Abra http://localhost:8480: se o mapa aparece, a teia está lendo sua telemetria.
+
+**Vai rodar no Kubernetes?** Siga o [guia de instalação com Helm](docs/kubernetes.md): até a primeira release,
+faça o build e envie a imagem ao seu registry, crie um Secret para o token da API e configure sua telemetria
+em `config.sources` no arquivo `my-values.yaml`:
+
+```sh
+helm upgrade --install teia ./charts/teia -n teia --create-namespace -f my-values.yaml
+helm test teia -n teia
+```
+
+O chart sobe um pod só de leitura com permissão para consultar o inventário. Não instala operator nem CRD.
+O Grafana no mesmo cluster pode usar `http://teia.teia.svc:8080` no passo 3. O guia detalha permissões, arquivos
+de flows, troca de token e as opções de Ingress e ServiceMonitor.
 
 **2. Instale o plugin do painel** (`nilum-teia-panel`). Até ele ser assinado e entrar no catálogo, faça o build e
 carregue como plugin não assinado:
@@ -187,14 +199,27 @@ então isso só acontece com builds locais. O lab carimba cada build com uma ver
 
 - **Pelo código-fonte** (hoje): `go build ./cmd/teia` (Go 1.27+).
 - **Releases** (a partir da primeira tag): binários para Linux, macOS e Windows (amd64, arm64), imagem multi-arch em `ghcr.io/nilum-br/teia` e o zip do painel do Grafana.
+- **Kubernetes:** [chart Helm e guia de instalação](docs/kubernetes.md). As releases também empacotam o chart e o
+  publicam em `oci://ghcr.io/nilum-br/charts/teia`, com a mesma versão da imagem.
 
 Depois, `teia detect` mostra o que a plataforma oferece e gera um `teia.yaml` inicial, e `teia serve` sobe a API e
 a interface. Antes de expor a API além do localhost, configure `auth.token` (e `cors.allowedOrigins` para o modo
 direto do painel do Grafana): veja [Configuração](docs/configuration.md) e [Expondo a API](docs/architecture.md#exposing-the-api).
 
+## Declarar flows
+
+`Flows` é um **formato de arquivo, não um CRD do Kubernetes**. O `apiVersion: teia.nilum.io/v1alpha1` e o
+`kind: Flows` identificam esse formato, como ocorre no `catalog-info.yaml` do Backstage. Não use `kubectl apply`
+nesse arquivo: não existe um recurso `Flows` instalado no cluster.
+
+Guarde o arquivo no repositório do serviço. O chart monta os arquivos de `flows` ou `flowsConfigMap`, e a teia
+relê as alterações a cada rodada, sem reiniciar. O advisor gera um arquivo inicial a partir das comunicações
+observadas para o time revisar. Veja a [especificação](docs/flows-spec.md) e
+[como fornecer os arquivos no Kubernetes](docs/kubernetes.md#flows-files-not-a-crd).
+
 ## Documentação
 
-[Sinais e fontes](docs/sources.md) · [Configuração](docs/configuration.md) · [Arquitetura](docs/architecture.md) ·
+[Sinais e fontes](docs/sources.md) · [Configuração](docs/configuration.md) · [Kubernetes / Helm](docs/kubernetes.md) · [Arquitetura](docs/architecture.md) ·
 [Jornadas](docs/journeys.md) · [Regras do advisor](docs/advisor.md) · [Ícones](docs/icons.md) · [Especificação dos flows](docs/flows-spec.md) ·
 [Roadmap](docs/roadmap.md) · [Panorama](docs/landscape.md)
 
