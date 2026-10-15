@@ -166,6 +166,7 @@ func serve(args []string) error {
 		MaxStreams:     cfg.MaxStreams,
 		Log:            log,
 		UI:             ui,
+		Version:        version,
 	}))
 	go func() {
 		<-ctx.Done()

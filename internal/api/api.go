@@ -65,6 +65,8 @@ type Options struct {
 	// editing it: changes show on the next browser reload. Nil means the
 	// embedded copy.
 	UI fs.FS
+	// Version is reported to MCP clients as the server's version.
+	Version string
 }
 
 // Handler returns the HTTP handler for the API and the UI.
@@ -209,6 +211,12 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 		}
 		send(w, changes)
 	})
+
+	// The Model Context Protocol, for agents: the same data, read-only.
+	mcpH := mcpHandler(eng, opts.Version, opts.Log)
+	for _, method := range []string{"POST", "GET", "DELETE"} {
+		mux.Handle(method+" /mcp", mcpH)
+	}
 
 	mux.Handle("GET /", uiHandler(opts.UI))
 
