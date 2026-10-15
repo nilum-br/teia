@@ -394,7 +394,8 @@ them from their details.
 - [x] Compare identity only when both captures carry it; bound input size and listed differences.
 
 Limits: two discrete captures, not a time series. "Only before" is absence from the second capture, not proof
-that traffic stopped. The page lists 500 differences; the download keeps all of them.
+that traffic stopped. The page lists 500 differences; the download keeps all of them. Captures of different
+scopes (a slice against the whole map, or two slices) are not compared.
 
 ### T19: Guide source and query-field onboarding
 
@@ -430,7 +431,8 @@ Limits: publishing the PR remains with the operator and the repository's own rev
       root outcomes and the range of sampled durations without a percentile.
 
 Limits: Tempo only. The sampling policy is unknown, so no rate, coverage or population error share is
-inferred. Asynchronous links are kept but not followed. See [sampled operations](operations.md).
+inferred. Asynchronous links are kept but not followed. Slices do not split operations: a sliced snapshot
+carries none. See [sampled operations](operations.md).
 
 ### T22: Explain how each identity was resolved
 
@@ -445,12 +447,14 @@ Limits: the namespace is still not part of a node ID; owners behind NAT or poole
 [identity resolution and provenance](identity-resolution.md).
 
 Validation on 15 October 2026, in an isolated lab with checkout/browse routes and a database shared by two
-operations: Go vet, race tests and golangci-lint; 86 shared-core tests; 81 panel tests and 2 dependency
-regressions; TypeScript, lint and build; and 62 browser/API cases, with the five opt-in candidate, comparison
-and scale cases skipped. The browser cases include every T17–T22 tool in both themes at 600 and 1600 pixels,
-the installed Grafana panel, comparison of real stored captures, a proposal and a conflict against stored
-history, and a real checkout operation from Tempo (`TEIA_OPERATION_LAB=1`). People have not yet used these
-tools: their task-based evaluation belongs to the T12 pilot.
+operations, repeated after merging dimension slices: Go vet, race tests and golangci-lint; 89 shared-core
+tests; 81 panel tests and 2 dependency regressions; TypeScript, lint and build; 67 browser/API cases, with the
+five opt-in candidate, comparison and scale cases skipped; and the end-to-end lab scenario. The browser cases
+include every T17–T22 tool in both themes at 600 and 1600 pixels, the installed Grafana panel, comparison of
+real stored captures, a proposal and a conflict against stored history, a real checkout operation from Tempo
+(`TEIA_OPERATION_LAB=1`), and slices next to operations and comparisons. A lab run with a Tempo span
+attribute as a slice dimension confirmed that a real slice carries no operations and that the workspace says
+so. People have not yet used these tools: their task-based evaluation belongs to the T12 pilot.
 
 ## Suggested execution order
 
