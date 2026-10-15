@@ -11,9 +11,9 @@ import TeiaUI, { TeiaController } from '../teia/teia-ui';
  * dashboard), or streams from teia directly when a teia URL is set.
  */
 export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, width, height, id, replaceVariables, timeRange }) => {
-  const host = useRef<HTMLDivElement>(null);
-  const ui = useRef<TeiaController | null>(null);
-  const round = useRef(0);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const uiRef = useRef<TeiaController | null>(null);
+  const roundRef = useRef(0);
   const theme = useTheme2();
   const mode = theme.isDark ? 'dark' : 'light';
   // Layout and filters are remembered per dashboard and panel: panel ids
@@ -23,10 +23,10 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, wi
   const from = timeRange?.from.toISOString(), to = timeRange?.to.toISOString();
 
   useEffect(() => {
-    if (!host.current) {
+    if (!hostRef.current) {
       return;
     }
-    ui.current = TeiaUI.mount(host.current, {
+    uiRef.current = TeiaUI.mount(hostRef.current, {
       mode: 'panel',
       api: options.teiaUrl || undefined,
       storageKey,
@@ -38,41 +38,41 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, wi
       values: options.values,
     });
     return () => {
-      ui.current?.destroy();
-      ui.current = null;
+      uiRef.current?.destroy();
+      uiRef.current = null;
     };
     // Remount only when the data path changes; theme, options and data have their own effects.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, [options.teiaUrl, storageKey]);
 
   useEffect(() => {
-    ui.current?.setTheme(mode);
+    uiRef.current?.setTheme(mode);
   }, [mode]);
 
   useEffect(() => {
-    ui.current?.setOptions({ requestedRange: from && to ? { from, to } : undefined });
+    uiRef.current?.setOptions({ requestedRange: from && to ? { from, to } : undefined });
   }, [from, to, options.teiaUrl, storageKey]);
 
   useEffect(() => {
-    ui.current?.setOptions({ groupBy: options.groupBy, flow: options.flow, journey, journeyKey: options.journeyKey ?? '', values: options.values });
+    uiRef.current?.setOptions({ groupBy: options.groupBy, flow: options.flow, journey, journeyKey: options.journeyKey ?? '', values: options.values });
   }, [options.groupBy, options.flow, journey, options.journeyKey, options.values]);
 
   useEffect(() => {
-    if (options.teiaUrl || !ui.current) {
+    if (options.teiaUrl || !uiRef.current) {
       return;
     }
     if (data.state === LoadingState.Error) {
-      ui.current.setStatus(data.errors?.[0]?.message || 'the panel query failed');
+      uiRef.current.setStatus(data.errors?.[0]?.message || 'the panel query failed');
       return;
     }
-    ui.current.setStatus('');
-    const { snapshot, changes } = framesToSnapshot(data.series, ++round.current);
+    uiRef.current.setStatus('');
+    const { snapshot, changes } = framesToSnapshot(data.series, ++roundRef.current);
     if (snapshot) {
-      ui.current.update(snapshot, changes);
+      uiRef.current.update(snapshot, changes);
     }
   }, [data, options.teiaUrl]);
 
-  return <div ref={host} style={{ width, height }} data-testid="teia-panel" />;
+  return <div ref={hostRef} style={{ width, height }} data-testid="teia-panel" />;
 };
 
 /** journeyOf reads the panel's journey after variables: an "All" choice, or

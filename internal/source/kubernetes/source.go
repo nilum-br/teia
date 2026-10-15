@@ -29,7 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	k8s "k8s.io/client-go/kubernetes"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/pager"
@@ -57,7 +57,7 @@ type Config struct {
 type Source struct {
 	name   string
 	cfg    Config
-	client k8s.Interface
+	client rest.Interface
 	err    error
 }
 
@@ -71,16 +71,36 @@ func New(name string, cfg Config) *Source {
 		s.err = fmt.Errorf("kubernetes config: %w", err)
 		return s
 	}
-	s.client, s.err = k8s.NewForConfig(rc)
+	s.client, s.err = inventoryRESTClient(rc)
 	return s
 }
 
 // NewWithClient is used by tests.
-func NewWithClient(name string, cfg Config, client k8s.Interface) *Source {
+func NewWithClient(name string, cfg Config, client rest.Interface) *Source {
 	if cfg.ExcludeNamespaces == nil {
 		cfg.ExcludeNamespaces = DefaultExcludedNamespaces
 	}
 	return &Source{name: name, cfg: cfg, client: client}
+}
+
+// Inventory only needs the core API's list operations. Use client-go's REST
+// transport directly instead of its generated clientset, which also imports
+// mutation/apply machinery and a legacy JSON patch implementation. Authentication,
+// kubeconfig exec credentials, TLS and request handling remain owned by client-go.
+func inventoryRESTClient(config *rest.Config) (rest.Interface, error) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		return nil, fmt.Errorf("registering Kubernetes core API: %w", err)
+	}
+	cfg := rest.CopyConfig(config)
+	groupVersion := corev1.SchemeGroupVersion
+	cfg.GroupVersion = &groupVersion
+	cfg.APIPath = "/api"
+	cfg.NegotiatedSerializer = serializer.NewCodecFactory(scheme).WithoutConversion()
+	if cfg.UserAgent == "" {
+		cfg.UserAgent = rest.DefaultKubernetesUserAgent()
+	}
+	return rest.RESTClientFor(cfg)
 }
 
 func restConfig(cfg Config) (*rest.Config, error) {
@@ -251,7 +271,9 @@ func (s *Source) list(ctx context.Context) ([]corev1.Pod, []corev1.Service, erro
 	var services []corev1.Service
 	for _, ns := range namespaces {
 		err := listAll(ctx, func(ctx context.Context, opts metav1.ListOptions) (runtime.Object, error) {
-			return s.client.CoreV1().Pods(ns).List(ctx, opts)
+			result := &corev1.PodList{}
+			err := s.client.Get().Namespace(ns).Resource("pods").VersionedParams(&opts, metav1.ParameterCodec).Do(ctx).Into(result)
+			return result, err
 		}, func(obj runtime.Object) error {
 			p, ok := obj.(*corev1.Pod)
 			if !ok {
@@ -264,7 +286,9 @@ func (s *Source) list(ctx context.Context) ([]corev1.Pod, []corev1.Service, erro
 			return nil, nil, fmt.Errorf("listing pods: %w", err)
 		}
 		err = listAll(ctx, func(ctx context.Context, opts metav1.ListOptions) (runtime.Object, error) {
-			return s.client.CoreV1().Services(ns).List(ctx, opts)
+			result := &corev1.ServiceList{}
+			err := s.client.Get().Namespace(ns).Resource("services").VersionedParams(&opts, metav1.ParameterCodec).Do(ctx).Into(result)
+			return result, err
 		}, func(obj runtime.Object) error {
 			svc, ok := obj.(*corev1.Service)
 			if !ok {

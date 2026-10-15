@@ -17,7 +17,7 @@ Thanks for helping. Issues and pull requests are welcome in English or Portugues
 |---|---|
 | Docker with Compose v2 (Docker Desktop on Windows and macOS) | always: the lab, and Go or Node in containers |
 | Go 1.27 (the `go` line in `go.mod`) | optional: every Go command below also runs in the `golang:1.27.2` image |
-| Node 24.22.0 and npm 12.2.0 | only to work on the Grafana panel (`plugins/grafana`); the lab builds it in a container |
+| Node 26.12.0 and npm 12.2.0 | only to work on the Grafana panel (`plugins/grafana`); the lab builds it in a container |
 | `make` | optional: each target is a plain command, listed below |
 
 Commands run from the repository root. Unless a block says otherwise, they work as-is in bash, zsh, PowerShell
@@ -91,7 +91,7 @@ Run the same `up -d teia` without the variable to go back to the built-in copy (
 
 The Grafana panel bundles its own copy of `teia-ui.js`. Rebuild it with
 `docker compose -f lab/compose.yaml run --rm teia-panel`, then `docker compose -f lab/compose.yaml restart grafana`.
-With Node 24.22.0: `cd plugins/grafana`, `npm exec --yes --package=npm@12.2.0 -- npm ci`, then
+With Node 26.12.0: `cd plugins/grafana`, `npm exec --yes --package=npm@12.2.0 -- npm ci`, then
 `npm run typecheck`, `npm run test:ci`, `npm run build`.
 
 ## The lab
@@ -204,18 +204,20 @@ release workflow packages the chart with the release's version and image tag; a 
 
 ## Dependency maintenance
 
-Use the latest stable releases compatible with Grafana's runtime and tooling, and record concrete blockers
-instead of forcing peer dependencies. Reviewed **15 October 2026** (T16):
+Target the latest stable release of every tool and direct dependency, including new majors and Node Current.
+Breaking changes trigger migration work: adapt our code or replace obsolete tooling. Do not default to an
+older LTS or suppress major updates. Prereleases and unreleased Git HEADs are not stable releases. Reviewed
+**15 October 2026** (T16), including Go, npm, container images, Helm, observability and Actions:
 
 | Component | Validated version |
 |---|---|
 | Go; Kubernetes SDK | 1.27.2; 0.37.1 (already current) |
 | TypeScript CLI; compiler API compatibility package | 7.0.2; `@typescript/typescript6` 6.0.2 |
-| Node; npm | 24.22.0 LTS; 12.2.0 |
+| Node; npm | 26.12.0 Current; 12.2.0 |
 | Grafana SDK and lab host; React | 13.2.4; 19.3.1 |
-| Jest; Playwright; Grafana plugin-e2e | 30.5.2; 1.64.1; 3.15.1 |
+| Jest; Playwright | 30.5.2; 1.64.1 |
 | Webpack; webpack-cli; SWC | 5.111.1; 7.2.3; 1.16.18 |
-| ESLint; typescript-eslint | 9.39.5; 8.71.2 |
+| ESLint; typescript-eslint; ESLint React | 10.12.0; 8.71.2; 5.27.1 |
 | Helm; setup-helm; chart test Busybox | 4.3.1; v5; 1.38.0 |
 | Redis exporter | 1.94.0 |
 
@@ -225,16 +227,34 @@ and [exporter releases](https://github.com/oliver006/redis_exporter/releases). B
 Dockerfiles, Compose, Helm images and Actions are in scope. Other lab images were already current at review:
 PostgreSQL 18.6, Redis 8.10.2, Prometheus 3.15.0, Tempo 3.1.0, Loki 3.7.8, Alloy 1.20.1, Collector 0.162.0 and Infinity 4.1.1.
 
-Compatibility follow-ups remain open under T16:
+Completed migrations, including breaking changes:
 
-- Node Current 26.12.0 is blocked by the latest [plugin-e2e engine range](https://registry.npmjs.org/@grafana%2fplugin-e2e/latest)
-  (`>=20 <=24`). Use the latest 24 LTS patch until that tool supports 26; keep `@types/node` aligned.
-- ESLint 10.12.0 is blocked by the latest [eslint-plugin-react peer range](https://registry.npmjs.org/eslint-plugin-react/latest)
-  (through 9), used by Grafana's config. ESLint 9.39.5 is deprecated; migrate the config when compatible rather than
-  accepting an indefinite exception. TypeScript 7 has no compiler API: use the
-  [official TS6 compatibility alias](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/) for those consumers.
-- The latest kube-openapi commit requires structured-merge-diff/v7; stable Kubernetes 0.37.1 needs v6. Keep its
-  SDK-selected kube-openapi commit until the stable SDK supports the new API. A compilation attempt confirmed the conflict.
+- Node 26.12.0 replaces 24.22.0 across builds, CI, release, Compose and `.nvmrc`; `@types/node` is 26.6.5.
+  npm enforces the engine range. Removed the unused Grafana E2E auth fixture, whose engine capped Node at 24.
+  The project-owned Playwright configuration now supports the anonymous lab or an explicit authentication
+  storage state, with three real API integration tests. No existing browser tests were removed.
+- ESLint 10 replaces 9. The Grafana/legacy React preset was replaced by the current
+  [ESLint React TypeScript preset](https://eslint-react.xyz/docs/getting-started/typescript), official React Hooks
+  rules and TypeScript rules. Project-specific Grafana checks are preserved; removed ESLint core rules use
+  their maintained stylistic counterparts. Active config is `plugins/grafana/eslint.config.mjs`.
+- TypeScript 7 has no compiler API. Its CLI is current; API consumers use Microsoft's latest
+  [TS6 compatibility package](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/), not an old CLI.
+- Kubernetes inventory uses the official client-go REST transport for read-only pod/service lists. Removing
+  the full generated clientset also removes its legacy JSON patch v4 implementation from production and test
+  imports, on Linux and Windows. The used module set drops from 51 to 32; tidy removes 13 indirect requirements.
+  HTTP regressions cover pagination, namespaces, TLS, token-file authentication, timeout, cancellation and RBAC.
+
+Limits in current upstream packages remain explicit; direct dependencies being current does not mean every
+transitive dependency uses its project's newest major:
+
+- Kubernetes SDK 0.37.1 internally imports structured-merge-diff/v6 6.4.2 and YAML/v2 2.4.4; the newer stable API
+  paths are merge-diff/v7 7.0.0 and YAML/v3 3.0.5. Our own YAML imports use v3. kube-openapi has no tagged stable
+  release, so its snapshot remains the SDK's selected revision, not development HEAD. JSON patch v4 remains in
+  third-party module metadata but is no longer compiled. Metadata-only dependencies are distinct from packages
+  imported by our builds/tests; changing a top-level version cannot migrate API calls inside another SDK.
+- OpenTelemetry 1.47 uses backoff/v5 5.0.3 internally; v6 6.0.1 changes public retry APIs. A direct module replacement was
+  tested and rejected by Go because the new module also imports its own v6 path. No cosmetic compatibility
+  shim or SDK fork is introduced merely to change the displayed version.
 - webpack-subresource-integrity's `latest` tag is a release candidate; keep stable 5.1.0 until a stable successor.
 
 Security audit: `govulncheck` found no reachable vulnerabilities in either Go module. npm alerts fell from 31
@@ -245,9 +265,13 @@ and plugin build/tests. Remaining roots are [braces](https://github.com/advisori
 router 8 into a v6 adapter. Grafana UI is externalized in the plugin bundle; assess the host independently.
 These remain tracked risks, not a clean npm audit. Recheck fixes and remove the FTP override when upstream catches up.
 
-Dependabot runs weekly for Go, npm, Actions, Docker and Compose; Grafana packages move as a group. For each update,
+Dependabot runs weekly for Go, npm, Actions, Docker and Compose; major upgrades are enabled, with Grafana and
+React packages grouped. `npm run deps:check` checks every locked direct dependency against the official registry,
+resolves aliases, rejects prerelease tags as stable candidates and fails when an update is available. All **57**
+direct dependencies matched their current stable release in the second audit. For each update,
 review prerelease/engine/peer metadata and run `make check`, `make lint`, plugin build, Helm checks and lab e2e.
-Review `npm outdated`, `npm audit` and `go list -m -u all` in both modules, then verify exceptions against upstream.
+Review `npm run deps:check`, `npm audit` and `go list -m -u all` in both modules. Also inspect newer Go module
+paths (`/v2`, `/v3`, etc.): `-u` alone only checks the current module path. Verify the upstream limits above.
 Keep Node/npm, Go and Grafana aligned across manifests, lockfiles, CI, Makefile, Docker/Compose and these instructions.
 Chart image tags and compatibility exceptions need explicit review; automated update PRs do not replace it.
 

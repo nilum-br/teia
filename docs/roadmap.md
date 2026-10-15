@@ -251,6 +251,9 @@ T12 does not depend on publication being complete.
 **Areas:** Go/TypeScript, direct and transitive libraries, container images, plugin tooling and CI actions.
 Requested on 15 October 2026; audit/update performed by a dedicated agent alongside the P0 fixes.
 See [versions, sources and compatibility evidence](../CONTRIBUTING.md#dependency-maintenance).
+Policy clarified by the maintainer: latest **stable** across the whole stack, including Current runtimes and
+major/breaking upgrades. Adapt code or replace blocking tools instead of using compatibility as a default reason
+to stay behind. Prereleases and untagged development HEADs are tracked separately.
 
 - [x] Inventory current versions and verify latest stable releases against official registries/upstream sources.
       Include both Go modules, the Grafana plugin, language runtimes, build/lint/test tools and lab/release images.
@@ -265,14 +268,23 @@ Verification on 15 October: Go race/vet/lint and tidy checks; 73 shared UI tests
 ESLint and Webpack build; Helm lint/default/full-values and five chart regressions; actionlint; Go vulnerability
 checks for root/demo; real npm 12.2 clean install; rebuilt lab end-to-end scenarios passed. The saved dashboard's
 Infinity queries returned current-mode metadata/evidence for both 15-minute and 30-day requested ranges with
-the same snapshot timestamp. This is API/DOM validation, not a new interactive visual/accessibility audit.
+the same snapshot timestamp. The Node 26/ESLint 10 migration also passes three repeatable API integration tests;
+the REST client change passes the full Go suite and builds all six Linux/macOS/Windows release targets.
+This is API/DOM validation, not a new interactive visual/accessibility audit.
 
-- [ ] T16.1: upgrade Node to Current when Grafana plugin-e2e supports it; meanwhile use the latest compatible LTS.
-- [ ] T16.2: migrate Grafana/React ESLint config to ESLint 10; the latest React plugin currently caps support at 9.
+- [x] T16.1: migrate to Node 26.12.0 Current throughout the project; replace the unused Node-24-only Grafana E2E
+      scaffold, align Node types and enforce the runtime. Three API integration tests cover the actual lab/dashboard.
+- [x] T16.2: migrate to ESLint 10.12.0 with the current React lint implementation, preserving Hooks and project
+      checks; enable future major updates in Dependabot and add `npm run deps:check` (57 direct packages current).
+- [x] Remove JSON patch v4 from compiled Kubernetes inventory/test dependencies by using client-go's official
+      REST transport for pod/service reads. Preserve pagination, namespaces, authentication/TLS, timeout and RBAC;
+      the used Linux/Windows module set drops from 51 to 32, with real HTTP transport regression tests.
 - [ ] T16.3: advance kube-openapi with the next compatible stable Kubernetes SDK and remove the FTP override once
       get-uri adopts the fix. Recheck stable webpack-subresource-integrity releases (latest currently is an RC).
 - [ ] T16.4: remediate residual npm advisories in braces, sprintf-js and Grafana's router compatibility dependency.
       Audit decreased from 31 to 26 alerts (3 high, 23 moderate); Go govulncheck is clean in both modules.
+- [ ] T16.5: track the older internal API majors still imported by the latest Kubernetes/OpenTelemetry/Grafana
+      packages. Record ownership and concrete migration attempts; do not claim every transitive module is latest.
 
 ## Suggested execution order
 

@@ -39,21 +39,11 @@ updates:
       runtime:
         dependency-type: production
         update-types: [minor, patch]
-    ignore:
-      # Runtime APIs and Node.js follow the supported Grafana toolchain.
-      # TypeScript's native compiler updates independently; its API compatibility
-      # package remains on the line supported by typescript-eslint.
-      - dependency-name: react
-        update-types: ["version-update:semver-major"]
-      - dependency-name: react-dom
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "@types/react"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "@types/react-dom"
-        update-types: ["version-update:semver-major"]
-      # Types for the Node.js version supported by plugin-e2e and used by CI (24).
-      - dependency-name: "@types/node"
-        update-types: ["version-update:semver-major"]
+      # Major upgrades are migration work, not automatically ignored. Keep
+      # React's runtime and type packages together when the next major arrives.
+      react-major:
+        patterns: [react, react-dom, "@types/react", "@types/react-dom"]
+        update-types: [major]
 
   - package-ecosystem: github-actions
     directory: /

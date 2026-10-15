@@ -127,7 +127,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v7
         with:
-          node-version: 24.22.0
+          node-version: 26.12.0
           cache: npm
           cache-dependency-path: plugins/grafana/package-lock.json
       - name: map component tests (teia-ui.js, shared with teia's own UI)
@@ -192,7 +192,7 @@ jobs:
 
   lab-e2e:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, grafana-panel]
     timeout-minutes: 30
     env:
       COMPOSE_FILE: lab/compose.yaml
@@ -201,12 +201,31 @@ jobs:
         with:
           persist-credentials: false
       - name: start the lab
-        # Everything except Grafana and the panel build, which the check does not use.
+        # Start data sources first; Grafana later loads the already-tested artifact.
         run: |
           mapfile -t services < <(docker compose config --services | grep -vxE 'grafana|teia-panel')
           docker compose up -d --build "${services[@]}"
       - name: check what teia finds
         run: docker compose run --rm e2e
+      - uses: actions/download-artifact@v8
+        with:
+          name: nilum-teia-panel
+          path: plugins/grafana/dist
+      - name: start Grafana with the tested plugin artifact
+        run: |
+          docker compose up -d --no-deps grafana
+          curl --fail --retry 30 --retry-connrefused --retry-delay 2 http://localhost:3480/api/health
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26.12.0
+          cache: npm
+          cache-dependency-path: plugins/grafana/package-lock.json
+      - name: validate the saved Grafana dashboard and plugin API
+        working-directory: plugins/grafana
+        run: |
+          npm install --global npm@12.2.0
+          npm ci --no-audit --no-fund
+          npm run e2e -- --project=api
       - name: lab logs on failure
         if: failure()
         run: |

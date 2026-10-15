@@ -143,7 +143,7 @@ de flows, troca de token e as opções de Ingress e ServiceMonitor.
 carregue como plugin não assinado:
 
 ```sh
-docker run --rm --user "$(id -u):$(id -g)" -e npm_config_cache=/tmp/npm -v "$PWD:/repo" -w /repo/plugins/grafana node:24.22.0-trixie sh -c "npm exec --yes --package=npm@12.2.0 -- npm ci && npm run build"
+docker run --rm --user "$(id -u):$(id -g)" -e npm_config_cache=/tmp/npm -v "$PWD:/repo" -w /repo/plugins/grafana node:26.12.0-trixie sh -c "npm exec --yes --package=npm@12.2.0 -- npm ci && npm run build"
 cp -r plugins/grafana/dist /var/lib/grafana/plugins/nilum-teia-panel
 ```
 

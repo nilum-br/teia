@@ -1,17 +1,21 @@
-import type { PluginOptions } from '@grafana/plugin-e2e';
-import { defineConfig } from '@playwright/test';
-import baseConfig from './.config/playwright.config';
+import { defineConfig, devices } from '@playwright/test';
 
-/**
- * Read environment variables from file.
- * https://github.com/motdotla/dotenv
- */
-// require('dotenv').config();
-
-/**
- * See https://playwright.dev/docs/test-configuration.
- */
-export default defineConfig<PluginOptions>(baseConfig, {
-  // Add your own configuration here.
-  // See https://grafana.com/developers/plugin-tools/how-to-guides/extend-configurations#extend-the-playwright-config for further info.
+// Project-owned configuration: the unused Grafana auth scaffold limited Node
+// to <=24. The local lab uses anonymous access; authenticated installations can
+// supply their own Playwright storage state without depending on that fixture.
+export default defineConfig({
+  testDir: './tests',
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  reporter: 'list',
+  use: {
+    baseURL: process.env.GRAFANA_URL || 'http://localhost:3480',
+    storageState: process.env.GRAFANA_STORAGE_STATE || undefined,
+    trace: 'on-first-retry',
+  },
+  projects: [
+    { name: 'api', testMatch: '**/*.api.spec.ts' },
+    { name: 'chromium', testIgnore: '**/*.api.spec.ts', use: { ...devices['Desktop Chrome'] } },
+  ],
 });

@@ -20,10 +20,20 @@ does exactly that (`teia-panel` service in `lab/compose.yaml`) and mounts `dist/
 `.npmrc` keeps `ignore-scripts=true` (supply-chain hygiene), which is why scripts call the sync explicitly instead
 of using `pre*` hooks.
 
-Use Node 24.22.0 (latest compatible LTS in the 15 October 2026 audit). The TypeScript CLI is 7.0.2 via the official
+Use Node 26.12.0 (latest Current release in the 15 October 2026 audit), npm 12.2.0 and ESLint 10.12.0.
+The TypeScript CLI is 7.0.2 via the official
 `@typescript/native` alias; tools needing the compiler API use `typescript` aliased to `@typescript/typescript6`
 6.0.2, following [Microsoft's migration guidance](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/).
 See [dependency maintenance and compatibility exceptions](../../CONTRIBUTING.md#dependency-maintenance).
+
+`npm run deps:check` compares all locked direct dependencies with current stable npm releases. Major upgrades
+are in scope; root ESLint and Playwright configs are project-owned replacements for the incompatible presets
+left in the managed `.config/` template. Do not reintroduce those obsolete imports during a scaffold refresh.
+
+With the lab running, `npm run e2e -- --project=api` validates the installed plugin bundle and the saved
+dashboard's queries for two requested periods. `GRAFANA_URL` defaults to `http://localhost:3480`; optionally set
+`GRAFANA_STORAGE_STATE` for authenticated hosts. These are HTTP API tests, not visual/browser validation. The
+Chromium project is available for future browser tests and requires Playwright's browser installation.
 
 ## Loading it in your Grafana
 

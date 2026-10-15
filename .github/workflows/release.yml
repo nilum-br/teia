@@ -83,7 +83,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v7
         with:
-          node-version: 24.22.0
+          node-version: 26.12.0
           package-manager-cache: false
       - run: npm install --global npm@12.2.0
       - run: npm ci --no-audit --no-fund
