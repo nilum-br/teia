@@ -23,7 +23,7 @@ It runs as a single binary on Linux, macOS and Windows, and shows up where your 
 
 [Português](README.pt-BR.md)
 
-[October 2026 candidate handoff (Português)](docs/handoff.md) · [Validation and task status](docs/roadmap.md)
+[October 2026 candidate guide (Português)](docs/candidate-guide.md) · [Validation and task status](docs/roadmap.md)
 
 ![teia's map of the lab: services, datastores and jobs with their health, live traffic, drift and the next steps to see more](docs/assets/screenshots/teia-map.png)
 

@@ -1,13 +1,11 @@
-# Installable candidate and release handoff
+# Installable candidate and release process
 
 The repository can build and exercise an installable candidate without publishing a tag. A candidate is
 **unsigned** and must be used only in an explicitly configured test Grafana. Public signing, catalog review,
 human usability sessions and download verification of published assets remain separate release gates.
 
-**Handoff decision:** the user has deferred creating the Grafana signing organization and arranging signing
-until after delivery. This is an explicit post-delivery owner task, not a technical blocker for this unsigned
-test candidate. The colleague will organize the human pilot after delivery. Neither external gate is marked
-executed, and the tagged public-release workflow still requires signing credentials.
+**Release status:** public signing and the human pilot remain pending. The unsigned test candidate can be
+evaluated independently; public releases require signing credentials and completion of the release gates.
 
 ## Compatibility and evidence
 
@@ -33,7 +31,7 @@ external ServiceAccount upgrade and persistent-history checks were repeated with
 that tested build; subsequent changes require a newly packaged version and another run.
 
 The sample uses Grafana's bundled [TestData data source](https://grafana.com/docs/grafana/latest/datasources/testdata/configure/),
-so a colleague can verify panel installation before connecting real telemetry. Its values are synthetic and
+so evaluators can verify panel installation before connecting real telemetry. Its values are synthetic and
 have no fabricated observation timestamps. The normal lab separately validates the Infinity and direct paths.
 Grafana recommends [runtime testing across supported versions](https://grafana.com/developers/plugin-tools/e2e-test-a-plugin/ci);
 repeat this matrix after SDK or runtime updates. Build success alone is insufficient.

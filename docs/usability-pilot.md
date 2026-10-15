@@ -2,11 +2,10 @@
 
 This is a runnable formative-study plan, **not a completed user study**. No participant results have been
 collected. Automated interactions and agent inspection establish reproducibility, not that people diagnose
-incidents faster or prefer Teia. Use the [candidate handoff](installation-candidate.md) to freeze a concrete build.
+incidents faster or prefer Teia. Use the [candidate installation guide](installation-candidate.md) to freeze a concrete build.
 
-**Owner and status:** the colleague receiving the handoff will organize the five-person T12 pilot after
-delivery, as assigned by the user. The pilot is delegated, not executed: participant recruitment, sessions,
-results and acceptance review remain open. The automated scenario baseline below is already complete.
+**Status:** participant recruitment, the five-person pilot, results and acceptance review remain open.
+The automated scenario baseline below is complete; no human sessions have been recorded.
 
 ## Automated scenario baseline
 

@@ -71,7 +71,7 @@ and copy `dist/` to `<grafana plugins dir>/nilum-teia-panel`. Grafana lets brows
 under the plugin's version, so a rebuild with the same version needs a hard reload (Ctrl+Shift+R); the lab stamps
 each build with its own version instead.
 
-Use the [candidate installation and release handoff](../../docs/installation-candidate.md) for a versioned ZIP,
+Use the [candidate installation and release process](../../docs/installation-candidate.md) for a versioned ZIP,
 portable three-node dataset, clean-install/upgrade matrix and signing gates. A valid signature and catalog
 acceptance are separate external milestones. Tagged release packaging requires public signing; manual builds
 remain unsigned candidates until those requirements are met.

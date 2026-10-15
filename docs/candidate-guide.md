@@ -1,13 +1,12 @@
-# Entrega técnica do Teia — T01–T16
+# Guia de avaliação do Teia — T01–T16
 
-Estado em **15 de outubro de 2026**: implementação e validação técnica prontas para o colega avaliar.
-O escopo é T01–T16; Backstage, geração de políticas de rede e data source próprio permanecem fora desta entrega.
+Estado em **15 de outubro de 2026**: versão candidata disponível para avaliação técnica.
+O escopo é T01–T16; Backstage, geração de políticas de rede e data source próprio permanecem fora desta versão.
 O [roadmap](roadmap.md) registra cada critério e os limites reais.
 
-Por decisão do responsável, o colega organizará o piloto humano de T12 após esta entrega. A organização
-Grafana, aprovação de assinatura pública, catálogo e publicação assinada de T10 também ficam para depois.
-O pacote entregue é uma **versão candidata sem assinatura**, validada em ambiente de teste; esses critérios
-externos não foram marcados como executados.
+O piloto humano de T12 e a distribuição assinada de T10 permanecem pendentes. A publicação exige organização
+Grafana, aprovação de assinatura pública e validação dos artefatos publicados; aprovação no catálogo é uma
+etapa separada. O pacote disponível é uma **versão candidata sem assinatura**, validada em ambiente de teste.
 
 ## O que foi entregue
 
@@ -25,7 +24,7 @@ externos não foram marcados como executados.
   sem vulnerabilidades conhecidas. APIs internas antigas de SDKs atuais têm motivos e condições de migração
   registrados em [dependency-status.md](dependency-status.md).
 
-## Abrir nesta máquina
+## Endereços do ambiente de referência local
 
 | Ambiente | Endereço |
 |---|---|
@@ -53,7 +52,7 @@ O primeiro comando também constrói o painel. Aguarde os serviços ficarem pron
 use a CA corporativa conforme [CONTRIBUTING](../CONTRIBUTING.md#troubleshooting), sem desativar TLS.
 O teste E2E exercita o cenário de permissões/locks do banco e restaura sua concessão temporária.
 
-Pacote do painel nesta máquina:
+Pacote do painel gerado no ambiente de referência:
 
 ```text
 dist/candidate/0.1.0-candidate.20261015.4/nilum-teia-panel-0.1.0-candidate.20261015.4.zip
@@ -80,13 +79,13 @@ provisioning, dados mínimos, instalação Helm e os passos para assinatura/publ
 Os detalhes e ressalvas estão em [UI validation](ui-validation.md),
 [competitive validation](competitive-validation.md), [resource diagnostics](resource-diagnostics.md) e
 [contract review](contract-review.md). A execução de CI correspondente pode ser consultada no histórico
-do commit entregue em [GitHub Actions](https://github.com/nilum-br/teia/actions/workflows/ci.yml).
+do commit avaliado em [GitHub Actions](https://github.com/nilum-br/teia/actions/workflows/ci.yml).
 
-## Próximos passos já combinados
+## Critérios pendentes para publicação
 
-1. O colega segue [usability-pilot.md](usability-pilot.md) com cinco participantes e preenche
+1. Executar [usability-pilot.md](usability-pilot.md) com cinco participantes e preencher
    [pilot-results.csv](pilot-results.csv). Hoje a planilha não contém resultados humanos.
-2. O responsável define a organização Grafana e obtém a aprovação de assinatura. O secret é configurado no
+2. Configurar a organização Grafana e obter a aprovação de assinatura. O secret deve ser configurado no
    repositório; tokens não entram em relatórios, dashboards ou Git.
 3. Após esses critérios, publicar e baixar os artefatos assinados para repetir instalação/upgrade sem exceção
    de plugin unsigned. Execuções manuais do workflow geram candidatos; publicação exige push de tag e assinatura.

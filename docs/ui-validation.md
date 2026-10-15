@@ -8,7 +8,7 @@ benchmark passed. The 14 synthetic diagnostic scenarios are included in the ordi
 
 Pure/shared UI checks passed 79 tests; the panel passed 53 Jest tests and two dependency integration tests,
 plus TypeScript, ESLint and production build. These numbers describe this candidate, not human pilot results.
-The [pilot](usability-pilot.md) is assigned to the colleague after handoff, as requested by the maintainer.
+The [human pilot](usability-pilot.md) remains a separate pending release gate.
 
 ## Investigation and visual review
 

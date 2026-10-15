@@ -14,18 +14,17 @@ See the [comparison and implementation audit](landscape.md).
 
 ## Prioritized implementation backlog
 
-Updated **15 October 2026** for the T01–T16 handoff, following the
+Updated **15 October 2026** for the T01–T16 candidate, following the
 [market, requirements and UI/UX review](landscape.md). **T01–T09, T11 and T13–T16 have implemented deliverables
 and technical validation. T10 has a tested unsigned candidate; public signing/distribution is open. T12 has
 automated scenarios and an installed Novatec comparison; the five-person human pilot is open.** These external
-gates are deliberately not marked complete. [Handoff](handoff.md), [UI/performance evidence](ui-validation.md),
+gates are deliberately not marked complete. [Candidate guide](candidate-guide.md), [UI/performance evidence](ui-validation.md),
 [candidate matrix](installation-candidate.md), [pilot/comparison](usability-pilot.md) and
 [dependency constraints](dependency-status.md) record the actual acceptance limits. v0.2/v0.3 remains outside
 this delivery except overlapping capabilities already implemented under a T-ID.
 
-Handoff decision: the colleague will conduct the T12 human pilot afterward. The maintainer will organize
-Grafana ownership/signing afterward. Those T10/T12 external gates are deferred by request; they do not block
-delivery of the tested unsigned candidate and must not be represented as already passed.
+The tested unsigned candidate is available for evaluation. Human usability validation and public signing
+are separate release gates and must not be represented as already passed.
 
 P0 protects the interpretation of data; P1 completes the primary investigation and adoption experience; P2
 extends the product after those foundations. Size is relative scope (S small, M medium, L large), not a delivery
@@ -312,9 +311,9 @@ not implemented; missing capabilities produce informative findings instead of fa
 ### T16: Keep toolchains and dependencies on current stable releases
 
 **Areas:** Go/TypeScript, direct and transitive libraries, container images, plugin tooling and CI actions.
-Requested on 15 October 2026; audit/update performed by a dedicated agent alongside the P0 fixes.
+Dependency audit updated on 15 October 2026 alongside the P0 fixes.
 See [versions, sources and compatibility evidence](../CONTRIBUTING.md#dependency-maintenance).
-Policy clarified by the maintainer: latest **stable** across the whole stack, including Current runtimes and
+Project policy: latest **stable** across the whole stack, including Current runtimes and
 major/breaking upgrades. Adapt code or replace blocking tools instead of using compatibility as a default reason
 to stay behind. Prereleases and untagged development HEADs are tracked separately.
 
