@@ -224,6 +224,22 @@ describe('categoryOf', () => {
 });
 
 describe('latency', () => {
+  it('keeps each sampled edge timing through grouping instead of inventing group freshness', () => {
+    const sample = (count, from, to) => ({ source: 'tempo', signal: 'traces', sampleCount: count,
+      collectedAt: '2026-10-15T12:00:00Z', observedFrom: from, observedAt: to, metrics: ['topology', 'latency'] });
+    const s = snap([node('web', { labels: { team: 'front' } }), ...['api', 'worker'].map(id => node(id, { labels: { team: 'core' } }))], [
+      edge('web', 'api', { evidence: [sample(2, '2026-10-15T10:00:00Z', '2026-10-15T10:01:00Z')] }),
+      edge('web', 'worker', { evidence: [sample(3, undefined, '2026-10-15T11:59:00Z')] }),
+    ]);
+    const entries = view(s, { groupBy: 'team' }).edges.get('group:front->group:core').evidence;
+    assert.equal(entries.length, 2);
+    assert.deepEqual(entries.map(e => e.sampleCount), [2, 3]);
+    assert.equal(entries[0].observedFrom, '2026-10-15T10:00:00.000Z');
+    assert.equal(entries[0].observedAt, '2026-10-15T10:01:00.000Z');
+    assert.equal(entries[1].observedAt, '', 'a missing bound must not claim the whole sample is recent');
+    assert.equal(s.observedAt, '', 'per-edge times do not establish a graph-wide timestamp');
+  });
+
   it('qualifies weighted percentiles and ignores missing p50 and zero-rate members', () => {
     const nodes = [node('a', { labels: { team: 'x' } }), ...['b', 'c', 'd', 'e'].map(id => node(id, { labels: { team: 'y' } }))];
     const s = snap(nodes, [

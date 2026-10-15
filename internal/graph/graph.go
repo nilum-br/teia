@@ -174,14 +174,18 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 		}
 		return id
 	}
-	// ambiguous reports whether an address seen over window may have belonged
-	// to someone else: its current owner got it after the window started.
-	ambiguous := func(id string, window time.Duration) bool {
-		if window <= 0 || !source.IsAddressID(canonical(id)) {
+	// A full trace can contain calls older than the search lookback. Check
+	// the sample's earliest start too before attributing an IP to its owner.
+	ambiguous := func(id string, window time.Duration, observedFrom time.Time) bool {
+		if !source.IsAddressID(canonical(id)) || (window <= 0 && observedFrom.IsZero()) {
 			return false
 		}
+		start := now.Add(-max(window, 0))
+		if !observedFrom.IsZero() && observedFrom.Before(start) {
+			start = observedFrom
+		}
 		o, ok := byAddress[strings.TrimPrefix(canonical(id), source.AddressPrefix)]
-		return ok && !o.since.IsZero() && o.since.After(now.Add(-window))
+		return ok && !o.since.IsZero() && o.since.After(start)
 	}
 
 	g := &Graph{Nodes: map[string]*model.Node{}, Edges: map[string]*model.Edge{}, Ignored: ignored, UnknownCallers: map[string]map[string]UnknownCallers{}, canonical: canonical}
@@ -251,7 +255,7 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 			g.UnknownCallers[id][uc.Signal] = u
 		}
 		for _, o := range r.Observation.Edges {
-			if ambiguous(o.From, o.Window) || ambiguous(o.To, o.Window) {
+			if ambiguous(o.From, o.Window, o.ObservedFrom) || ambiguous(o.To, o.Window, o.ObservedFrom) {
 				continue // attribute it once the window no longer straddles the change
 			}
 			from, to := resolve(o.From), resolve(o.To)
@@ -286,7 +290,9 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 					metrics = append(metrics, "latency")
 				}
 				metrics = append(metrics, measureNames(o.Measures)...)
-				e.Evidence = append(e.Evidence, evidence(r, o.Signal, o.Window, o.ObservedAt, metrics))
+				ev := evidence(r, o.Signal, o.Window, o.ObservedAt, metrics)
+				ev.ObservedFrom, ev.SampleCount = o.ObservedFrom, o.SampleCount
+				e.Evidence = append(e.Evidence, ev)
 				e.Measures = mergeMeasures(e.Measures, o.Measures, resolve)
 				if o.Signal != "" {
 					e.Signals = appendUnique(e.Signals, o.Signal)

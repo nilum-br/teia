@@ -526,14 +526,35 @@ button.label { cursor: pointer; }
   const strings = v => Array.isArray(v) ? v.filter(s => typeof s === 'string') : [];
   const text = v => typeof v === 'string' ? v : '';
   const timestamp = v => typeof v === 'string' && !v.startsWith('0001') && Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : '';
-  const evidence = v => (Array.isArray(v) ? v : []).filter(e => e && typeof e.source === 'string').map(e => ({
-    source: e.source, signal: text(e.signal), collectedAt: timestamp(e.collectedAt), observedAt: timestamp(e.observedAt),
-    windowSeconds: Math.max(0, finite(e.windowSeconds)), retained: e.retained === true, metrics: strings(e.metrics),
-  }));
+  const evidence = v => (Array.isArray(v) ? v : []).filter(e => e && typeof e.source === 'string').map(e => {
+    const sampleCount = Number.isSafeInteger(e.sampleCount) && e.sampleCount > 0 ? e.sampleCount : 0;
+    let observedAt = timestamp(e.observedAt), observedFrom = timestamp(e.observedFrom);
+    if (sampleCount && (!observedFrom || !observedAt || Date.parse(observedFrom) > Date.parse(observedAt))) observedAt = observedFrom = '';
+    return {
+      source: e.source, signal: text(e.signal), collectedAt: timestamp(e.collectedAt), observedAt, observedFrom, sampleCount,
+      windowSeconds: Math.max(0, finite(e.windowSeconds)), retained: e.retained === true, metrics: strings(e.metrics),
+    };
+  });
+  const ageText = (at, reference) => {
+    const seconds = (reference - Date.parse(at)) / 1000;
+    return seconds < 0 ? `${fmtSec(-seconds)} in the future; check source clock` : `${fmtSec(seconds)} ago`;
+  };
+  function evidenceText(e) {
+    const age = e.observedAt && e.collectedAt ? ` (age at collection: ${ageText(e.observedAt, Date.parse(e.collectedAt))})` : '';
+    const observation = e.sampleCount
+      ? `Sampled calls: ${e.sampleCount}. ` + (e.observedFrom && e.observedAt
+        ? `Earliest start in sample: ${e.observedFrom}. Latest end in sample: ${e.observedAt}${age}. `
+        : 'Sample time range unknown: missing or invalid span times. ') +
+        'Sample bounds do not imply continuous coverage or the service\'s last call. '
+      : `Original observation: ${e.observedAt || 'unknown'}${age}. `;
+    return `${e.source} · ${e.signal || 'source'} · ${e.metrics.join(', ') || 'inventory'}${e.retained ? ' · retained topology' : ''}. ` +
+      `Collected: ${e.collectedAt || 'unknown'}. ` + observation +
+      (e.windowSeconds > 0 ? `Query lookback: ${fmtSec(e.windowSeconds)}.` : 'Query lookback not supplied.');
+  }
   function temporalText(snap, opts = {}, now = Date.now()) {
     if (!snap) return 'Waiting for time information';
     const mode = snap.timeMode || (opts.api ? 'current' : 'query');
-    const age = at => fmtSec(Math.max(0, (now - Date.parse(at)) / 1000)) + ' ago';
+    const age = at => ageText(at, now);
     const collected = timestamp(snap.generatedAt);
     const observed = timestamp(snap.observedAt);
     const windows = [...new Set([...snap.nodes, ...snap.edges].flatMap(x => (x.evidence || []).map(e => e.windowSeconds)).filter(w => w > 0))].sort((a, b) => a - b);
@@ -2517,10 +2538,7 @@ button.label { cursor: pointer; }
 
     function evidenceBlock(item) {
       const entries = [...new Map((item.evidence || []).map(e => [JSON.stringify(e), e])).values()];
-      return [el('h3', {}, 'Evidence and time'), ...(entries.length ? entries.map(e => el('p', { class: 'explain' },
-        `${e.source} · ${e.signal || 'source'} · ${e.metrics.join(', ') || 'inventory'}${e.retained ? ' · retained topology' : ''}. ` +
-        `Collected: ${e.collectedAt || 'unknown'}. Original observation: ${e.observedAt || 'unknown'}. ` +
-        (e.windowSeconds > 0 ? `Query lookback: ${fmtSec(e.windowSeconds)}.` : 'Query lookback not supplied.')))
+      return [el('h3', {}, 'Evidence and time'), ...(entries.length ? entries.map(e => el('p', { class: 'explain' }, evidenceText(e)))
         : [el('p', { class: 'explain' }, 'Source timing was not supplied; the age of these measurements is unknown.')])];
     }
 

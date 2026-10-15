@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +18,7 @@ import (
 
 	"github.com/nilum-br/teia/internal/model"
 	"github.com/nilum-br/teia/internal/source"
+	"github.com/nilum-br/teia/internal/source/tempo"
 )
 
 // scripted is a source that plays one step per round and repeats the last.
@@ -168,6 +172,71 @@ func TestFailedTelemetryRetainsTopologyWithoutOldHealth(t *testing.T) {
 	}
 	if first.Edges[0].RequestRate != 10 {
 		t.Fatal("retention must not mutate a previous snapshot")
+	}
+}
+
+func TestTempoSampleAgeSurvivesRefreshFailureAndRecovery(t *testing.T) {
+	clock := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	var end atomic.Int64
+	end.Store(clock.Add(-time.Hour).UnixNano())
+	var fail atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fail.Load() {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		switch r.URL.Path {
+		case "/api/v2/search/tag/resource.service.name/values":
+			fmt.Fprint(w, `{"tagValues":[{"value":"web"}]}`)
+		case "/api/search":
+			fmt.Fprint(w, `{"traces":[{"traceID":"old"}]}`)
+		case "/api/v2/traces/old":
+			at := end.Load()
+			fmt.Fprintf(w, `{"trace":{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"web"}}]},
+				"scopeSpans":[{"spans":[{"spanId":"A","kind":"SPAN_KIND_CLIENT","startTimeUnixNano":"%d","endTimeUnixNano":"%d",
+				"attributes":[{"key":"peer.service","value":{"stringValue":"orders"}}]}]}]}]}}`, at-int64(20*time.Millisecond), at)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	e := New([]source.Source{tempo.New("tempo", tempo.Config{URL: srv.URL})}, Options{Retention: time.Minute}, quiet())
+	e.now = func() time.Time { return clock }
+	check := func(s model.Snapshot, collected time.Time, retained bool) {
+		t.Helper()
+		if len(s.Edges) != 1 || len(s.Edges[0].Evidence) != 1 {
+			t.Fatalf("expected one edge with evidence: %+v", s.Edges)
+		}
+		ev := s.Edges[0].Evidence[0]
+		if !ev.CollectedAt.Equal(collected) || ev.ObservedAt.UnixNano() != end.Load() ||
+			ev.ObservedFrom.UnixNano() != end.Load()-int64(20*time.Millisecond) || ev.SampleCount != 1 || ev.Retained != retained {
+			t.Fatalf("sample provenance changed: %+v", ev)
+		}
+		if s.Edges[0].RequestRate != 0 {
+			t.Fatal("sample count must not become a request rate")
+		}
+	}
+	first := e.Refresh(context.Background())
+	check(first, clock, false)
+	clock = clock.Add(10 * time.Second)
+	second := e.Refresh(context.Background())
+	check(second, clock, false)
+	if second.Edges[0].LatencyP95Ms != 20 {
+		t.Fatal("sample timestamps must not change the measured duration")
+	}
+	fail.Store(true)
+	clock = clock.Add(10 * time.Second)
+	failed := e.Refresh(context.Background())
+	check(failed, second.GeneratedAt, true)
+	if failed.Edges[0].LatencyP95Ms != 0 {
+		t.Fatal("failed collection must retain topology without live latency")
+	}
+	fail.Store(false)
+	clock = clock.Add(10 * time.Second)
+	end.Store(clock.Add(-time.Second).UnixNano())
+	check(e.Refresh(context.Background()), clock, false)
+	if !first.Edges[0].Evidence[0].ObservedAt.Equal(first.GeneratedAt.Add(-time.Hour)) {
+		t.Fatal("recovery mutated an earlier snapshot")
 	}
 }
 

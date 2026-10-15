@@ -196,10 +196,14 @@ func FormatPercent(share float64) string { return fmt.Sprintf("%.1f%%", share*10
 // Evidence records collection separately from observation time. An absent
 // ObservedAt means the adapter cannot establish the original sample's age.
 type Evidence struct {
-	Source        string    `json:"source"`
-	Signal        string    `json:"signal"`
-	CollectedAt   time.Time `json:"collectedAt,omitzero"`
-	ObservedAt    time.Time `json:"observedAt,omitzero"`
+	Source      string    `json:"source"`
+	Signal      string    `json:"signal"`
+	CollectedAt time.Time `json:"collectedAt,omitzero"`
+	ObservedAt  time.Time `json:"observedAt,omitzero"`
+	// For sampled evidence, these times bound the sample only. SampleCount
+	// remains available when missing span times make that envelope unknown.
+	ObservedFrom  time.Time `json:"observedFrom,omitzero"`
+	SampleCount   int       `json:"sampleCount,omitempty"`
 	WindowSeconds float64   `json:"windowSeconds"`
 	Retained      bool      `json:"retained,omitempty"`
 	Metrics       []string  `json:"metrics"`

@@ -46,6 +46,7 @@ type Source struct {
 	name   string
 	cfg    Config
 	client *http.Client
+	now    func() time.Time
 
 	mu sync.Mutex
 	// next is where the next round starts in the sorted service list: when
@@ -64,7 +65,7 @@ func New(name string, cfg Config) *Source {
 	if cfg.MaxTraces == 0 {
 		cfg.MaxTraces = 400
 	}
-	return &Source{name: name, cfg: cfg, client: &http.Client{Timeout: 15 * time.Second}}
+	return &Source{name: name, cfg: cfg, client: &http.Client{Timeout: 15 * time.Second}, now: time.Now}
 }
 
 func (s *Source) Name() string { return s.name }
@@ -76,7 +77,10 @@ func (e *deniedError) Error() string { return fmt.Sprintf("HTTP %d", e.status) }
 
 func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	var obs source.Observation
-	services, err := s.services(ctx)
+	// Searching each service can take seconds. Use one window for the whole
+	// round rather than silently moving the period as each request starts.
+	window := s.window()
+	services, err := s.services(ctx, window)
 	if err != nil {
 		var denied *deniedError
 		if errors.As(err, &denied) {
@@ -93,7 +97,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	s.mu.Lock()
 	start := s.next % len(services)
 	s.mu.Unlock()
-	ids, searched, err := s.traceIDs(ctx, services, start)
+	ids, searched, err := s.traceIDs(ctx, services, start, window)
 	if err != nil {
 		return obs, err
 	}
@@ -163,6 +167,7 @@ type span struct {
 	id, parent, service, kind string
 	attrs                     map[string]string
 	dur                       time.Duration // zero when the span has no valid times
+	startedAt, endedAt        time.Time
 }
 
 // pairTrace adds the edges one trace shows, and the duration of each call
@@ -187,13 +192,30 @@ func pairTrace(spans []span, edges map[string]*source.EdgeObservation, self map[
 		if call.dur > 0 && (call.kind == "client" || call.kind == "server") {
 			durations[key] = append(durations[key], float64(call.dur)/float64(time.Millisecond))
 		}
-		if e, ok := edges[key]; ok {
-			if e.Protocol == "" {
-				e.Protocol = protocol
-			}
-			return
+		e := edges[key]
+		if e == nil {
+			e = &source.EdgeObservation{From: from, To: to, Signal: source.SignalTraces}
+			edges[key] = e
 		}
-		edges[key] = &source.EdgeObservation{From: from, To: to, Protocol: protocol, Signal: source.SignalTraces}
+		if e.Protocol == "" {
+			e.Protocol = protocol
+		}
+		e.SampleCount++
+		switch {
+		case e.SampleCount == 1:
+			e.ObservedFrom, e.ObservedAt = call.startedAt, call.endedAt
+		case call.startedAt.IsZero() || call.endedAt.IsZero() || e.ObservedFrom.IsZero() || e.ObservedAt.IsZero():
+			// An undated call might be outside the known envelope. Do not
+			// present a partial range as the age of the entire sample.
+			e.ObservedFrom, e.ObservedAt = time.Time{}, time.Time{}
+		default:
+			if call.startedAt.Before(e.ObservedFrom) {
+				e.ObservedFrom = call.startedAt
+			}
+			if call.endedAt.After(e.ObservedAt) {
+				e.ObservedAt = call.endedAt
+			}
+		}
 	}
 	for _, sp := range spans {
 		if sp.kind != "server" && sp.kind != "consumer" {
@@ -342,20 +364,20 @@ func (s *Source) get(ctx context.Context, path string, params url.Values, out an
 }
 
 func (s *Source) window() url.Values {
-	end := time.Now()
+	end := s.now()
 	return url.Values{
 		"start": {strconv.FormatInt(end.Add(-s.cfg.Window).Unix(), 10)},
 		"end":   {strconv.FormatInt(end.Unix(), 10)},
 	}
 }
 
-func (s *Source) services(ctx context.Context) ([]string, error) {
+func (s *Source) services(ctx context.Context, window url.Values) ([]string, error) {
 	var resp struct {
 		TagValues []struct {
 			Value string `json:"value"`
 		} `json:"tagValues"`
 	}
-	if err := s.get(ctx, "/api/v2/search/tag/resource.service.name/values", s.window(), &resp); err != nil {
+	if err := s.get(ctx, "/api/v2/search/tag/resource.service.name/values", window, &resp); err != nil {
 		return nil, fmt.Errorf("listing services: %w", err)
 	}
 	out := make([]string, 0, len(resp.TagValues))
@@ -374,7 +396,7 @@ func (s *Source) services(ctx context.Context) ([]string, error) {
 // cap is reached, so a round stays within budget and the next one carries
 // on from the first service left out. It returns how many services it
 // searched.
-func (s *Source) traceIDs(ctx context.Context, services []string, start int) ([]string, int, error) {
+func (s *Source) traceIDs(ctx context.Context, services []string, start int, window url.Values) ([]string, int, error) {
 	per := max(1, min(s.cfg.MaxTraces/len(services), s.cfg.TracesPerService))
 	seen := map[string]bool{}
 	var ids []string
@@ -383,7 +405,7 @@ func (s *Source) traceIDs(ctx context.Context, services []string, start int) ([]
 		svc := services[(start+searched)%len(services)]
 		searched++
 		limit := min(per, s.cfg.MaxTraces-len(ids))
-		params := s.window()
+		params := url.Values{"start": window["start"], "end": window["end"]}
 		params.Set("q", fmt.Sprintf(`{ resource.service.name = %q }`, svc))
 		params.Set("limit", strconv.Itoa(limit))
 		var resp struct {
@@ -479,15 +501,16 @@ type otlpSpan struct {
 	EndTimeUnixNano   json.RawMessage `json:"endTimeUnixNano"`
 }
 
-// duration is how long the span lasted; zero when its times are missing or
-// make no sense.
-func (sp otlpSpan) duration() time.Duration {
+// times preserves the original span's timestamps, accepting OTLP JSON's
+// string and number encodings without going through floating point. A zero
+// duration is valid, but missing, nonpositive and reversed times are not.
+func (sp otlpSpan) times() (time.Time, time.Time) {
 	start, err1 := strconv.ParseInt(strings.Trim(string(sp.StartTimeUnixNano), `"`), 10, 64)
 	end, err2 := strconv.ParseInt(strings.Trim(string(sp.EndTimeUnixNano), `"`), 10, 64)
-	if err1 != nil || err2 != nil || end <= start {
-		return 0
+	if err1 != nil || err2 != nil || start <= 0 || end < start {
+		return time.Time{}, time.Time{}
 	}
-	return time.Duration(end - start)
+	return time.Unix(0, start).UTC(), time.Unix(0, end).UTC()
 }
 
 type attribute struct {
@@ -544,9 +567,11 @@ func (t otlpTrace) spans() []span {
 		}
 		for _, g := range groups {
 			for _, sp := range g.Spans {
+				start, end := sp.times()
 				out = append(out, span{
 					id: sp.SpanID, parent: sp.ParentSpanID, service: service,
-					kind: spanKind(sp.Kind), attrs: attrs(sp.Attributes), dur: sp.duration(),
+					kind: spanKind(sp.Kind), attrs: attrs(sp.Attributes), dur: end.Sub(start),
+					startedAt: start, endedAt: end,
 				})
 			}
 		}

@@ -74,9 +74,14 @@ type EdgeObservation struct {
 	Window time.Duration
 	// ObservedAt is the original observation time, only when the source
 	// supplies it. Collection time must not be substituted for it.
-	ObservedAt  time.Time
-	RequestRate float64
-	ErrorRate   float64
+	ObservedAt time.Time
+	// A sampled edge reports the envelope of the sampled calls, not the
+	// latest call in the whole system or continuous coverage of the window.
+	// Both times stay unknown if any sampled call has invalid/missing times.
+	ObservedFrom time.Time
+	SampleCount  int
+	RequestRate  float64
+	ErrorRate    float64
 	// NoErrors says the signal counts requests but not their failures, so
 	// ErrorRate is not a measured zero.
 	NoErrors bool

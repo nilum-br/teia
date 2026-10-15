@@ -145,6 +145,45 @@ describe('TeiaPanel', () => {
     expect(detail).toContain('Query lookback: 5 min');
   });
 
+  it.each([
+    { name: 'old sample', from: '2026-10-15T10:00:00Z', to: '2026-10-15T11:00:00Z', expected: 'age at collection: 60 min ago' },
+    { name: 'missing time', from: undefined, to: '2026-10-15T11:00:00Z', expected: 'Sample time range unknown' },
+    { name: 'reversed time', from: '2026-10-15T11:30:00Z', to: '2026-10-15T11:00:00Z', expected: 'Sample time range unknown' },
+    { name: 'future clock', from: '2026-10-15T12:01:00Z', to: '2026-10-15T12:02:00Z', expected: '2 min in the future; check source clock' },
+  ])('qualifies $name as sampled evidence, including while paused', ({ from, to, expected }) => {
+    const data = [series[0], toDataFrame({ refId: 'edges', fields: [
+      { name: 'source', values: ['web'] }, { name: 'target', values: ['orders'] },
+      { name: 'timeMode', values: ['current'] }, { name: 'snapshotAt', values: ['2026-10-15T13:00:00Z'] },
+      { name: 'evidence', values: [JSON.stringify([{ source: 'tempo', signal: 'traces', collectedAt: '2026-10-15T12:00:00Z',
+        observedFrom: from, observedAt: to, sampleCount: 3, windowSeconds: 900, metrics: ['topology', 'latency'] }])] },
+    ] })];
+    const p = props({ data: { series: data, state: LoadingState.Done } as never });
+    const { container, rerender } = render(<TeiaPanel {...p} />);
+    const root = shadow(container);
+    (root.querySelector('.edge path.hit') as SVGElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const detail = root.querySelector('#pane-details')!.textContent;
+    expect(detail).toContain('Sampled calls: 3');
+    expect(detail).toContain(expected);
+    expect(detail).toContain('Sample bounds do not imply continuous coverage');
+    expect(root.querySelector('#timeContext')!.textContent).toContain('original observation time unknown');
+    (root.querySelector('#liveBtn') as HTMLButtonElement).click();
+    rerender(<TeiaPanel {...{ ...p, data: { series, state: LoadingState.Done } as never }} />);
+    expect(root.querySelector('#pane-details')!.textContent).toBe(detail);
+  });
+
+  it('does not disguise a future original observation as zero age', () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-15T12:00:00Z'));
+    try {
+      const future = series.map(frame => ({ ...frame, meta: { custom: { teia: {
+        timeMode: 'current', snapshotAt: '2026-10-15T12:00:00Z', observedAt: '2026-10-15T12:02:00Z',
+      } } } }));
+      const { container } = render(<TeiaPanel {...props({ data: { series: future, state: LoadingState.Done } as never })} />);
+      expect(shadow(container).querySelector('#timeContext')!.textContent).toContain('original observation 2 min in the future; check source clock');
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it('shows a failed query instead of stale silence', () => {
     const { container, rerender } = render(<TeiaPanel {...props()} />);
     rerender(<TeiaPanel {...props({ data: { series: [], state: LoadingState.Error, errors: [{ message: 'datasource down' }] } as never })} />);

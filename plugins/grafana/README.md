@@ -110,9 +110,16 @@ period requires a consistent interval. Mixed current/query inputs are labelled m
 unknown. Conversion time and Grafana's requested range never substitute for these fields.
 
 `evidence` is a JSON array with `source`, `signal`, `collectedAt`, optional `observedAt`, `windowSeconds`, `retained`
-and `metrics`. The detail pane preserves it through grouping. A query lookback is not an original sample age.
-The built-in adapters currently expose collection and query windows, but generally cannot establish original
-sample time; the UI says unknown. Retained topology keeps its old collection timestamp and drops live readings.
+and `metrics`. Sampled evidence can also supply `sampleCount` and `observedFrom`: the earliest start and latest
+end (`observedAt`) of the sampled calls. This envelope is neither continuous coverage nor the service's last
+call; count is not total traffic or req/s. The detail pane preserves each evidence entry through grouping and
+shows age **at that evidence's collection**, including a warning for future timestamps. Missing or reversed
+sample bounds leave the sample time range unknown, while keeping its count.
+
+The Tempo adapter supplies these original span timestamps; if any sampled call lacks valid times, both bounds
+stay unknown. Its queries use one search window per round. Other built-in adapters generally cannot establish
+original sample time; the UI says unknown. A query lookback is not an original sample age. Retained topology
+keeps its old timestamps and sample count and drops live readings. Per-edge times never become graph-wide freshness.
 
 **Direct mode** (`teia API URL` in the panel options). The viewer's **browser** loads `snapshot` and `changes` and
 then follows `stream` (Server-Sent Events), so:

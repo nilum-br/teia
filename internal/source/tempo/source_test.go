@@ -2,6 +2,7 @@ package tempo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -281,6 +282,104 @@ func TestDiscoverMeasuresCallDurations(t *testing.T) {
 		if e.LatencyP50Ms != want[key] || e.LatencyP95Ms != want[key] {
 			t.Errorf("%s p50/p95 = %v/%v ms, want %v (the caller's span)", key, e.LatencyP50Ms, e.LatencyP95Ms, want[key])
 		}
+	}
+}
+
+func TestDiscoverKeepsOriginalSampleTimesAndOneWindow(t *testing.T) {
+	srv := fakeTempo(t)
+	defer srv.Close()
+	src := New("tempo", Config{URL: srv.URL})
+	clock := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	calls := 0
+	src.now = func() time.Time {
+		calls++
+		return clock.Add(time.Duration(calls) * time.Minute)
+	}
+	obs, err := src.Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("the search window moved during the round: read clock %d times", calls)
+	}
+	want := map[string][2]int64{"web->orders": {1000000000, 1020000000}, "orders->orders-db": {2000000000, 2005000000}}
+	for _, e := range obs.Edges {
+		bounds := want[e.From+"->"+e.To]
+		if e.SampleCount != 1 || e.ObservedFrom.UnixNano() != bounds[0] || e.ObservedAt.UnixNano() != bounds[1] {
+			t.Errorf("old spans in a successful answer must not inherit collection time: %+v", e)
+		}
+	}
+}
+
+func TestSpanTimes(t *testing.T) {
+	const start = int64(1792065600123456789)
+	for _, tc := range []struct {
+		name, start, end string
+		valid            bool
+		duration         time.Duration
+	}{
+		{"strings", `"1792065600123456789"`, `"1792065600123456799"`, true, 10},
+		{"numbers", `1792065600123456789`, `1792065600123456799`, true, 10},
+		{"zero duration", `1792065600123456789`, `1792065600123456789`, true, 0},
+		{"missing start", ``, `1792065600123456799`, false, 0},
+		{"missing end", `1792065600123456789`, ``, false, 0},
+		{"null", `null`, `null`, false, 0},
+		{"zero", `0`, `0`, false, 0},
+		{"negative", `-1`, `10`, false, 0},
+		{"reversed", `20`, `10`, false, 0},
+		{"overflow", `1`, `18446744073709551615`, false, 0},
+		{"fraction", `1.5`, `2.5`, false, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sp := otlpSpan{StartTimeUnixNano: json.RawMessage(tc.start), EndTimeUnixNano: json.RawMessage(tc.end)}
+			from, to := sp.times()
+			if !tc.valid {
+				if !from.IsZero() || !to.IsZero() {
+					t.Fatalf("invalid times must remain unknown: %v, %v", from, to)
+				}
+			} else if from.UnixNano() != start || to.Sub(from) != tc.duration {
+				t.Fatalf("timestamps lost precision: %v, %v", from, to)
+			}
+		})
+	}
+}
+
+func TestSampleEnvelopeDoesNotHideUndatedCalls(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	old := span{id: "old", service: "web", kind: "client", startedAt: now.Add(-time.Hour), endedAt: now.Add(-time.Hour + time.Second),
+		attrs: map[string]string{"peer.service": "orders"}}
+	recent := old
+	recent.id, recent.startedAt, recent.endedAt = "recent", now.Add(-time.Minute), now
+	undated := old
+	undated.id, undated.startedAt, undated.endedAt = "undated", time.Time{}, time.Time{}
+	for _, tc := range []struct {
+		name  string
+		calls []span
+		known bool
+	}{
+		{"old then recent", []span{old, recent}, true},
+		{"recent then old", []span{recent, old}, true},
+		{"missing first", []span{undated, old, recent}, false},
+		{"missing middle", []span{old, undated, recent}, false},
+		{"missing last", []span{old, recent, undated}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			edges := map[string]*source.EdgeObservation{}
+			for _, call := range tc.calls {
+				pairTrace([]span{call}, edges, map[string]bool{}, map[string]model.NodeKind{}, map[string][]float64{})
+			}
+			e := edges["web->orders"]
+			if e.SampleCount != len(tc.calls) {
+				t.Fatalf("count must include undated calls: %+v", e)
+			}
+			if tc.known {
+				if !e.ObservedFrom.Equal(old.startedAt) || !e.ObservedAt.Equal(recent.endedAt) {
+					t.Errorf("sample envelope = %v - %v", e.ObservedFrom, e.ObservedAt)
+				}
+			} else if !e.ObservedFrom.IsZero() || !e.ObservedAt.IsZero() {
+				t.Errorf("an undated call must prevent a false envelope: %+v", e)
+			}
+		})
 	}
 }
 

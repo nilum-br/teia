@@ -29,6 +29,10 @@ export interface TeiaEvidence {
   signal: string;
   collectedAt?: string;
   observedAt?: string;
+  /** Earliest start / latest end of sampled calls, not continuous coverage. */
+  observedFrom?: string;
+  /** Calls in the sample, not total traffic or a request rate. */
+  sampleCount?: number;
   windowSeconds: number;
   retained?: boolean;
   metrics: string[];

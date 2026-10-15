@@ -274,6 +274,34 @@ func TestRecycledAddressesAreNotMisattributed(t *testing.T) {
 
 // Inventories report one observation per pod, so a rollout only makes the
 // new pod's address ambiguous, not every address of the workload.
+func TestSampleTimesPreventAttributingOldCallsToRecycledAddresses(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	for _, callerAddress := range []bool{false, true} {
+		from, to := "orders", source.AddressID("10.0.0.7")
+		if callerAddress {
+			from, to = to, from
+		}
+		for _, age := range []time.Duration{time.Hour, time.Minute} {
+			g := BuildAt([]Result{
+				result("inventory", "docker", source.Observation{Nodes: []source.NodeObservation{{
+					ID: "new-owner", Addresses: []string{"10.0.0.7"}, Since: now.Add(-30 * time.Minute),
+				}}}),
+				result("tempo", "tempo", source.Observation{Edges: []source.EdgeObservation{{
+					From: from, To: to, Window: 5 * time.Minute, SampleCount: 2,
+					ObservedFrom: now.Add(-age), ObservedAt: now.Add(-time.Second),
+				}}}),
+			}, nil, nil, now)
+			want := 1
+			if age == time.Hour {
+				want = 0
+			}
+			if len(g.Edges) != want {
+				t.Fatalf("callerAddress=%v age=%v: got %v; old sample must not belong to current IP owner", callerAddress, age, g.Edges)
+			}
+		}
+	}
+}
+
 func TestAddressesAreTimedPerObservation(t *testing.T) {
 	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	results := []Result{

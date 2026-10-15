@@ -96,6 +96,25 @@ callee pair, plus a mapping of which label is which. Give it an `errors` query t
 grouped by the same two labels) and, if you have one, a `latency` query (p95 in seconds): without `errors` teia
 knows the traffic but not whether it fails, so those lines stay grey instead of claiming to be green.
 
+### Observation time and trace sampling
+
+Collection time says when teia obtained an answer, not when the reported call happened. For each Tempo edge,
+`evidence.sampleCount` counts calls found in the sampled traces, `observedFrom` is their earliest span start
+and `observedAt` their latest span end. Neither bound claims continuous coverage or the service's last call;
+sample count is not total traffic or req/s. If any contributing call has missing or invalid times, both bounds
+remain unknown, even when some other calls are dated. Nanosecond timestamps are preserved in the API.
+
+Tempo searches use one window per collection round. A full trace can contain calls outside that search window;
+teia keeps their original times instead of replacing them with the search or collection time. For fully dated
+samples, IP resolution also checks the earliest call against the inventory's address ownership start. Old
+calls must not be assigned to a service that acquired the IP later. Age in details is measured at the evidence's
+collection, so paused views do not imply a ticking live measurement; future times explicitly flag the source clock.
+
+The timestamp contract follows [OTLP span start/end semantics](https://github.com/open-telemetry/opentelemetry-proto/blob/main/opentelemetry/proto/trace/v1/trace.proto).
+The [Tempo search API](https://grafana.com/docs/tempo/latest/api_docs/#search) returns a limited sample, not a
+guarantee of the newest calls. Other sources continue to expose unknown original observation times where their
+responses do not establish them. Query evaluation time is not substituted for the underlying samples' time.
+
 ## Component health
 
 Traffic, errors and latency say how calls go. To say *why* a datastore, a queue or a workload is in trouble,
