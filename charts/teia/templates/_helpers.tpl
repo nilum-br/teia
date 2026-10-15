@@ -54,6 +54,11 @@ is always read as a string.
 {{- define "teia.config" -}}
 {{- $config := deepCopy .Values.config }}
 {{- $_ := set $config "listen" ":8080" }}
+{{- if .Values.persistence.enabled }}
+{{- $history := default (dict) $config.history }}
+{{- $_ := set $history "directory" "/var/lib/teia/history" }}
+{{- $_ := set $config "history" $history }}
+{{- end }}
 {{- $auth := default (dict) $config.auth }}
 {{- $_ := set $auth "token" "${TEIA_TOKEN:-}" }}
 {{- $_ := set $config "auth" $auth }}

@@ -6,9 +6,9 @@
 // PostgreSQL hides where other sessions come from, so the explorer reports
 // exactly that grant as the next step.
 //
-// It also takes two health readings: connections in use against
-// max_connections (saturation), and, with the privilege, sessions waiting on
-// a lock for over a second, per client and with the session holding it.
+// It also reads connection saturation and, with statistics privileges, lock
+// blockers, oldest open transaction age and available replay acknowledgement
+// delay. These current-state readings do not establish the time of a client call.
 package postgres
 
 import (
@@ -159,6 +159,12 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		if err := s.locks(ctx, conn, &obs); err != nil {
 			return obs, err
 		}
+		if err := s.resources(ctx, conn, &obs); err != nil {
+			obs.Degraded = true
+			obs.Message = "additional transaction/replication diagnostics unavailable"
+			obs.Findings = append(obs.Findings, model.Finding{Rule: "postgres-resource-diagnostics", Kind: model.FindingSource, Severity: model.SeverityInfo, Subject: s.cfg.Node,
+				Title: "Transaction and replication diagnostics could not be read", Detail: redact(err, cfg.Password).Error()})
+		}
 	}
 	if !privileged {
 		obs.Degraded = true
@@ -166,6 +172,31 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		obs.Findings = append(obs.Findings, s.privilegeFinding(user, hidden))
 	}
 	return obs, nil
+}
+
+// resourceQuery reads only statistics. A missing replay_lag is unknown/not
+// applicable, not zero: a primary without a replica and an idle replica may
+// both have NULL here. Transaction start is not a client call timestamp.
+const resourceQuery = `SELECT
+ COALESCE((SELECT max(EXTRACT(EPOCH FROM statement_timestamp() - xact_start))
+  FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND xact_start IS NOT NULL
+  AND backend_type = 'client backend'), 0),
+ (SELECT max(EXTRACT(EPOCH FROM replay_lag)) FROM pg_stat_replication)`
+
+func (s *Source) resources(ctx context.Context, conn *pgx.Conn, obs *source.Observation) error {
+	var age float64
+	var replay *float64
+	if err := conn.QueryRow(ctx, resourceQuery).Scan(&age, &replay); err != nil {
+		return fmt.Errorf("reading resource statistics on %s: %w", s.cfg.Node, err)
+	}
+	obs.Readings = append(obs.Readings, source.Reading{Candidates: []string{s.cfg.Node}, Origin: "postgres pg_stat_activity transaction starts", Measures: []model.Measure{{Cause: model.CauseLag, What: "oldest open transaction age", Value: age, Unit: model.UnitSeconds}}})
+	if replay != nil && *replay >= 0 {
+		obs.Readings = append(obs.Readings, source.Reading{Candidates: []string{s.cfg.Node}, Origin: "postgres pg_stat_replication replay_lag", Measures: []model.Measure{{Cause: model.CauseLag, What: "replica replay acknowledgement delay", Value: *replay, Unit: model.UnitSeconds}}})
+	} else {
+		obs.Findings = append(obs.Findings, model.Finding{Rule: "postgres-replication-availability", Kind: model.FindingBlindSpot, Severity: model.SeverityInfo, Subject: s.cfg.Node,
+			Title: "Replica replay delay is unavailable or not applicable", Detail: "pg_stat_replication supplied no non-null replay_lag. No replica, an idle/caught-up replica or missing replay feedback can cause this; no zero delay was inferred."})
+	}
+	return nil
 }
 
 // locks adds, to the edge of each client with sessions waiting on a lock,

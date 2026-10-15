@@ -18,7 +18,9 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/nilum-br/teia/internal/engine"
+	"github.com/nilum-br/teia/internal/evidencelinks"
 	"github.com/nilum-br/teia/internal/graph"
+	"github.com/nilum-br/teia/internal/history"
 	"github.com/nilum-br/teia/internal/model"
 	"github.com/nilum-br/teia/internal/notify"
 	"github.com/nilum-br/teia/internal/source"
@@ -32,6 +34,7 @@ import (
 )
 
 type Config struct {
+	History history.Config `yaml:"history"`
 	// Listen is the API address. ":8080" binds every interface: set
 	// auth.token, or keep teia on a private network.
 	Listen   string            `yaml:"listen"`
@@ -48,12 +51,20 @@ type Config struct {
 	Auth      Auth          `yaml:"auth"`
 	CORS      CORS          `yaml:"cors"`
 	// MaxStreams caps concurrent /api/v1/stream clients (default 100).
-	MaxStreams int     `yaml:"maxStreams"`
-	Sources    Sources `yaml:"sources"`
+	MaxStreams    int                      `yaml:"maxStreams"`
+	Sources       Sources                  `yaml:"sources"`
+	EvidenceLinks []evidencelinks.Template `yaml:"evidenceLinks"`
 }
 
 // Health sets the limits of each golden signal for amber and red.
 type Health struct {
+	HealthLimits `yaml:",inline"`
+	Overrides    []HealthOverride `yaml:"overrides"`
+}
+
+// HealthLimits is shared by global defaults and targeted overrides. Zero
+// inherits the surrounding global/default value; it never disables a signal.
+type HealthLimits struct {
 	// Degraded and Failing are error rates (0..1).
 	Degraded float64       `yaml:"degraded"`
 	Failing  float64       `yaml:"failing"`
@@ -69,7 +80,9 @@ type Health struct {
 	// without progress.
 	Lag LatencyLimits `yaml:"lag"`
 	// Restarts counts container restarts in the source's window.
-	Restarts Limits `yaml:"restarts"`
+	Restarts   Limits `yaml:"restarts"`
+	Evictions  Limits `yaml:"evictions"`
+	Rejections Limits `yaml:"rejections"`
 }
 
 // Limits is a degraded and failing pair; zero keeps the default.
@@ -113,16 +126,20 @@ type CORS struct {
 // HealthThresholds returns the thresholds with defaults filled in.
 func (c *Config) HealthThresholds() graph.HealthThresholds {
 	t := graph.DefaultHealth
-	if c.Health.Degraded > 0 {
-		t.Degraded = c.Health.Degraded
+	return healthThresholds(c.Health.HealthLimits, t)
+}
+
+func healthThresholds(h HealthLimits, t graph.HealthThresholds) graph.HealthThresholds {
+	if h.Degraded > 0 {
+		t.Degraded = h.Degraded
 	}
-	if c.Health.Failing > 0 {
-		t.Failing = c.Health.Failing
+	if h.Failing > 0 {
+		t.Failing = h.Failing
 	}
-	if d := c.Health.Latency.Degraded; d > 0 {
+	if d := h.Latency.Degraded; d > 0 {
 		t.LatencyDegradedMs = float64(d) / float64(time.Millisecond)
 	}
-	if f := c.Health.Latency.Failing; f > 0 {
+	if f := h.Latency.Failing; f > 0 {
 		t.LatencyFailingMs = float64(f) / float64(time.Millisecond)
 	}
 	pick := func(set, def float64) float64 {
@@ -131,16 +148,20 @@ func (c *Config) HealthThresholds() graph.HealthThresholds {
 		}
 		return def
 	}
-	t.SaturationDegraded = pick(c.Health.Saturation.Degraded, t.SaturationDegraded)
-	t.SaturationFailing = pick(c.Health.Saturation.Failing, t.SaturationFailing)
-	t.LocksDegraded = pick(c.Health.Locks.Degraded, t.LocksDegraded)
-	t.LocksFailing = pick(c.Health.Locks.Failing, t.LocksFailing)
-	t.BacklogDegraded = pick(c.Health.Backlog.Degraded, t.BacklogDegraded)
-	t.BacklogFailing = pick(c.Health.Backlog.Failing, t.BacklogFailing)
-	t.LagDegradedSeconds = pick(c.Health.Lag.Degraded.Seconds(), t.LagDegradedSeconds)
-	t.LagFailingSeconds = pick(c.Health.Lag.Failing.Seconds(), t.LagFailingSeconds)
-	t.RestartsDegraded = pick(c.Health.Restarts.Degraded, t.RestartsDegraded)
-	t.RestartsFailing = pick(c.Health.Restarts.Failing, t.RestartsFailing)
+	t.SaturationDegraded = pick(h.Saturation.Degraded, t.SaturationDegraded)
+	t.SaturationFailing = pick(h.Saturation.Failing, t.SaturationFailing)
+	t.LocksDegraded = pick(h.Locks.Degraded, t.LocksDegraded)
+	t.LocksFailing = pick(h.Locks.Failing, t.LocksFailing)
+	t.BacklogDegraded = pick(h.Backlog.Degraded, t.BacklogDegraded)
+	t.BacklogFailing = pick(h.Backlog.Failing, t.BacklogFailing)
+	t.LagDegradedSeconds = pick(h.Lag.Degraded.Seconds(), t.LagDegradedSeconds)
+	t.LagFailingSeconds = pick(h.Lag.Failing.Seconds(), t.LagFailingSeconds)
+	t.RestartsDegraded = pick(h.Restarts.Degraded, t.RestartsDegraded)
+	t.RestartsFailing = pick(h.Restarts.Failing, t.RestartsFailing)
+	t.EvictionsDegraded = pick(h.Evictions.Degraded, t.EvictionsDegraded)
+	t.EvictionsFailing = pick(h.Evictions.Failing, t.EvictionsFailing)
+	t.RejectionsDegraded = pick(h.Rejections.Degraded, t.RejectionsDegraded)
+	t.RejectionsFailing = pick(h.Rejections.Failing, t.RejectionsFailing)
 	return t
 }
 
@@ -382,6 +403,14 @@ func (c *Config) validate() error {
 	notNegative("interval", c.Interval)
 	notNegative("timeout", c.Timeout)
 	notNegative("retention", c.Retention)
+	if err := c.History.Validate(); err != nil {
+		errs = append(errs, err)
+	}
+	for i, link := range c.EvidenceLinks {
+		if err := evidencelinks.Validate(link); err != nil {
+			bad("evidenceLinks[%d]: %s", i, err)
+		}
+	}
 	if c.MaxStreams < 0 {
 		bad("maxStreams must not be negative (got %d)", c.MaxStreams)
 	}
@@ -402,6 +431,8 @@ func (c *Config) validate() error {
 		{"health.locks", c.Health.Locks, t.LocksDegraded, t.LocksFailing, 0},
 		{"health.backlog", c.Health.Backlog, t.BacklogDegraded, t.BacklogFailing, 0},
 		{"health.restarts", c.Health.Restarts, t.RestartsDegraded, t.RestartsFailing, 0},
+		{"health.evictions", c.Health.Evictions, t.EvictionsDegraded, t.EvictionsFailing, 0},
+		{"health.rejections", c.Health.Rejections, t.RejectionsDegraded, t.RejectionsFailing, 0},
 		{"health.lag", Limits{Degraded: c.Health.Lag.Degraded.Seconds(), Failing: c.Health.Lag.Failing.Seconds()}, t.LagDegradedSeconds, t.LagFailingSeconds, 0},
 	} {
 		switch {
@@ -419,6 +450,9 @@ func (c *Config) validate() error {
 		bad("health.latency.degraded (%s) must not be above health.latency.failing (%s); unset values default to %s and %s",
 			model.FormatMs(t.LatencyDegradedMs), model.FormatMs(t.LatencyFailingMs),
 			model.FormatMs(graph.DefaultHealth.LatencyDegradedMs), model.FormatMs(graph.DefaultHealth.LatencyFailingMs))
+	}
+	if err := c.validateHealthOverrides(); err != nil {
+		errs = append(errs, err)
 	}
 
 	for i, w := range c.Notify.Webhooks {

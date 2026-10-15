@@ -1,0 +1,56 @@
+{
+  "snapshot": {
+    "nodes": [
+      {"id":"web","kind":"service","journeys":["checkout","browse"],"health":"healthy"},
+      {"id":"orders","kind":"service","labels":{"journey":"checkout"},"health":"healthy"},
+      {"id":"catalog","kind":"service","labels":{"journey":"browse"},"health":"healthy"},
+      {"id":"batch","kind":"service","health":"unknown"},
+      {"id":"db","kind":"database","health":"failing"},
+      {"id":"common","kind":"service","health":"unknown"},
+      {"id":"cycle","kind":"service","health":"unknown"},
+      {"id":"too-far","kind":"service","health":"unknown"},
+      {"id":"silent","kind":"service","labels":{"journey":"checkout"},"health":"unknown"}
+    ],
+    "edges": [
+      {"from":"web","to":"orders","health":"healthy","observed":true},
+      {"from":"web","to":"catalog","health":"healthy","observed":true},
+      {"from":"orders","to":"db","health":"failing","observed":true},
+      {"from":"catalog","to":"db","health":"healthy","observed":true},
+      {"from":"batch","to":"orders","health":"unknown","declared":true},
+      {"from":"batch","to":"db","health":"unknown","declared":true},
+      {"from":"web","to":"common","health":"unknown","declared":true},
+      {"from":"common","to":"cycle","health":"unknown","declared":true},
+      {"from":"cycle","to":"common","health":"unknown","declared":true},
+      {"from":"cycle","to":"too-far","health":"unknown","declared":true}
+    ]
+  },
+  "expected": {
+    "checkout": {
+      "roles":{"web":"member","orders":"member","silent":"member","db":"dependency","common":"dependency","cycle":"dependency"},
+      "entryPoints":["orders","silent","web"],
+      "entryEdges":["batch->orders","web->common","web->orders"],
+      "boundaryPorts":[
+        {"kind":"tenant","edgeId":"batch->db","from":"batch","to":"db"},
+        {"kind":"caller","edgeId":"batch->orders","from":"batch","to":"orders"},
+        {"kind":"tenant","edgeId":"catalog->db","from":"catalog","to":"db"},
+        {"kind":"exit","edgeId":"cycle->too-far","from":"cycle","to":"too-far"},
+        {"kind":"exit","edgeId":"web->catalog","from":"web","to":"catalog"}
+      ],
+      "truncated":true,
+      "health":"failing"
+    },
+    "browse": {
+      "roles":{"web":"member","catalog":"member","db":"dependency","common":"dependency","cycle":"dependency"},
+      "entryPoints":["web"],
+      "entryEdges":["web->catalog","web->common"],
+      "boundaryPorts":[
+        {"kind":"tenant","edgeId":"batch->db","from":"batch","to":"db"},
+        {"kind":"exit","edgeId":"cycle->too-far","from":"cycle","to":"too-far"},
+        {"kind":"tenant","edgeId":"orders->db","from":"orders","to":"db"},
+        {"kind":"exit","edgeId":"web->orders","from":"web","to":"orders"}
+      ],
+      "truncated":true,
+      "health":"failing"
+    }
+  }
+}

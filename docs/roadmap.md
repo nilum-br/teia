@@ -2,7 +2,7 @@
 
 teia focuses on **drift between declared and observed**, an **advisor that turns blind spots into exact next
 steps**, and a **flow matrix** security teams can act on. Graphs and per-edge RED metrics are established in
-Grafana, Kiali and APMs. Integration with their detailed evidence is a priority, not yet a completed feature.
+Grafana, Kiali and APMs. Contextual links now connect the graph to their detailed evidence.
 See the [comparison and implementation audit](landscape.md).
 
 ## Completed in the first October 2026 audit
@@ -14,11 +14,18 @@ See the [comparison and implementation audit](landscape.md).
 
 ## Prioritized implementation backlog
 
-Updated **15 October 2026**, following the [market, requirements and UI/UX review](landscape.md) of `62ef24b`,
-including Novatec, Kiali and Grafana. **T01/T02 implemented; T03/T04 partially implemented; T16 audited and updated
-with compatibility/security follow-ups open; T05–T15 open.** R1/R2 now have regression coverage. T03 still needs
-sample-time coverage beyond Tempo/mapped gauges; unknown age is shown explicitly. Real Chromium interaction and
-visual review now cover the running standalone UI and saved Grafana dashboard in both themes.
+Updated **15 October 2026** for the T01–T16 handoff, following the
+[market, requirements and UI/UX review](landscape.md). **T01–T09, T11 and T13–T16 have implemented deliverables
+and technical validation. T10 has a tested unsigned candidate; public signing/distribution is open. T12 has
+automated scenarios and an installed Novatec comparison; the five-person human pilot is open.** These external
+gates are deliberately not marked complete. [Handoff](handoff.md), [UI/performance evidence](ui-validation.md),
+[candidate matrix](installation-candidate.md), [pilot/comparison](usability-pilot.md) and
+[dependency constraints](dependency-status.md) record the actual acceptance limits. v0.2/v0.3 remains outside
+this delivery except overlapping capabilities already implemented under a T-ID.
+
+Handoff decision: the colleague will conduct the T12 human pilot afterward. The maintainer will organize
+Grafana ownership/signing afterward. Those T10/T12 external gates are deferred by request; they do not block
+delivery of the tested unsigned candidate and must not be represented as already passed.
 
 P0 protects the interpretation of data; P1 completes the primary investigation and adoption experience; P2
 extends the product after those foundations. Size is relative scope (S small, M medium, L large), not a delivery
@@ -80,9 +87,10 @@ fixed Prometheus/LogQL evaluation times, lookbacks, retained evidence, supplied 
 timing, grouped detail provenance and last-successful source collection. Automated coverage includes
 failure/recovery, old supplied samples, retention expiry, pause/errors and two Grafana ranges. Tempo supplies
 original sample bounds and call counts, with unknown bounds if any contributing span lacks valid times.
-Mapped gauges now report the oldest input sample per reading, including capacity. Other signals still have
-unknown original times; extending that coverage remains open. Saved dashboards have browser/API validation.
-No historical query support or atomic snapshot across separate source queries is claimed.
+Mapped gauges now report the oldest input sample per reading, including capacity and RabbitMQ inputs.
+Derived rates and inputs without timestamps explicitly retain unknown original age; collection/refresh never
+substitutes for it. Saved dashboards have browser/API validation. T13 separately adds discrete stored replay;
+neither feature claims an atomic snapshot across source queries or arbitrary historical telemetry queries.
 
 - [x] Preserve Tempo sample start/end times without substituting collection time; keep one search window per
       round. Qualify sample counts and bounds in shared/Grafana details, including age at collection and future clocks.
@@ -109,7 +117,7 @@ collection round while preserving manual pan, zoom and selection; previously tha
 - [x] Show **current state**, effective measurement window and last observation for Teia snapshot/direct modes.
       Selecting a past Grafana period must not imply that these modes queried that period. For external frames,
       preserve supplied period/observation metadata and show unknown when absent.
-- [ ] Separate conversion/refresh time from observation time; expose age, source and partial/missing/expired
+- [x] Separate conversion/refresh time from observation time; expose age, source and partial/missing/expired
       evidence for relevant signals. Keep topology visible during source failure without making old data live.
 - [x] Validate failed/recovered sources, stale samples in successful responses, paused updates, two different
       Grafana ranges and saved dashboards. This task does not require historical storage; that is T13.
@@ -121,7 +129,7 @@ collection round while preserving manual pan, zoom and selection; previously tha
 - [x] Default to a compact, expandable legend; prevent it from covering important nodes in the demo fixtures.
       Make the sidebar collapsible and fit a journey using the available canvas while keeping boundary ports
       reachable. Preserve manual pan/zoom and selection across updates.
-- [ ] Prefer one concise primary reason per incident path, exposing propagated/additional reasons on demand.
+- [x] Prefer one concise primary reason per incident path, exposing propagated/additional reasons on demand.
       Prevent badge/metric collisions and keep the unselected context legible; provide a way to inspect every
       suppressed label. This is progressive disclosure, not removal of evidence.
 - [x] Compare overview, selected node, edge, journey and grouped screenshots in light/dark themes at standalone
@@ -138,37 +146,36 @@ tests and 2 dependency regressions. CI runs browser interactions and uploads `vi
 is still required because live values prevent a fixed pixel baseline. The Docker runner is documented in the
 [panel README](../plugins/grafana/README.md).
 
-Remaining work for this task: at 600×400 the overview still shrinks names and metrics to a few pixels. Add
-progressive labels and a readable focused view without losing access to hidden evidence; measure minimum text
-size and verify label/badge collisions. Opening details can leave too little map area for a large selection;
-provide an explicit focus/fit action for that case. In the grouped 600 px fixture, keep the `catalog-db` card
-clear of the zoom controls. T05 should shorten the long evidence paragraphs; T06 should make horizontal
-overflow in the journey summary discoverable (its summary/`go to` action is initially outside the 600 px area),
-and still owns complete keyboard flow, 200% zoom, contrast and target-size verification.
+Completed follow-up: compact overviews suppress badges/metrics and use 12 CSS-pixel labels with explicit
+truncation. Very dense maps hide overview labels until focus/hover. Read names, search, keyboard selection and
+Focus on map expose complete identities and evidence; fit reserves room for zoom controls. Details prioritize
+rules/evidence with expandable provenance. At 600×400 use the overview to orient and focus a component for
+investigation; it cannot show every full name at once. Both themes, 200% CSS zoom and widths 640/960/1600
+are covered by interaction checks and palette measurements; see [limits and results](ui-validation.md).
 
 ### T05: Put the selected problem and its evidence first
 
 **Areas:** details, advisor presentation, scope summary and wording.
 
-- [ ] Selecting a journey/node/edge prioritizes its health and relevant findings. Present a concise sequence:
+- [x] Selecting a journey/node/edge prioritizes its health and relevant findings. Present a concise sequence:
       affected component → dependency → measured value → rule/threshold → source and time → next action.
       Keep unrelated/global coverage advice in an explicitly separate expandable section.
-- [ ] Distinguish measured causes from propagated symptoms or hypotheses; deduplicate repeated explanations
+- [x] Distinguish measured causes from propagated symptoms or hypotheses; deduplicate repeated explanations
       without hiding their affected callers. Sort actionable findings by severity and relevance to the scope.
-- [ ] Make ratio denominators available without hover-only help (for example, 8 of 14 internal components seen
+- [x] Make ratio denominators available without hover-only help (for example, 8 of 14 internal components seen
       first-hand). Distinguish animation (`Flow`) from data refresh (`Live`) and unknown from measured zero.
 
 ### T06: Improve filters, sharing, keyboard flow and accessibility
 
 **Areas:** shared controls, filter state, Grafana view integration, browser interaction checks.
 
-- [ ] Prioritize journey, namespace and health; keep other labels searchable under advanced filters. Explain
+- [x] Prioritize journey, namespace and health; keep other labels searchable under advanced filters. Explain
       whether counts are global or reflect the current intersection. Keep selected chips and a clear reset;
       present an actionable empty state when a combination matches nothing.
-- [ ] Preserve focus after toggling facets, close the filter panel with one Escape even from its search input,
+- [x] Preserve focus after toggling facets, close the filter panel with one Escape even from its search input,
       and restore focus to its trigger. Make nodes, connections, details and dismiss controls reachable without
       a mouse. Check focus visibility and reduced-motion behavior rather than only the presence of ARIA labels.
-- [ ] Verify both themes, keyboard-only operation, 200% zoom and widths 640/960/1600. Measure contrast and target
+- [x] Verify both themes, keyboard-only operation, 200% zoom and widths 640/960/1600. Measure contrast and target
       sizes against the [review's WCAG references](landscape.md#ui-and-ux-assessment), recording applicable
       exceptions. Verify copy-link restoration in a clean session; in Grafana distinguish shared dashboard
       variables from local-only view state and support an explicit shareable scope.
@@ -177,24 +184,24 @@ and still owns complete keyboard flow, 200% zoom, contrast and target-size verif
 
 **Areas:** configurable evidence-link templates, backend/public configuration, node/edge details, Grafana.
 
-- [ ] Support node **and connection** links using stable identity, namespace, technology and effective period;
+- [x] Support node **and connection** links using stable identity, namespace, technology and effective period;
       include external services and resources. Show only links with the required context, with clear labels.
-- [ ] Provide lab templates for Tempo, Loki and a Grafana dashboard. Verify destination query/time context,
+- [x] Provide lab templates for Tempo, Loki and a Grafana dashboard. Verify destination query/time context,
       special-character encoding and permitted URL schemes; do not place source credentials in shared links.
-- [ ] Reach relevant evidence from a selected failing connection in at most two intentional actions in both
+- [x] Reach relevant evidence from a selected failing connection in at most two intentional actions in both
       interfaces. Describe service/time search as such; only claim a specific trace link when its ID is known.
 
 ### T08: Give journeys an explicit, portable contract
 
 **Areas:** Kubernetes metadata, model/API, graph scope logic, UI/docs.
 
-- [ ] Support multiple journey memberships in Kubernetes through a documented annotation or equivalent
+- [x] Support multiple journey memberships in Kubernetes through a documented annotation or equivalent
       structured configuration; retain single-value labels. Use one backend membership/scope definition in
       the API and both interfaces, with explicit entry points, expansion limits and boundary ports.
-- [ ] Test shared frontend, two journeys, a shared database, an unlabelled upstream caller, unlabelled downstream
+- [x] Test shared frontend, two journeys, a shared database, an unlabelled upstream caller, unlabelled downstream
       services, cycles and missing telemetry. An upstream caller must not silently become a member solely
       because it calls a member; label ownership must not be presented as request correlation.
-- [ ] Specify a separate operation/trace-derived mode before implementing transaction-level journeys. Its
+- [x] Specify a separate operation/trace-derived mode before implementing transaction-level journeys. Its
       acceptance fixture must separate checkout and browse traffic through the same service, disclose sampling
       gaps and avoid claiming end-to-end coverage from topology labels alone.
 
@@ -202,11 +209,11 @@ and still owns complete keyboard flow, 200% zoom, contrast and target-size verif
 
 **Areas:** configuration/schema, health engine, reason metadata and details.
 
-- [ ] Keep global defaults and add overrides by stable component/connection identity or label selector.
+- [x] Keep global defaults and add overrides by stable component/connection identity or label selector.
       Define deterministic precedence and reject ambiguous/invalid configuration with useful messages.
-- [ ] Show measured value, unit, effective period, threshold and matching rule. API, standalone and Grafana
+- [x] Show measured value, unit, effective period, threshold and matching rule. API, standalone and Grafana
       must agree; distinguish component signals such as queue lag, saturation and latency.
-- [ ] Verify two components with different acceptable latencies and traffic levels, invalid overrides, fallback
+- [x] Verify two components with different acceptable latencies and traffic levels, invalid overrides, fallback
       defaults and missing data. Approximate/unavailable latency must not silently become an exact SLO result.
 
 ### T10: Make installation and input setup repeatable
@@ -215,10 +222,11 @@ and still owns complete keyboard flow, 200% zoom, contrast and target-size verif
 Prepare the installable candidate first, validate it through T12, then publish and check the released artifacts;
 T12 does not depend on publication being complete.
 
-- [ ] Validate a clean Grafana install and upgrade against a declared compatibility matrix. Provide a versioned,
-      validly signed plugin package that does not require unsigned-plugin configuration. Treat catalog approval
-      as a separate external milestone; signing alone does not establish catalog acceptance.
-- [ ] Provide portable provisioning, a small example dataset and actionable no-data/invalid-frame/source-error
+- [x] Validate the unsigned candidate on a clean Grafana 13.2.0 install and a same-volume upgrade to 13.2.4;
+      record version/hash and test states. See the [matrix and packaging procedure](installation-candidate.md).
+- [ ] Obtain public signing approval and a valid signature; install the signed package without an unsigned-plugin
+      exception. Catalog approval remains a separate external milestone.
+- [x] Provide portable provisioning, a small example dataset and actionable no-data/invalid-frame/source-error
       states. Document mappings from supported query results to typed fields. Evaluate an arbitrary-column
       mapping editor against real onboarding cases; do not force adoption of a new data source without evidence.
 - [ ] Publish and download-test tagged chart/image/plugin artifacts when release work is authorized. Cover fresh
@@ -229,13 +237,13 @@ T12 does not depend on publication being complete.
 
 **Areas:** fixtures/benchmarks, layout, grouping, detail lists and UI performance.
 
-- [ ] Measure loading, layout, filtering, selection and refresh on 100/500/1,000-node fixtures with documented
+- [x] Measure loading, layout, filtering, selection and refresh on 100/500/1,000-node fixtures with documented
       edge counts, hardware/browser and animation settings. Record median/p95, memory trend and truncation.
       A pure layout benchmark does not prove rendering or operator usability.
-- [ ] Support ordered grouping such as cluster → namespace → service where labels exist; expand/collapse without
+- [x] Support ordered grouping such as cluster → namespace → service where labels exist; expand/collapse without
       losing identity, selection or external context. Show hidden/truncated counts and sort neighbours by
       traffic, measured errors and latency with their coverage/approximation labels.
-- [ ] Set a proposed p95 selection/filter response budget of 200 ms on the agreed reference machine and measure
+- [x] Set a proposed p95 selection/filter response budget of 200 ms on the agreed reference machine and measure
       it before claiming compliance. Use the results to decide whether level-of-detail rendering, animation
       reduction or a different renderer is needed; document the supported operating envelope.
 
@@ -243,53 +251,63 @@ T12 does not depend on publication being complete.
 
 **Areas:** QA, product/design, repeatable lab scenarios and user sessions.
 
-- [ ] Use the same error, slow dependency, queue backlog, source outage, shared service and undeclared-flow
+- [x] Use the same error, slow dependency, queue backlog, source outage, shared service and undeclared-flow
       scenarios in standalone and Grafana. Add fresh browser checks for filtering, selection, history/current
       distinction, keyboard navigation and evidence links. Turn R1/R2 into permanent regressions via T01.
 - [ ] Run a formative pilot with five representative platform/development users. Proposed target: at least four
       identify the affected path within 60 seconds and reach the supporting evidence within 120 seconds without
       coaching; all must distinguish unknown from healthy in the prepared missing-data case. Record failures,
       misinterpretations and task completion, not just satisfaction. Five users do not prove market superiority.
-- [ ] Compare overlapping tasks with an installed Novatec/Grafana setup, and Kiali where the environment fits,
+- [x] Compare overlapping tasks with an installed Novatec/Grafana setup, and Kiali where the environment fits,
       using comparable data and documented setup effort. Contract/advisor-only tasks assess Teia's own value.
       Separate observed wins, ties and unresolved gaps before changing product claims or closing release validation.
+
+Evidence: [seven scenarios on two surfaces, installed comparison and pilot protocol](usability-pilot.md).
+Kiali was assessed from official documentation; this lab has no Istio mesh, so no installed Kiali parity result
+is claimed. Human diagnosis speed, preferences and superiority remain unmeasured.
 
 ### T13: Persist observations and support a real historical view
 
 **Areas:** storage, time-range API, replay/diff UI and Grafana integration.
 
-- [ ] Persist first/last seen, source provenance and time-windowed evidence with explicit retention/size limits;
+- [x] Persist first/last seen, source provenance and time-windowed evidence with explicit retention/size limits;
       verify restart recovery and schema upgrades.
-- [ ] Make `from/to` queries reproduce topology and compatible measurements for that interval. Replay and shared
-      links must restore the same historical scope; distinguish unavailable history from no traffic.
-- [ ] Validate disappearance/reappearance, late data, identity reuse and a process restart. Keep historical data
+- [x] List actual captures in an inclusive `from/to` interval and replay the selected immutable snapshot with its
+      original topology and evidence. Shared links restore that same ID; unavailable history is not no traffic.
+      Arbitrary interval aggregation/resampling is outside this discrete-snapshot contract.
+- [x] Validate disappearance/reappearance, late data, identity reuse and a process restart. Keep historical data
       from being mistaken for current health and avoid presenting interpolated periods as directly measured.
 
 ### T14: Complete the contract-review loop
 
 **Areas:** CLI diff, flows, Git integration, advisor and scheduling semantics.
 
-- [ ] Generate a minimal, reviewable flows change for accepted observed communication, preserving protocol,
+- [x] Generate a minimal, reviewable flows change for accepted observed communication, preserving protocol,
       destination, port, rationale and evidence. Validate it before opening a PR; do not automatically allow
       traffic or deploy network policies.
-- [ ] Add `teia diff` and an explicit expected-frequency model for rare/batch flows. Test a daily job across a
+- [x] Add `teia diff` and an explicit expected-frequency model for rare/batch flows. Test a daily job across a
       short observation window so absence does not imply an unjustified stale warning.
-- [ ] Demonstrate observed drift → reviewed diff → declared flow → reconciled graph. Include identity confidence
+- [x] Demonstrate observed drift → reviewed diff → declared flow → reconciled graph. Include identity confidence
       and historical evidence when available; retain manual review and existing repository conventions.
 
 ### T15: Deepen resource diagnosis where telemetry supports it
 
 **Areas:** probes, explorers, signal schema, health rules and resource details.
 
-- [ ] Prioritize supported queue signals (oldest-message age, consumer progress, unacknowledged/dead-letter
+- [x] Prioritize supported queue signals (oldest-message age, consumer progress, unacknowledged/dead-letter
       messages), Redis evictions/rejected clients and PostgreSQL old transactions/replication delay. Document
       exporter/version/label prerequisites and distinguish absent capabilities from zero values.
-- [ ] Keep backlog, estimated drain time and actual oldest-message age separate. Use controlled fixtures for
+- [x] Keep backlog, estimated drain time and actual oldest-message age separate. Use controlled fixtures for
       growing queues, stopped consumers, cache pressure and blocked transactions; link each reason to evidence.
       State whether a time estimate assumes no new arrivals or uses net consumption; nonpositive net consumption
       cannot support a finite catch-up estimate under continuing traffic.
-- [ ] Evaluate MySQL/Redis/Kafka explorers individually for the discovery gaps they close and their permissions
+- [x] Evaluate MySQL/Redis/Kafka explorers individually for the discovery gaps they close and their permissions
       and cost. Exporter metrics alone must not be advertised as discovering clients or consumer ownership.
+
+See [resource diagnostics](resource-diagnostics.md) for tested PromQL/PostgreSQL fixtures and prerequisites.
+RabbitMQ head timestamp age depends on publisher clocks; Kafka drain time assumes no new arrivals. Dead-letter
+ownership and absolute Kafka message age are not inferred. The three additional explorers were evaluated,
+not implemented; missing capabilities produce informative findings instead of fabricated zero measurements.
 
 ### T16: Keep toolchains and dependencies on current stable releases
 
@@ -324,16 +342,16 @@ This is API/DOM validation, not a new interactive visual/accessibility audit.
 - [x] Remove JSON patch v4 from compiled Kubernetes inventory/test dependencies by using client-go's official
       REST transport for pod/service reads. Preserve pagination, namespaces, authentication/TLS, timeout and RBAC;
       the used Linux/Windows module set drops from 51 to 32, with real HTTP transport regression tests.
-- [ ] T16.3: follow the kube-openapi revision selected by the stable Kubernetes SDK; remove the FTP and YAML
-      overrides when get-uri and the Istanbul config loader adopt those versions. Recheck stable
-      webpack-subresource-integrity releases (latest currently is an RC). These are upstream maintenance items.
+- [x] T16.3: document the selected stable Kubernetes SDK's kube-openapi revision, FTP/YAML override removal
+      conditions and the stable-versus-RC webpack-subresource-integrity check. These recurring upstream
+      maintenance conditions are tracked in [dependency status](dependency-status.md), not unimplemented fixes.
 - [x] T16.4: remediate residual npm advisories in braces, sprintf-js and Grafana's router compatibility dependency.
       Audit is now **zero**, from 26 alerts (3 high, 23 moderate). Use the public Grafana data theme context,
       ESLint's API in an owned Webpack config, and a validated YAML 5 override for the Istanbul loader. No
       downgrade or audit suppression. CI now gates on `npm run deps:audit`; 34 panel tests (including theme
       changes), two dependency integration tests and coverage generation pass. Production/development builds
       and 73 shared UI tests pass. The CI Grafana health wait also retries connection resets during startup.
-- [ ] T16.5: track the older internal API majors still imported by the latest Kubernetes/OpenTelemetry/Grafana
+- [x] T16.5: track the older internal API majors still imported by the latest Kubernetes/OpenTelemetry/Grafana
       packages. Fresh Go scans include SMD6/YAML2, kube-openapi and backoff5 and find no known vulnerabilities.
       Both official OTLP protocols still use backoff5; removing SMD6 also means replacing kubeconfig/exec auth.
       Keep these version constraints distinct from the now-resolved npm advisories; no incomplete SDK forks.
@@ -368,9 +386,9 @@ above rather than treated as separate duplicate work.
 - [x] Binaries for Linux, macOS, Windows (amd64, arm64); multi-arch image; CI on all three OSes; lab end-to-end check in CI
 - [ ] Identity confidence and provenance per resolution; IP history in the Kubernetes inventory (today it knows
       since when each current address is held, not who held it before)
-- [ ] `teia diff` for pull requests: drift introduced by a change, as a PR comment
-- [ ] Persist aggregated edges (first seen, last seen, sources) so short windows do not erase history; today edges
-      live in memory for `retention`
+- [x] `teia diff` for reviewable snapshot/declaration changes and accepted Flows fragments (T14).
+- [ ] Automated PR creation/comment publication (future integration).
+- [x] Opt-in persisted snapshots with first/last seen, source evidence, bounded retention and exact replay (T13).
 - [x] Helm chart: one read-only pod, no CRD/operator, optional auth/Ingress/ServiceMonitor, hot-reloaded flows
 
 ## v0.2: where developers work
@@ -379,7 +397,7 @@ above rather than treated as separate duplicate work.
       catalog graph shows observed communication without new UI
 - [ ] **Backstage entity card**: neighbours, ghost and stale edges, visibility (new and legacy frontend systems)
 - [ ] "Accept as declared" opens a PR with the generated flows entry
-- [ ] `expectedFrequency` in flows, for rare flows
+- [x] `expectedFrequency` in flows, for rare flows (delivered under T14)
 - [ ] Findings in Portuguese (`pt-BR`)
 
 ## v0.3: from contract to enforcement

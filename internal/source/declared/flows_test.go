@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nilum-br/teia/internal/model"
 )
@@ -74,6 +75,30 @@ func TestValidate(t *testing.T) {
 	doc := Document{APIVersion: "v1", Kind: KindFlows, Spec: Spec{Egress: []Flow{{Kind: "planet", Port: 70000}}}}
 	if errs := Validate(doc); len(errs) != 5 {
 		t.Errorf("want 5 errors (apiVersion, owner, to, kind, port), got %d: %v", len(errs), errs)
+	}
+}
+
+func TestExpectedFrequencyValidationAndDiscovery(t *testing.T) {
+	for _, value := range []string{"24h", "168h", "1h30m", ".5h", "+1h", "2562047h47m16.854775807s"} {
+		doc := Document{APIVersion: APIVersion, Kind: KindFlows, Spec: Spec{Owner: "daily", Egress: []Flow{{To: "archive", ExpectedFrequency: value}}}}
+		if errs := Validate(doc); len(errs) != 0 {
+			t.Fatalf("valid frequency %q rejected: %v", value, errs)
+		}
+	}
+	for _, value := range []string{"0", "0h", "-1h", "daily", "1d", "999999999999h", " 24h"} {
+		doc := Document{APIVersion: APIVersion, Kind: KindFlows, Spec: Spec{Owner: "daily", Egress: []Flow{{To: "archive", ExpectedFrequency: value}}}}
+		if errs := Validate(doc); len(errs) != 1 {
+			t.Fatalf("invalid frequency %q accepted: %v", value, errs)
+		}
+	}
+	file := filepath.Join(t.TempDir(), "flows.yaml")
+	data := strings.Replace(flows, "protocol: http", "protocol: http\n      expectedFrequency: 24h", 1)
+	if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	obs, err := New("declared", []string{file}).Discover(context.Background())
+	if err != nil || len(obs.Edges) != 2 || obs.Edges[0].ExpectedFrequency != 24*time.Hour || obs.Edges[1].ExpectedFrequency != 0 {
+		t.Fatalf("frequency lost during declaration: %+v %v", obs.Edges, err)
 	}
 }
 

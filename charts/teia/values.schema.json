@@ -52,6 +52,16 @@
     },
     "env": { "type": "array" },
     "envFrom": { "type": "array" },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "existingClaim": { "type": "string" },
+        "size": { "type": "string", "minLength": 1 },
+        "storageClass": { "type": "string" }
+      }
+    },
     "rbac": {
       "type": "object",
       "additionalProperties": false,

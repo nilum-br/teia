@@ -68,8 +68,10 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, wi
     const { snapshot, changes } = framesToSnapshot(data.series, ++roundRef.current);
     if (snapshot) {
       uiRef.current.update(snapshot, changes);
+    } else {
+      uiRef.current.setStatus(data.series.length ? 'No supported node/edge fields. Check the query mapping.' : 'No query data. Configure node and edge queries or a Teia URL.');
     }
-  }, [data, options.teiaUrl]);
+  }, [data, options.teiaUrl, storageKey]);
 
   return <div ref={hostRef} style={{ width, height }} data-testid="teia-panel" />;
 };

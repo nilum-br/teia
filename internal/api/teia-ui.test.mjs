@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { describe, it } from 'node:test';
+import { readFileSync } from 'node:fs';
 
 const { core } = createRequire(import.meta.url)('./ui/teia-ui.js');
 const { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, scopeSnapshot, scopePins, journeyWhy, journeyNames, scopeOf, facetsOf, filtersFromParams, filtersToParams, filterLabel, journeyKeyOf, journeyPorts, packColumn, frameLayout, scopeStats } = core;
@@ -14,6 +15,72 @@ const node = (id, extra = {}) => ({ id, kind: 'service', health: 'healthy', visi
 const edge = (from, to, extra = {}) => ({ from, to, state: 'ok', health: 'healthy', declared: true, observed: true, requestRate: 1, errorRate: 0, signals: ['traces'], sources: [], ...extra });
 const snap = (nodes, edges, extra = {}) => sanitize({ round: 1, generatedAt: '2026-10-14T12:00:00Z', nodes, edges, ...extra });
 const view = (s, opts) => buildView(s, indexSnapshot(s), opts);
+
+describe('portable investigation contracts', () => {
+  it('uses the backend scope, entry edges and boundary definitions for the shared ownership fixture', () => {
+    const fixture = JSON.parse(readFileSync(new URL('../journey/testdata/shared.json', import.meta.url)));
+    const scopes = Object.entries(fixture.expected).map(([name, scope]) => ({ name, key: 'journey', ...scope }));
+    const s = sanitize({ ...fixture.snapshot, journeys: { version: 1, mode: 'ownership', key: 'journey', maxDepth: 2, maxNodes: 200, scopes } });
+    for (const expected of scopes) {
+      const j = journeyOf(s, expected.name);
+      assert.equal(j.backend, true);
+      assert.deepEqual(Object.fromEntries(j.roles), expected.roles);
+      assert.deepEqual(j.entryEdges, expected.entryEdges);
+      assert.equal(j.truncated, expected.truncated);
+      const ports = journeyPorts(s, j, { maxPerSide: 100 });
+      assert.deepEqual(ports.flatMap(p => p.edges.map(e => `${p.kind}:${e.from}->${e.to}`)).sort(),
+        expected.boundaryPorts.map(p => `${p.kind}:${p.edgeId}`).sort());
+      const fallback = journeyOf(sanitize(fixture.snapshot), expected.name);
+      assert.deepEqual(Object.fromEntries(fallback.roles), expected.roles);
+      assert.equal(fallback.truncated, expected.truncated);
+    }
+    assert.deepEqual(journeyNames(s), ['browse', 'checkout']);
+    assert.equal(journeyOf(sanitize(fixture.snapshot), 'checkout', { maxNodes: 1 }).roles.size, 1);
+  });
+
+  it('preserves rule provenance and rejects unsafe evidence links while retaining per-member context', () => {
+    const links = [{ label: 'Logs', url: 'https://example.test/a?service=a%26b', kind: 'logs', description: 'Service and time search' },
+      { label: 'Bad', url: 'javascript:alert(1)' }, { label: 'Secret', url: 'https://user:pass@example.test/' }];
+    const rule = { cause: 'latency', name: 'batch', match: 'identity', degraded: 2000, failing: 4000, unit: 'milliseconds' };
+    const reason = { cause: 'latency', health: 'degraded', what: 'p95', value: 2500, limit: 2000, rule: 'batch', unit: 'milliseconds' };
+    const s = snap([node('a', { labels: { team: 'x' }, links, healthRules: [rule], reasons: [reason] }), node('b', { labels: { team: 'x' } })], []);
+    const g = view(s, { groupBy: 'team' }).nodes.get('group:x');
+    assert.equal(g.links.length, 1);
+    assert.equal(g.links[0].label, 'a: Logs');
+    assert.equal(g.healthRules[0].subject, 'a');
+    assert.equal(g.reasons[0].rule, 'batch');
+    const origin = new Map([['a', s.nodes[0]]]);
+    assert.equal(core.mapReasons({ to: 'a', reasons: [reason] }, origin).length, 0);
+    assert.equal(core.mapReasons({ to: 'a', reasons: [{ ...reason, value: 3000 }] }, origin).length, 1);
+  });
+
+  it('keeps equal namespace names separate across clusters and preserves external identities while expanding', () => {
+    const s = snap([node('a', { labels: { cluster: 'one', namespace: 'shop', 'service.name': 'web' } }),
+      node('b', { labels: { cluster: 'two', namespace: 'shop', 'service.name': 'web' } }), node('external', { kind: 'external' })], [edge('a', 'external'), edge('b', 'external')]);
+    const groupBy = 'hierarchy:' + JSON.stringify(['cluster', 'namespace', 'service.name']);
+    const expanded = new Set();
+    let v = view(s, { groupBy, expanded });
+    assert.notEqual(v.groupOf('a'), v.groupOf('b'));
+    assert.equal(v.nodes.has('external'), true);
+    for (const n of v.nodes.values()) if (n.group) expanded.add(n.expansionKey);
+    v = view(s, { groupBy, expanded });
+    assert.notEqual(v.groupOf('a'), v.groupOf('b'));
+    assert.equal(v.nodes.get(v.groupOf('a')).title, 'shop');
+    for (const g of core.groupingPath(s.nodes[0], groupBy)) expanded.add(g.expansionKey);
+    v = view(s, { groupBy, expanded });
+    assert.equal(v.nodes.has('a'), true);
+    assert.equal(v.edges.has('a->external'), true);
+    assert.equal(v.nodes.get(v.groupOf('b')).members[0].id, 'b');
+  });
+
+  it('ranks measured errors before missing errors and retains honest temporal modes', () => {
+    const s = snap([node('a'), node('b'), node('c')], [edge('a', 'b', { errorRate: 0, errorsUnknown: true }), edge('a', 'c', { errorRate: 0 })]);
+    assert.deepEqual(core.neighbourOrder([...view(s).edges.values()], 'errors').map(e => e.to), ['c', 'b']);
+    const old = sanitize({ ...s, timeMode: 'historical', history: { id: 'test', availability: 'stored-snapshot' } });
+    assert.equal(old.timeMode, 'historical');
+    assert.notEqual(signature(old), signature(s));
+  });
+});
 
 describe('sanitize', () => {
   it('survives anything that is not a snapshot', () => {

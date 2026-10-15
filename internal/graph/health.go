@@ -20,6 +20,8 @@ type HealthThresholds struct {
 	BacklogDegraded, BacklogFailing       float64
 	LagDegradedSeconds, LagFailingSeconds float64
 	RestartsDegraded, RestartsFailing     float64
+	EvictionsDegraded, EvictionsFailing   float64
+	RejectionsDegraded, RejectionsFailing float64
 }
 
 // DefaultHealth is amber from 1% errors, a p95 of 500 ms, 80% of a capacity,
@@ -34,6 +36,8 @@ var DefaultHealth = HealthThresholds{
 	BacklogDegraded: 1000, BacklogFailing: 10000,
 	LagDegradedSeconds: 60, LagFailingSeconds: 300,
 	RestartsDegraded: 1, RestartsFailing: 3,
+	EvictionsDegraded: 1, EvictionsFailing: 100,
+	RejectionsDegraded: 1, RejectionsFailing: 10,
 }
 
 // Signals are what a node or edge is judged on.
@@ -112,6 +116,14 @@ func (t HealthThresholds) judgeMeasures(measures []model.Measure) ([]model.Reaso
 			if r, ok = limit(m.Cause, m.Value, t.RestartsDegraded, t.RestartsFailing); ok {
 				r.Summary = fmt.Sprintf("%s %s, over %s", model.FormatCount(m.Value), m.What, model.FormatCount(r.Limit))
 			}
+		case model.CauseEvictions, model.CauseRejections:
+			d, f, _ := t.LimitsFor(m.Cause)
+			if r, ok = limit(m.Cause, m.Value, d, f); ok {
+				r.Summary = fmt.Sprintf("%s %s, over %s", model.FormatCount(m.Value), m.What, model.FormatCount(r.Limit))
+				if m.Cause == model.CauseEvictions {
+					r.Summary += "; eviction may be normal for this cache policy, not proof of request failure"
+				}
+			}
 		default:
 			continue
 		}
@@ -149,7 +161,7 @@ func sortReasons(reasons []model.Reason) {
 // ApplyHealth sets the health of every edge from its own rates, and of every
 // node from the traffic it receives; a node nobody calls is judged by the
 // calls it makes.
-func ApplyHealth(g *Graph, t HealthThresholds) {
+func ApplyHealth(g *Graph, t HealthThresholds, overrides ...HealthOverride) {
 	// counted is the traffic of the calls whose failures were measured;
 	// timed that of the calls that measured latency, and their latencies
 	// weighted by it.
@@ -184,14 +196,19 @@ func ApplyHealth(g *Graph, t HealthThresholds) {
 		}
 	}
 	for _, e := range g.Edges {
-		e.Health, e.Reasons = t.Judge(Signals{RequestRate: e.RequestRate, ErrorRate: e.ErrorRate, ErrorsUnknown: e.ErrorsUnknown,
+		limits, rules := resolveHealth(g, t, overrides, nil, e)
+		e.HealthRules = rules
+		e.Health, e.Reasons = limits.Judge(Signals{RequestRate: e.RequestRate, ErrorRate: e.ErrorRate, ErrorsUnknown: e.ErrorsUnknown,
 			LatencyP95Ms: e.LatencyP95Ms, LatencyApproximate: e.LatencyApproximate, Measures: e.Measures})
+		annotateHealth(e.Reasons, rules, e.Evidence)
 		if e.RequestRate > 0 {
 			add(in, e.To, e)
 			add(out, e.From, e)
 		}
 	}
 	for id, n := range g.Nodes {
+		limits, rules := resolveHealth(g, t, overrides, n, nil)
+		n.HealthRules = rules
 		s := in[id]
 		n.TrafficDirection = "incoming"
 		if s == nil {
@@ -201,7 +218,8 @@ func ApplyHealth(g *Graph, t HealthThresholds) {
 		if s == nil || s.rate == 0 {
 			n.TrafficDirection = ""
 			// No traffic to judge, but a measure may still say something.
-			n.Health, n.Reasons = t.Judge(Signals{Measures: n.Measures})
+			n.Health, n.Reasons = limits.Judge(Signals{Measures: n.Measures})
+			annotateHealth(n.Reasons, rules, n.Evidence)
 			continue
 		}
 		n.RequestRate = s.rate
@@ -221,8 +239,9 @@ func ApplyHealth(g *Graph, t HealthThresholds) {
 				n.LatencyP50Ms = s.p50 / s.timed50
 			}
 		}
-		n.Health, n.Reasons = t.Judge(Signals{RequestRate: n.RequestRate, ErrorRate: n.ErrorRate, ErrorsUnknown: n.ErrorsUnknown,
+		n.Health, n.Reasons = limits.Judge(Signals{RequestRate: n.RequestRate, ErrorRate: n.ErrorRate, ErrorsUnknown: n.ErrorsUnknown,
 			LatencyP95Ms: n.LatencyP95Ms, LatencyApproximate: n.LatencyApproximate, Measures: n.Measures})
+		annotateHealth(n.Reasons, rules, n.Evidence)
 		for i := range n.Reasons {
 			r := &n.Reasons[i]
 			if r.Cause == model.CauseErrors && n.ErrorCoverage > 0 && n.ErrorCoverage < 1 {

@@ -60,7 +60,7 @@ contrast or absence of every label collision. Live values change, so these are n
 
 ## Loading it in your Grafana
 
-Until the plugin is signed and in the catalog:
+Development candidates are unsigned. For an explicitly configured test installation:
 
 ```ini
 [plugins]
@@ -70,6 +70,11 @@ allow_loading_unsigned_plugins = nilum-teia-panel
 and copy `dist/` to `<grafana plugins dir>/nilum-teia-panel`. Grafana lets browsers keep plugin files for an hour
 under the plugin's version, so a rebuild with the same version needs a hard reload (Ctrl+Shift+R); the lab stamps
 each build with its own version instead.
+
+Use the [candidate installation and release handoff](../../docs/installation-candidate.md) for a versioned ZIP,
+portable three-node dataset, clean-install/upgrade matrix and signing gates. A valid signature and catalog
+acceptance are separate external milestones. Tagged release packaging requires public signing; manual builds
+remain unsigned candidates until those requirements are met.
 
 ## Feeding it
 
@@ -115,11 +120,11 @@ sampled edge can supply latency without rate, but cannot establish traffic-weigh
 
 ### Time and evidence contract
 
-Teia endpoints and direct mode provide **current state**. The dashboard time picker does not query history.
+The `/api/v1/grafana/*` endpoints and direct mode initially provide **current state**. The dashboard time picker does not query history.
 The visible time row says so; pausing freezes the received snapshot, including its timestamps. A successful
 refresh does not establish the age of an original measurement.
 
-Generic frames can supply `timeMode` (`current` or `query`), `snapshotAt`, `observedAt`, `periodFrom` and `periodTo`
+Generic frames can supply `timeMode` (`current`, `query` or `historical`), `snapshotAt`, `observedAt`, `periodFrom` and `periodTo`
 as ISO 8601 columns or in `frame.meta.custom.teia`. Row columns take precedence. Collection/observation times
 are only reported globally when all relevant node/edge records provide them (the oldest is shown); effective
 period requires a consistent interval. Mixed current/query inputs are labelled mixed; missing timing stays
@@ -141,10 +146,27 @@ The UI shows each reading separately. This is the stored metric's time, not nece
 last activity. Queries share an evaluation time but do not freeze ingestion or form an atomic snapshot.
 See [supported readings and limits](../../docs/sources.md#metric-evaluation-and-input-sample-age).
 
-Other signals, including RabbitMQ and derived rates/latency, continue to show unknown sample time. A configured
+RabbitMQ gauges also preserve their input timestamps. Derived rates/latency and signals without supplied
+original timestamps continue to show unknown sample time. A configured
 query lookback is not an original sample age or a verified effective interval for arbitrary queries containing
 hardcoded ranges, `offset` or `@`. Retained topology keeps its old timestamps and sample count and drops live
 readings. Per-edge and per-reading times never become graph-wide freshness.
+
+For stored observations, import [`lab/grafana/dashboards/history.json`](../../lab/grafana/dashboards/history.json)
+and set its `snapshot` textbox variable to an ID from `/api/v1/history`. Every query uses
+`/api/v1/history/${snapshot}/grafana/<role>`, including `coverage`. All nonempty rows must carry the same
+`timeMode: historical` and `historyId`, either as columns or in `frame.meta.custom.teia`; mixing auxiliary
+findings/sources/changes from another capture produces an explicit mixed state. JSON `history` metadata
+on the first node or coverage row preserves identity/presence, including an empty topology. The dashboard URL
+keeps `var-snapshot`; changing its requested time range does not resample or interpolate that capture.
+Standalone and direct mode expose a History picker with UTC interval filtering and a return-to-current action.
+See [retention, restart and replay semantics](../../docs/configuration.md#observation-history).
+
+`links` is a JSON array of labeled HTTP(S) destinations with evidence periods and descriptions;
+see [evidence-link templates](../../docs/evidence-links.md). `healthRules` and reason `rule`/`unit` identify the
+effective threshold. Connections can include `expectedFrequencySeconds` and JSON `frequency` with
+`status`, original `lastObservedAt`, `nextExpectedAt` and a qualified `detail`; see
+[contract review](../../docs/contract-review.md). None of these fields establishes missing telemetry.
 
 **Direct mode** (`teia API URL` in the panel options). The viewer's **browser** loads `snapshot` and `changes` and
 then follows `stream` (Server-Sent Events), so:
@@ -166,6 +188,18 @@ then follows `stream` (Server-Sent Events), so:
 | Group by label | Initial grouping, for example `team`, `system` or `k8s.namespace`. Viewers can change it. |
 | Animate traffic | Dots travel along each communication at the speed of its traffic; red dots are errors. |
 | teia API URL | Direct mode, described above. |
+
+The map's **Share / export** dialog encodes filters, grouping, expanded hierarchy, selection and display
+options in a panel-specific `teiaView-<storageKey>` URL parameter. Dashboard variables remain separate.
+Opening the link in a clean session restores that view; edits update an existing shared parameter so reload
+does not bring stale filters back. Share links contain identities and filters, so treat them like dashboard URLs.
+
+Where labels exist, ordered grouping supports cluster → namespace → service, with stable identities through
+expand/collapse. Neighbours can be ranked by traffic, measured errors or latency. Large overviews suppress
+annotations progressively; **Read names** focuses a component at a readable zoom, and search/selection/details
+retain access to every item. No topology is truncated by that display policy. **Flow** controls animation;
+**Live** controls incoming updates. Keyboard, contrast and scale evidence is recorded in
+[UI validation](../../docs/ui-validation.md).
 
 ## Roadmap
 

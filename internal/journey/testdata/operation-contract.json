@@ -1,0 +1,20 @@
+{
+  "status": "acceptance-specification-only-not-runtime-input",
+  "mode": "operation",
+  "queryPeriod": {"from":"2026-10-15T12:00:00Z","to":"2026-10-15T12:05:00Z"},
+  "sampling": {"policy":"unknown","totalRequests":null,"coverage":null},
+  "traces": [
+    {"traceId":"checkout-complete","root":{"service":"web","operation":"POST /checkout","spanId":"c1","durationMs":180},"complete":true,
+      "spans":[{"spanId":"c2","parentSpanId":"c1","service":"orders"},{"spanId":"c3","parentSpanId":"c2","service":"db"}]},
+    {"traceId":"browse-complete","root":{"service":"web","operation":"GET /browse","spanId":"b1","durationMs":80},"complete":true,
+      "spans":[{"spanId":"b2","parentSpanId":"b1","service":"catalog"},{"spanId":"b3","parentSpanId":"b2","service":"db"}]},
+    {"traceId":"checkout-partial","root":{"service":"web","operation":"POST /checkout","spanId":"p1","durationMs":300},"complete":false,
+      "spans":[{"spanId":"p2","parentSpanId":"missing-parent","service":"db"}]},
+    {"traceId":"orphan","root":null,"complete":false,"spans":[{"spanId":"o1","parentSpanId":"missing-root","service":"orders","labels":{"journey":"checkout"}}]}
+  ],
+  "expected": {
+    "checkout":{"sampledRootCount":2,"incompleteTraceCount":1,"linkedEdges":["web->orders","orders->db"],"excludedEdges":["web->catalog","catalog->db"],"sampleRootDurationsMs":[180,300],"totalRequestRate":null,"endToEndCoverage":null},
+    "browse":{"sampledRootCount":1,"incompleteTraceCount":0,"linkedEdges":["web->catalog","catalog->db"],"excludedEdges":["web->orders","orders->db"],"sampleRootDurationsMs":[80],"totalRequestRate":null,"endToEndCoverage":null},
+    "unattributedSpanIds":["p2","o1"]
+  }
+}

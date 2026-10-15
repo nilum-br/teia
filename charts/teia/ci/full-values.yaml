@@ -1,4 +1,7 @@
 # Exercised by CI (helm lint/template): every optional part on.
+persistence:
+  enabled: true
+  size: 1Gi
 config:
   cors:
     allowedOrigins: [https://grafana.example.com]

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/nilum-br/teia/internal/model"
 	"github.com/nilum-br/teia/internal/source"
@@ -89,6 +90,7 @@ func add(obs *source.Observation, doc Document) {
 		Labels: map[string]string{"backstage.ref": doc.Spec.Owner, "teia.declared": "true"},
 	})
 	for _, f := range doc.Spec.Egress {
+		frequency, _ := time.ParseDuration(f.ExpectedFrequency) // Validate checked it.
 		to, kind := ParseRef(f.To)
 		if f.Kind != "" {
 			kind = model.NodeKind(f.Kind)
@@ -99,12 +101,13 @@ func add(obs *source.Observation, doc Document) {
 			Labels: map[string]string{"backstage.ref": f.To},
 		})
 		obs.Edges = append(obs.Edges, source.EdgeObservation{
-			From:     owner,
-			To:       to,
-			Protocol: f.Protocol,
-			Port:     f.Port,
-			Declared: true,
-			Reason:   f.Reason,
+			From:              owner,
+			To:                to,
+			Protocol:          f.Protocol,
+			Port:              f.Port,
+			Declared:          true,
+			Reason:            f.Reason,
+			ExpectedFrequency: frequency,
 		})
 	}
 }

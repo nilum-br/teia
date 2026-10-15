@@ -96,7 +96,7 @@ func TestPresetAndProbeQueriesShareOneEvaluation(t *testing.T) {
 	}))
 	defer srv.Close()
 	obs, err := New("metrics", Config{URL: srv.URL, Presets: []string{"servicegraph"}, Probes: []string{"redis"}}).Discover(context.Background())
-	if err != nil || len(obs.Edges) != 1 || len(obs.Readings) != 2 || len(times) != 12 {
+	if err != nil || len(obs.Edges) != 1 || len(obs.Readings) != 4 || len(times) != 14 {
 		t.Fatalf("expected rate, errors, p50/p95, and two gauges with input timestamps: %v %+v, %v", times, obs, err)
 	}
 	for _, at := range times {
@@ -125,7 +125,7 @@ func TestTimingCancellationKeepsMeasurementsFromEveryProbe(t *testing.T) {
 	}))
 	defer srv.Close()
 	obs, err := New("metrics", Config{URL: srv.URL, Presets: []string{"servicegraph"}, Probes: []string{"redis", "mysql"}}).Discover(ctx)
-	if err != nil || len(obs.Edges) != 1 || len(obs.Readings) != 4 {
+	if err != nil || len(obs.Edges) != 1 || len(obs.Readings) != 6 {
 		t.Fatalf("timing cancellation discarded measured traffic or probe values: %+v, %v", obs, err)
 	}
 	for _, reading := range obs.Readings {
@@ -157,8 +157,8 @@ func TestProbesReadExporters(t *testing.T) {
 			{"metric":{"instance":"10.0.0.7:9121","job":"redis"},"value":[0,"1000"]}`,
 		"redis_memory_max_bytes > 0": `{"metric":{"instance":"catalog-cache-exporter:9121","job":"redis"},"value":[0,"64000000"]}`,
 		// sessions-cache has no maxmemory: no capacity, so no saturation.
-		"sum by (consumergroup, topic) (kafka_consumergroup_lag) / ":         `{"metric":{"consumergroup":"email-worker","topic":"order-events"},"value":[0,"750"]}`,
-		"(increase(kafka_consumergroup_current_offset[5m])) == 0) * 0 + 300": `{"metric":{"consumergroup":"billing","topic":"invoices"},"value":[0,"300"]}`,
+		"sum by (consumergroup, topic) (kafka_consumergroup_lag) / ": `{"metric":{"consumergroup":"email-worker","topic":"order-events"},"value":[0,"750"]}`,
+		kafkaStalled(window{promql: "5m", seconds: 300}):             `{"metric":{"consumergroup":"billing","topic":"invoices"},"value":[0,"300"]}`,
 		"sum by (consumergroup, topic) (kafka_consumergroup_lag)": `{"metric":{"consumergroup":"email-worker","topic":"order-events"},"value":[0,"45210"]},
 			{"metric":{"consumergroup":"billing","topic":"invoices"},"value":[0,"12"]}`,
 		"sum by (topic) (kafka_consumergroup_lag)": `{"metric":{"topic":"order-events"},"value":[0,"45210"]}`,
@@ -180,7 +180,7 @@ func TestProbesReadExporters(t *testing.T) {
 	if m, ok := measure(got["email-worker->order-events"], "messages waiting"); !ok || m.Value != 45210 || m.Cause != model.CauseBacklog {
 		t.Errorf("consumer backlog on its line to the topic: %+v (%v)", m, ok)
 	}
-	if m, ok := measure(got["email-worker->order-events"], "behind"); !ok || m.Value != 750 || m.Cause != model.CauseLag {
+	if m, ok := measure(got["email-worker->order-events"], "estimated drain time with no new arrivals"); !ok || m.Value != 750 || m.Cause != model.CauseLag {
 		t.Errorf("time behind: %+v (%v)", m, ok)
 	}
 	if m, ok := measure(got["billing->invoices"], "without progress"); !ok || m.Value != 300 {

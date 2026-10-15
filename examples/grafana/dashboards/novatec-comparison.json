@@ -1,0 +1,85 @@
+{
+  "uid": "teia-novatec-comparison",
+  "title": "Novatec comparison · synthetic overlap only",
+  "schemaVersion": 41,
+  "version": 1,
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Novatec 4.2.0 · same three identities and two relationships",
+      "type": "novatec-sdg-panel",
+      "pluginVersion": "4.2.0",
+      "gridPos": { "h": 24, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-testdata-datasource", "uid": "teia-sample" },
+      "options": {
+        "animate": false,
+        "sumTimings": false,
+        "showBaselines": true,
+        "showConnectionStats": true,
+        "dataMapping": {
+          "aggregationType": "service",
+          "sourceColumn": "origin_service",
+          "targetColumn": "target_service",
+          "namespaceColumn": "namespace",
+          "namespaceDelimiter": ".",
+          "requestRateColumn": "rate_in",
+          "errorRateColumn": "errors_in",
+          "responseTimeColumn": "mean_ms_in",
+          "requestRateOutgoingColumn": "rate_out",
+          "errorRateOutgoingColumn": "errors_out",
+          "responseTimeOutgoingColumn": "mean_ms_out",
+          "baselineRtUpper": "threshold",
+          "type": "protocol",
+          "showDummyData": false
+        },
+        "drillDownLink": "/d/teia-comparison-destination?var-service={}&from=${__from}&to=${__to}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-testdata-datasource", "uid": "teia-sample" },
+          "scenarioId": "csv_content",
+          "csvContent": "service,target_service,namespace,rate_out,errors_out,mean_ms_out,threshold,protocol\ncheckout,payments,shop.apps,8,2,600,300,http\npayments,payment-db,shop.apps,10,,120,300,postgres\n"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "grafana-testdata-datasource", "uid": "teia-sample" },
+          "scenarioId": "csv_content",
+          "csvContent": "service,origin_service,namespace,rate_in,errors_in,mean_ms_in,threshold,protocol\npayments,checkout,shop.apps,8,2,600,300,http\npayment-db,payments,shop.data,10,,120,300,postgres\n"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Novatec official dummy data · compatibility control",
+      "type": "novatec-sdg-panel",
+      "pluginVersion": "4.2.0",
+      "gridPos": { "h": 24, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "grafana-testdata-datasource", "uid": "teia-sample" },
+      "options": {
+        "animate": false,
+        "sumTimings": true,
+        "dataMapping": {
+          "showDummyData": true,
+          "aggregationType": "service",
+          "sourceColumn": "origin_service",
+          "targetColumn": "target_service",
+          "namespaceColumn": "namespace",
+          "namespaceDelimiter": ".",
+          "requestRateColumn": "in_count",
+          "responseTimeColumn": "in_timesum",
+          "errorRateColumn": "error_in",
+          "requestRateOutgoingColumn": "out_count",
+          "responseTimeOutgoingColumn": "out_timesum",
+          "errorRateOutgoingColumn": "error_out",
+          "baselineRtUpper": "threshold",
+          "extOrigin": "origin_external",
+          "extTarget": "target_external",
+          "type": "protocol"
+        }
+      },
+      "targets": []
+    }
+  ]
+}

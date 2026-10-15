@@ -238,6 +238,9 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 				continue
 			}
 			node := addNode(id, n.Kind, srcName, srcType, n.Labels)
+			for _, name := range n.Journeys {
+				node.Journeys = appendUnique(node.Journeys, name)
+			}
 			for _, addr := range n.Addresses {
 				node.Addresses = appendUnique(node.Addresses, addr)
 			}
@@ -283,6 +286,9 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 			}
 			if o.Declared {
 				e.Declared = true
+				if seconds := o.ExpectedFrequency.Seconds(); seconds > 0 && (e.ExpectedFrequencySeconds == 0 || seconds < e.ExpectedFrequencySeconds) {
+					e.ExpectedFrequencySeconds = seconds
+				}
 				if e.Reason == "" {
 					e.Reason = o.Reason
 				}

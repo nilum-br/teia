@@ -34,6 +34,84 @@ them, with comments; a test loads it, and checks that every key below is in both
 `teia serve --ui-dir DIR` (or `TEIA_UI_DIR`) serves the UI from a directory instead of the copy built into the
 binary, for working on it. It is a flag, not a config key.
 
+## Observation history
+
+| Key | Default | Description |
+|---|---|---|
+| `history` | disabled | Opt-in archive written by `teia serve`; one process owns the directory. One-shot `discover` does not write it. |
+| `history.directory` | empty: disabled | Writable directory for immutable snapshot records. Use a persistent volume to survive container replacement. |
+| `history.retention` | `168h` | Retain snapshots by their original `generatedAt`, without renewing old data on restart. |
+| `history.maxBytes` | `268435456` | Maximum total published record bytes (256 MiB). The oldest records expire first; an individually oversized record is rejected without deleting existing history. Temporary atomic publication can use up to one extra record. |
+| `history.maxSnapshots` | `10000` | Maximum retained records, capped at 100000. Zero selects the default. |
+
+Historical snapshots preserve topology, identities, source provenance, query windows, original sample times,
+health rules, evidence links and ownership scopes as captured. They are marked `timeMode: "historical"` on
+replay; old health is never relabelled current. Archive write errors are logged and reported by the history API
+without interrupting current discovery. Retention bounds are enforced on writes, startup and history reads.
+
+`GET /api/v1/history?from=<RFC3339>&to=<RFC3339>` lists actual snapshots captured in the inclusive interval.
+Omit both parameters to list all retained records. `availablePeriod` is the oldest/newest retained capture,
+not proof of continuous coverage between them. `coverage: "discrete-snapshots"` and `unavailable: true` make an
+empty requested interval explicit; unavailable history never means zero traffic. Late records retain their
+original capture and evidence times; a restart or repeated round number cannot overwrite another snapshot.
+
+`GET /api/v1/history/{id}` replays the exact snapshot with `history.id` for a shareable link and `recordedAt`
+for archive publication. Per-node and per-connection presence metadata includes `firstSeen`/`lastSeen` in the
+snapshot graph and an `episode` that resets after absence or an address/identity change. These are presence
+times, not call timestamps. `firstObservedAt`/`lastObservedAt` exist only for supplied original observations;
+collection time is never substituted. The identity fingerprint is based on stable IDs, namespace, kind and
+addresses, and cannot prove that an identical address still belongs to the same process incarnation.
+
+For a Grafana dashboard pinned to one stored ID, use
+`/api/v1/history/{id}/grafana/{nodes,edges,findings,sources,coverage,changes}` for all its queries. Every nonempty
+table carries `timeMode: "historical"`, `historyId` and `snapshotAt`; the first node row carries JSON `history`
+and `journeyContract` metadata. Coverage also carries `history`, preserving empty captures. Import the lab's
+[`history.json`](../lab/grafana/dashboards/history.json) dashboard and supply its `snapshot` variable. The
+Grafana time picker does not synthesize or aggregate an unrecorded interval. Source measurements keep their
+own lookback periods; no interpolation, percentile combination or rate rescaling is performed for a wider range.
+
+Archive schema version 1 uses JSON records published by temporary-file write, file sync and rename. A known
+version 0 envelope containing `snapshot` migrates to version 1 while preserving evidence; migration derives
+presence metadata only from that record. Incomplete temporary files are removed on startup. Corrupt, identity-mismatched
+or future-version records stop startup with a useful error and are not silently discarded. Keep backups before
+upgrading; this bounded local archive is not a distributed database or a substitute for telemetry retention.
+
+With Helm, set `persistence.enabled: true`; the chart mounts storage, sets the directory and uses a single-writer
+`Recreate` rollout. See the [chart values](../charts/teia/README.md). The local Docker lab enables a 24-hour,
+64-MiB, 2000-record archive on its `teia-history` volume.
+
+## Evidence links
+
+| Key | Default | Description |
+|---|---|---|
+| `evidenceLinks` | none | Public investigation links attached to nodes and connections. |
+| `evidenceLinks[].label` | required | Action label, for example Search caller logs. |
+| `evidenceLinks[].target` | required | `node` or `edge`. Configure separate templates for each. |
+| `evidenceLinks[].kind` | required | `traces`, `logs` or `dashboard`. Search links do not promise an exact trace or correlated log lines. |
+| `evidenceLinks[].url` | required | Fixed absolute public `http`/`https` destination; no userinfo, fragment, credential query keys or template tokens. |
+| `evidenceLinks[].source` | all evidence | Exact source name used to select the evidence period, such as `tempo/traces` or `loki/access-logs`. |
+| `evidenceLinks[].params` | none | Query-parameter templates. Expanded values are URL encoded once; do not pre-encode them. |
+| `evidenceLinks[].requires` | none | Context fields that must be present, in addition to every field referenced by a template. Missing context hides the link. |
+| `evidenceLinks[].explore` | none | Structured Grafana Explore destination. Requires a known evidence period. |
+| `evidenceLinks[].explore.type` | required with explore | `tempo` for traces or `loki` for logs. |
+| `evidenceLinks[].explore.datasourceUID` | required with explore | Grafana datasource UID, not its name or backend URL. |
+| `evidenceLinks[].explore.query` | required with explore | TraceQL or LogQL; substitute string literals with `{{id\|json}}`, without surrounding quotes. JSON quoting precedes panes serialization and URL encoding. |
+
+Node context: `id`, `namespace`, `tech`. Connection context: `id` (`from->to`), `from`, `to`,
+`fromNamespace`, `toNamespace`, `fromTech`, `toTech`, `protocol`. Namespace comes from `k8s.namespace`,
+`namespace` or `service.namespace`. Arbitrary labels, source URLs, headers, DSNs and credentials are not
+available to templates. Resource and external node identities are supported on the same basis as services.
+
+Both targets also support `period.from`/`period.to` (RFC3339) and `period.fromMs`/`period.toMs` (Unix
+milliseconds). A period comes from known sampled-span bounds, or a pinned query evaluation and lookback.
+Collection time is never substituted. Node links consider their own and incident-connection evidence.
+When several windows qualify, the enclosing search interval is used; this does not claim continuous
+coverage. Retained evidence keeps its original period. A source filter with no dated evidence yields no
+period; any link requiring it is omitted. A static dashboard without period tokens may still be shown.
+
+See [evidence link examples and limitations](evidence-links.md). The public URLs are visible to every API
+reader; use destinations protected by their own login. Source authentication is never copied into links.
+
 ## Discovery rounds
 
 | Key | Default | Description |
@@ -64,6 +142,103 @@ binary, for working on it. It is a flag, not a config key.
 | `health.restarts` | | Limits on container restarts within the source's window. |
 | `health.restarts.degraded` | `1` | From this many restarts a workload is `degraded`. |
 | `health.restarts.failing` | `3` | From this many it is `failing`. |
+| `health.evictions` | | Cache eviction counts in the configured source lookback; policy pressure, not proof of failed requests. Tune to the intended cache policy. |
+| `health.evictions.degraded` | `1` | From this count it is `degraded`. |
+| `health.evictions.failing` | `100` | From this count it is `failing`. |
+| `health.rejections` | | Rejected client connections in the source lookback. |
+| `health.rejections.degraded` | `1` | From this count it is `degraded`. |
+| `health.rejections.failing` | `10` | From this count it is `failing`. |
+
+The count window is part of each reading's evidence. Changing the Prometheus lookback changes its count
+budget. See [resource diagnostics](resource-diagnostics.md) for exporter prerequisites and the distinction
+between queue backlog, age and drain estimates. Transaction age and replica delay use `health.lag`.
+
+### Targeted health limits
+
+`health.overrides` applies different budgets to components and directed connections. A component rule does
+not change its incoming or outgoing connection rules. Match the canonical identity returned by the API,
+after aliases; connection IDs are `caller->callee`. Label selectors use exact, case-sensitive equality,
+require every specified key to exist, and support arbitrary inventory labels. They are not PromQL or
+Kubernetes selector expressions. External services and resources work the same way as other components.
+
+Count-based cache overrides use `health.overrides[].limits.evictions` and
+`health.overrides[].limits.rejections`, with `health.overrides[].limits.evictions.degraded`,
+`health.overrides[].limits.evictions.failing`, `health.overrides[].limits.rejections.degraded` and
+`health.overrides[].limits.rejections.failing`. Each omitted limit inherits its global count budget.
+
+```yaml
+health:
+  latency: {degraded: 500ms, failing: 2s}
+  overrides:
+    - name: reporting-budget
+      target: node
+      id: reports
+      limits:
+        latency: {degraded: 3s, failing: 8s}
+    - name: worker-calls
+      target: edge
+      fromLabels: {namespace: workers}
+      toLabels: {tier: database}
+      priority: 10
+      limits:
+        latency: {degraded: 2s, failing: 10s}
+    - name: specific-reporting-call
+      target: edge
+      id: frontend->reports
+      limits:
+        latency: {degraded: 3s, failing: 8s}
+```
+
+For each signal independently, an exact identity wins over any selector. Within the same matching class,
+the larger integer `priority` wins. YAML order and the number of selector labels never break ties. Rules
+that could overlap for the same target, matching class, priority and signal are rejected, even if their
+limits currently agree; give them different priorities or disjoint selectors. Rules for distinct signals
+can share a selector and priority. Rule names must be unique, nonempty and different from `global`.
+
+A winning rule replaces only the signals it sets. Each omitted or zero limit inherits the **global** value,
+not a lower-priority rule. The final degraded limit must not exceed the failing limit. Negative, non-finite
+and invalid share values are rejected. An override must set at least one positive limit; zero does not
+disable evaluation. Values equal to a limit cross it, just as with the global thresholds.
+
+| Key | Default | Description |
+|---|---|---|
+| `health.overrides` | none | List of targeted rules. |
+| `health.overrides[].name` | required | Stable rule name included in API reasons and effective rules. |
+| `health.overrides[].target` | required | `node` or `edge`. |
+| `health.overrides[].id` | none | Exact canonical node ID or directed connection ID. Mutually exclusive with selectors. |
+| `health.overrides[].priority` | `0` | Integer precedence within identity or selector rules; larger wins. |
+| `health.overrides[].labels` | none | Node label equality map; node target only. |
+| `health.overrides[].fromLabels` | none | Caller label equality map; edge target only. |
+| `health.overrides[].toLabels` | none | Callee label equality map; edge target only. At least one endpoint selector must be nonempty. |
+| `health.overrides[].limits` | required | Signal overrides; unset values inherit global limits. |
+| `health.overrides[].limits.degraded`, `health.overrides[].limits.failing` | global | Error shares, 0 to 1. |
+| `health.overrides[].limits.latency` | global | Call p95 latency pair. |
+| `health.overrides[].limits.latency.degraded`, `health.overrides[].limits.latency.failing` | global | Durations such as `250ms` or `3s`. |
+| `health.overrides[].limits.saturation` | global | Used-capacity share pair. |
+| `health.overrides[].limits.saturation.degraded`, `health.overrides[].limits.saturation.failing` | global | Shares, 0 to 1; missing capacity still cannot be judged. |
+| `health.overrides[].limits.locks` | global | Waiting-session count pair. |
+| `health.overrides[].limits.locks.degraded`, `health.overrides[].limits.locks.failing` | global | Counts of sessions waiting on locks. |
+| `health.overrides[].limits.backlog` | global | Waiting-item count pair. |
+| `health.overrides[].limits.backlog.degraded`, `health.overrides[].limits.backlog.failing` | global | Counts of queued items/consumer messages. |
+| `health.overrides[].limits.lag` | global | Time-behind pair, distinct from call latency and message counts. |
+| `health.overrides[].limits.lag.degraded`, `health.overrides[].limits.lag.failing` | global | Durations such as `1m` or `5m`. |
+| `health.overrides[].limits.restarts` | global | Restart-count pair. |
+| `health.overrides[].limits.restarts.degraded`, `health.overrides[].limits.restarts.failing` | global | Counts within the source's reported window. |
+
+Each API node/edge contains `healthRules`: one effective `{cause, name, match, priority, degraded, failing,
+unit}` per supported signal, including global fallback and unmeasured signals. `match` is `global`, `identity`
+or `selector`; `global` includes the built-in defaults plus configured global limits. Reasons additionally
+carry `rule`, `unit` and signal-specific `evidence`, alongside measured `value`, crossed `limit`, coverage
+and approximation flags. Grafana tables encode `healthRules` and `reasons` as JSON arrays, preserving the
+same contract. Saturation comparisons use shares, latency uses milliseconds, time lag uses seconds, and
+locks/backlog/restarts use counts. Each evidence item retains its own source and effective period; missing
+periods remain unknown and retained evidence is not attached to a current health reason.
+
+These limits classify observed signals, not transaction SLO compliance. Weighted percentiles remain
+explicit approximations and partial error coverage remains qualified. A rule does not create missing data:
+absent latency, errors, or capacity stays unavailable, and a component without an interpretable signal
+stays `unknown`. Traffic rate is not an error or latency threshold; low and high traffic keep the same
+configured units and the existing measurement qualifications.
 
 ## Notifications
 

@@ -1,0 +1,47 @@
+{
+  "uid": "teia-candidate-onboarding",
+  "title": "teia candidate · onboarding states",
+  "schemaVersion": 41,
+  "version": 1,
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Query returned no data",
+      "type": "nilum-teia-panel",
+      "gridPos": { "h": 12, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-testdata-datasource", "uid": "teia-sample" },
+      "targets": [{ "refId": "A", "datasource": { "type": "grafana-testdata-datasource", "uid": "teia-sample" }, "scenarioId": "no_data_points" }]
+    },
+    {
+      "id": 2,
+      "title": "Incorrect nodes mapping · missing id",
+      "type": "nilum-teia-panel",
+      "gridPos": { "h": 12, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "grafana-testdata-datasource", "uid": "teia-sample" },
+      "targets": [
+        {
+          "refId": "nodes",
+          "datasource": { "type": "grafana-testdata-datasource", "uid": "teia-sample" },
+          "scenarioId": "csv_content",
+          "csvContent": "service_count\n3\n"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Data source unavailable",
+      "type": "nilum-teia-panel",
+      "gridPos": { "h": 12, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "grafana-testdata-datasource", "uid": "teia-intentionally-missing" },
+      "targets": [
+        {
+          "refId": "nodes",
+          "datasource": { "type": "grafana-testdata-datasource", "uid": "teia-intentionally-missing" },
+          "scenarioId": "csv_content",
+          "csvContent": "id\ncheckout\n"
+        }
+      ]
+    }
+  ]
+}

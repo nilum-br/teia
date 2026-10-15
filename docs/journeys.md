@@ -42,19 +42,40 @@ metadata:
 
 Datastores, queues and third parties need no label: they join the journeys whose services call them.
 
-Kubernetes label values cannot contain commas. Multi-journey membership through an annotation is not implemented
-yet. An unlabelled service can be included when reached **downstream** from a member, within the expansion limit.
+Kubernetes label values cannot contain commas; structured metadata belongs in an
+[annotation](https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/). For multiple
+memberships, put a JSON array on the **pod template**, alongside any existing labels:
+
+```yaml
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: checkout
+      annotations:
+        teia.nilum.io/journeys: '["checkout", "browse"]'
+```
+
+The annotation augments the detected journey label; it does not erase it. Names are trimmed, lowercased and
+deduplicated. At most 64 names, 128 bytes each, fit in an annotation of at most 8192 bytes. Empty names,
+commas, colons, equals signs and control characters are rejected. An invalid annotation produces a finding
+without dropping the workload or its legacy label. The newest non-terminating pod supplies workload metadata,
+including during rollouts. An explicitly chosen unrelated **Journey label** uses that label instead.
+
+An unlabelled service can be included when reached **downstream** from a member, within the expansion limit.
 An unlabelled upstream caller remains a boundary port; leaving it unlabelled does not make it a member of every
-journey it calls. See T08 in the [roadmap](roadmap.md#prioritized-implementation-backlog).
+journey it calls.
 
 ## How a journey is built
 
-1. **Members** are the nodes whose journey label holds the value.
+1. **Members** are the nodes whose journey label or explicit annotation holds the value.
 2. From them, teia follows calls **downstream**:
    - datastores, caches, queues and externals are included, but never walked past, so a shared database's other
      clients do not join the journey;
    - a service labelled with **another** journey is where this one leaves;
-   - unlabelled services are followed up to two hops past the last member.
+   - unlabelled services are followed up to two hops past the last member;
+   - a scope contains at most 200 nodes, including explicit members. Nodes and outgoing targets are processed
+     in stable ID order. A depth or size limit sets `truncated: true`; boundary connections remain visible.
 3. The **headline** is the journey's worst health and the reason that most likely causes it. It shows on the bar
    above the map, for example `orders → payments · 4.1% errors`. When a reason only passes on a dependency's
    problem, the reason it points at wins, and a line wins over a node.
@@ -137,15 +158,67 @@ variable left unresolved, shows the whole map. The lab dashboard has a Journey v
 Selections made on the panel itself are remembered locally per dashboard/panel; they do not automatically update
 the dashboard variable or make every filter shareable. A dashboard link can explicitly set `var-journey=checkout`.
 
-## Limits, and what comes next
+## API contract
+
+`GET /api/v1/journeys` and the `journeys` property of the snapshot and graph expose the same version 1 contract:
+
+```json
+{
+  "version": 1,
+  "mode": "ownership",
+  "key": "journey",
+  "maxDepth": 2,
+  "maxNodes": 200,
+  "scopes": [{
+    "name": "checkout",
+    "key": "journey",
+    "roles": {"orders": "member", "db": "dependency"},
+    "entryPoints": ["orders"],
+    "entryEdges": ["web->orders"],
+    "boundaryPorts": [{"kind": "caller", "edgeId": "web->orders", "from": "web", "to": "orders"}],
+    "health": "unknown",
+    "truncated": false
+  }]
+}
+```
+
+Entry points are included services without an incoming connection, plus non-resource nodes reached from
+outside. A cycle with no outside caller has no invented entry point. `entryEdges` follows the entry-call rule
+above; declared connections may be included but do not create measured traffic. `boundaryPorts` lists each
+crossing connection before visual folding. `roles`, rather than an upstream reachability guess, defines membership.
+The example is illustrative: all referenced nodes and connections must exist in the accompanying snapshot.
+
+The engine computes the default scope once per discovery round. Grafana node rows carry explicit memberships
+in the JSON `journeys` column and the complete JSON `journeyContract` on the first node row. The panel preserves
+that contract when all referenced nodes and connections are present. Generic Node Graph frames, old servers,
+custom label filters and `from:node` exploration use the compatible local fallback; they do not gain trace
+correlation. `GET /api/v1/journeys?key=team` computes a custom label contract for API consumers.
+
+The shared [acceptance fixture](../internal/journey/testdata/shared.json) is consumed by Go and Grafana tests.
+It covers a shared frontend, two journeys, a shared database, unlabelled upstream and downstream services,
+cycles, the expansion boundary and missing telemetry. A closed cycle with no entry and the 200-node cap have
+additional Go tests.
+
+## Separate operation mode: design contract
 
 A label journey follows **ownership**, not single requests: a service shared by two journeys brings all of its calls.
 The rules above keep that in check, and the ports show where the journey touches the rest.
 
-Next, in this order:
+Transaction-level journeys are a separate, **not yet implemented** mode. Before that mode can be enabled, its
+API and implementation must satisfy these requirements:
 
-1. **Journeys in the engine:** computed by teia itself, with their health in the API, changes, webhooks and metrics,
-   and advisor findings such as a journey with no entry point.
-2. **Journeys from traces:** each entry route (`GET /checkout` on web) becomes a journey made of the calls its
-   traces actually make, which separates journeys that share a frontend.
-3. **Declared journeys:** a `Journey` document next to the flows files, compared with what traces show.
+1. Use `mode: "operation"`, an explicit entry service and normalized route/operation, an actual query interval,
+   trace IDs and parent/span relationships. Do not derive a route from labels or a raw high-cardinality URL.
+2. Include only calls linked to the matched entry span in the same trace. Missing parents, asynchronous links
+   and retries need explicit attribution rules; a shared service or database never joins by topology alone.
+3. Report sampled root counts, incomplete traces, orphan spans and the known sampling policy separately.
+   Without a reliable total denominator, sampling coverage, total request rate and end-to-end coverage remain
+   unknown. An observed root duration is sample latency; it is not an aggregate traffic percentile.
+4. Keep entry operation errors separate from dependency health. Missing spans cannot establish a healthy
+   downstream or a zero error rate. Preserve original evidence timestamps and the actual requested period.
+5. Pass the [operation acceptance fixture](../internal/journey/testdata/operation-contract.json): checkout and
+   browse traverse the same `web` and `db` services but retain different calls; the incomplete checkout trace
+   stays incomplete and the orphan span is not assigned by an ownership label.
+
+Operation scopes, declared journey documents, journey-specific notifications and metrics remain separate
+extensions; the ownership contract does not advertise them as implemented features.

@@ -154,6 +154,15 @@ declared**, and the advisor writes a flows file per service from what it observe
 Check files before committing them with `teia validate path/to/flows.yaml`, or let an editor check them against
 [`schema/flows.schema.json`](../schema/flows.schema.json). The format is described in [flows-spec.md](flows-spec.md).
 
+## Journey membership
+
+Single membership can use the existing `journey`, `app.kubernetes.io/part-of` or `system` label. For a workload
+shared by several journeys, place `teia.nilum.io/journeys: '["checkout", "browse"]'` in
+`spec.template.metadata.annotations`. This JSON array augments the detected label without using invalid
+comma-separated Kubernetes label values. An invalid value appears as an actionable finding and preserves
+the workload. See [journeys](journeys.md#telling-teia-which-journeys-a-service-takes-part-in) for the complete
+example, limits and ownership semantics.
+
 ## Connecting Grafana
 
 A Grafana in the same cluster reaches teia at `http://teia.teia.svc:8080`. Use that as the Infinity data source's URL,

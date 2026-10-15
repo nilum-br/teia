@@ -35,7 +35,7 @@ test:            ## vet and unit tests
 # (or Git Bash with make installed), or run the same steps from PowerShell:
 #   docker run --rm -v "${PWD}:/src" -w /src golang:1.27.2 sh -c 'test -z "$(gofmt -l cmd internal lab)" && go vet ./... && go mod tidy -diff && (cd lab/demo && go mod tidy -diff) && go test -race ./...'
 #   docker run --rm -v "${PWD}:/src" -w /src golangci/golangci-lint:v2.14.0 golangci-lint run ./...
-#   docker run --rm -v "${PWD}:/repo" -w /repo -v teia-panel-node-modules:/repo/plugins/grafana/node_modules node:26.12.0-trixie sh -c 'node --test internal/api/teia-ui.test.mjs && cd plugins/grafana && npm exec --yes --package=npm@12.2.0 -- npm ci && npm run typecheck && npm run lint && npm run test:ci'
+#   docker run --rm -v "${PWD}:/repo" -w /repo -v teia-panel-node-modules:/repo/plugins/grafana/node_modules node:26.12.0-trixie sh -c 'node --test internal/api/teia-ui.test.mjs internal/api/ui-integration-audit.test.mjs && cd plugins/grafana && npm exec --yes --package=npm@12.2.0 -- npm ci && npm run typecheck && npm run lint && npm run test:ci'
 check: check-go check-ui ## everything CI checks: gofmt, vet, golangci-lint, go mod tidy, race tests, UI and panel tests
 
 check-go:        ## gofmt, vet, go mod tidy, race tests, and golangci-lint if installed
@@ -54,7 +54,7 @@ check-ui:        ## map component tests, panel typecheck, lint and tests
 	$(NODE_SH) '\
 	  set -e; \
 	  if ls certs/*.crt >/dev/null 2>&1; then cat certs/*.crt > /tmp/teia-extra-ca.pem; export NODE_EXTRA_CA_CERTS=/tmp/teia-extra-ca.pem; fi; \
-	  node --test internal/api/teia-ui.test.mjs; \
+	  node --test internal/api/teia-ui.test.mjs internal/api/ui-integration-audit.test.mjs; \
 	  cd plugins/grafana; \
 	  [ node_modules/.package-lock.json -nt package-lock.json ] || npm exec --yes --package=npm@12.2.0 -- npm ci --no-audit --no-fund; \
 	  npm run typecheck; \

@@ -285,10 +285,23 @@ type probeTiming struct {
 func (s *Source) runProbe(ctx context.Context, p *Probe, w window, obs *source.Observation) (int, []probeTiming, error) {
 	var readings []source.Reading
 	var timings []probeTiming
+	var missing []string
 	for _, r := range p.Readings {
+		what := r.What
+		if strings.Contains(what, "%s") {
+			what = fmt.Sprintf(what, w.promql)
+		}
 		values, err := s.client.QueryAt(ctx, r.Query(w), w.at)
 		if err != nil {
+			if r.Missing != "" {
+				obs.Degraded = true
+				missing = append(missing, what+": optional query failed: "+promapi.RedactError(err).Error())
+				continue
+			}
 			return 0, nil, err
+		}
+		if len(values) == 0 && r.Missing != "" {
+			missing = append(missing, what+": "+r.Missing)
 		}
 		var capacity map[string]float64
 		if r.Max != nil {
@@ -300,10 +313,6 @@ func (s *Source) runProbe(ctx context.Context, p *Probe, w window, obs *source.O
 			for _, m := range maxes {
 				capacity[seriesKey(m.Metric)] = m.Value
 			}
-		}
-		what := r.What
-		if strings.Contains(what, "%s") {
-			what = fmt.Sprintf(what, w.promql)
 		}
 		first := len(readings)
 		var keys []string
@@ -333,6 +342,11 @@ func (s *Source) runProbe(ctx context.Context, p *Probe, w window, obs *source.O
 		}
 	}
 	obs.Readings = append(obs.Readings, readings...)
+	if len(missing) > 0 {
+		obs.Findings = append(obs.Findings, model.Finding{Rule: "probe-capability", Kind: model.FindingBlindSpot, Severity: model.SeverityInfo, Subject: s.name + "/" + p.Name,
+			Title: "Some " + p.Name + " diagnostics are unavailable or not applicable", Detail: strings.Join(missing, "; "),
+			Fix: &model.Fix{Summary: "Check exporter collectors, labels, privileges and lookback coverage. Missing metrics are not measured zero; see docs/resource-diagnostics.md."}})
+	}
 	return len(readings), timings, nil
 }
 

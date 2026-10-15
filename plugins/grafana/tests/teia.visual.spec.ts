@@ -53,6 +53,7 @@ for (const surface of ['standalone', 'grafana'] as const) {
         }).toBe(true);
         await capture('selected-node');
         const sampleEvidence = details.locator('p').filter({ hasText: 'Oldest input sample:' }).first();
+        await details.locator('.evidence-card').filter({ hasText: 'Oldest input sample:' }).first().getByText('Collection and sample times', { exact: true }).click();
         await sampleEvidence.scrollIntoViewIfNeeded();
         await expect(sampleEvidence).toBeInViewport();
         expect(await page.evaluate(() => window.scrollX)).toBe(0);

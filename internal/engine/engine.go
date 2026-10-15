@@ -15,23 +15,29 @@ import (
 	"time"
 
 	"github.com/nilum-br/teia/internal/advisor"
+	"github.com/nilum-br/teia/internal/evidencelinks"
 	"github.com/nilum-br/teia/internal/graph"
+	"github.com/nilum-br/teia/internal/history"
+	"github.com/nilum-br/teia/internal/journey"
 	"github.com/nilum-br/teia/internal/model"
 	"github.com/nilum-br/teia/internal/source"
 )
 
 type Options struct {
+	History  *history.Store
 	Interval time.Duration
 	// Timeout bounds each source in a round.
-	Timeout time.Duration
-	Aliases map[string]string
-	Ignore  []string
-	Health  graph.HealthThresholds
+	Timeout         time.Duration
+	Aliases         map[string]string
+	Ignore          []string
+	Health          graph.HealthThresholds
+	HealthOverrides []graph.HealthOverride
 	// Retention keeps an observed edge alive this long after its last
 	// sighting, and keeps using a failing source's last good observation
 	// this long after it was taken; zero means three intervals.
-	Retention time.Duration
-	Notifiers []Notifier
+	Retention     time.Duration
+	Notifiers     []Notifier
+	EvidenceLinks []evidencelinks.Template
 }
 
 // Notifier receives the changes of every round that has some.
@@ -47,11 +53,12 @@ const recentChanges = 300
 const waitMargin = 2 * time.Second
 
 type Engine struct {
-	sources []source.Source
-	opts    Options
-	log     *slog.Logger
-	memory  graph.Memory
-	differ  Differ
+	sources   []source.Source
+	opts      Options
+	log       *slog.Logger
+	memory    graph.Memory
+	frequency graph.FrequencyMemory
+	differ    Differ
 	// lastGood is each source's last successful observation, reused while
 	// the source fails so one bad round does not erase what it knew.
 	lastGood []goodObservation
@@ -185,7 +192,10 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 	g := graph.Build(results, e.opts.Aliases, e.opts.Ignore)
 	e.memory.Retain(g, now)
 	graph.ApplyTech(g)
-	graph.ApplyHealth(g, e.opts.Health)
+	graph.ApplyHealth(g, e.opts.Health, e.opts.HealthOverrides...)
+	for _, err := range e.frequency.Apply(g, now, e.opts.History.LastObservedEdge) {
+		e.log.Warn("evaluating expected flow frequency", "err", err)
+	}
 	// Explorers name their node as configured; the graph may spell it otherwise.
 	for i := range statuses {
 		for j, id := range statuses[i].Explores {
@@ -216,7 +226,12 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 		Sources:     statuses,
 		Coverage:    graph.ComputeCoverage(g),
 	}
+	snap.Journeys = journey.Build(snap, "")
 	snap.Changes = e.differ.Diff(prev, snap, now)
+	evidencelinks.Apply(&snap, e.opts.EvidenceLinks)
+	if _, err := e.opts.History.Save(snap); err != nil {
+		e.log.Error("saving observation history", "round", snap.Round, "err", err)
+	}
 
 	// Encode once for every stream subscriber instead of once per client.
 	data, err := json.Marshal(snap)

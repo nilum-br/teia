@@ -130,10 +130,11 @@ value or its capacity leaves age unknown. Optional timestamp queries run after a
 their failures or timeouts preserve the readings and health and mark the source degraded. `origin` identifies
 the probe/exporter; times remain separate for each reading.
 
-Supported readings are Redis memory/clients, Kafka messages waiting, MongoDB connections/lock queues,
-MySQL connections/lock waits, postgres-exporter connections and cAdvisor memory. RabbitMQ's multi-metric
-selector and derived rates, latency, lag estimates and restart counts still have unknown original sample
-times. Window-based probes expose their configured lookback separately.
+Supported readings are Redis memory/clients, Kafka messages waiting, RabbitMQ queue gauges, MongoDB
+connections/lock queues, MySQL connections/lock waits, postgres-exporter connections/transaction age/replica
+delay and cAdvisor memory. RabbitMQ metric variants are timestamped separately before coalescing to avoid
+duplicate labelsets. Derived rates, latency, drain estimates and restart/eviction/rejection counts still have
+unknown original sample times. Window-based probes expose their configured lookback separately.
 
 An input sample timestamp belongs to the stored metric, not necessarily the last application activity or
 the exporter's internal update. Pinning evaluation time does not freeze ingestion between HTTP requests;
@@ -151,19 +152,19 @@ the `prometheus` source also reads the standard exporters most platforms already
 
 | Component | Probe | Exporter | What it reads |
 |---|---|---|---|
-| Cache | `redis` | redis_exporter (Redis, Valkey, KeyDB) | memory against `maxmemory`, clients against `maxclients` |
-| Queue | `kafka` | kafka_exporter | per consumer group and topic: messages waiting, time behind (lag / consume rate), no progress over the window; and every group's lag on the topic |
-| Queue | `rabbitmq` | RabbitMQ's built-in plugin, per-object metrics | messages waiting per queue |
+| Cache | `redis` | redis_exporter (Redis, Valkey, KeyDB) | memory/client capacity, evictions and rejected connections in the window |
+| Queue | `kafka` | kafka_exporter | per group/topic backlog, drain estimate assuming no new arrivals, unchanged offsets over the window; group backlog on the topic |
+| Queue | `rabbitmq` | RabbitMQ's built-in plugin, per-object metrics | ready/unacknowledged counts and valid head-message timestamp age (publisher clock) |
 | Document database | `mongodb` | mongodb_exporter | connections against those available, operations queued on locks |
 | Relational database | `mysql` | mysqld_exporter (MySQL, MariaDB) | connections against `max_connections`, row lock waits |
-| Relational database | `postgres-exporter` | postgres_exporter | connections against `max_connections` (the `postgres` explorer below also sees locks) |
+| Relational database | `postgres-exporter` | postgres_exporter | connections against `max_connections`, oldest transaction age and applicable replica replay estimate |
 | Workload | `containers` | cAdvisor (Kubernetes or Docker) | CPU time throttled by the limit, memory against the limit |
 | Workload | `restarts` | kube-state-metrics | container restarts in the window |
 
 Each reading becomes a **measure** on a node, or on the line from a consumer to its topic, and the health limits
-(`health.saturation`, `health.backlog`, `health.lag`, `health.locks`, `health.restarts`) turn it into a reason:
-`order-events: 1.5k messages waiting`, `email-worker → order-events: 7 min behind`, `catalog-cache: 93% of
-memory used`.
+(`health.saturation`, `health.backlog`, `health.lag`, `health.locks`, `health.restarts`, `health.evictions`,
+`health.rejections`) turn it into a reason. [Resource diagnostics](resource-diagnostics.md) documents
+collector/label prerequisites, missing capabilities, pressure limits, queue estimates and explorer decisions.
 
 **Which node a reading belongs to.** Exporters label metrics with their own names, so a reading carries
 candidates, best first: the names without an exporter suffix (`catalog-cache-exporter` → `catalog-cache`), the
@@ -174,13 +175,16 @@ creates a node: when no candidate is on the map, the advisor says so and suggest
 ## Inside the database: the `postgres` explorer
 
 The explorer connects to PostgreSQL with a login of its own and reads `pg_stat_activity`, so it sees every client,
-including the ones that emit no telemetry. It also takes two health readings:
+including the ones that emit no telemetry. Its health readings include:
 
 - **Connections** in use against the connections ordinary roles may open (`max_connections` minus
   `superuser_reserved_connections`): the database's saturation, amber from 80% and red from 95% by default.
 - **Sessions waiting on a lock** for over a second, per client, with the session holding the lock
   (`pg_blocking_pids`): the line from that client to the database turns amber from one waiting session and red from
   five, and says who holds the lock, for example `3 sessions waiting on locks, over 1, held by legacy-reports`.
+- **Oldest open transaction age**, from client transaction starts, and **replica replay acknowledgement
+  delay**, when the primary's replication statistics supply it. Both use `health.lag`; NULL replay feedback
+  is explicitly unavailable/not applicable, never zero. A transaction start does not become a call timestamp.
 
 Without `pg_monitor` PostgreSQL hides other sessions' addresses and waits, so locks only show once the advisor's
 `GRANT pg_monitor` is in place. The role stays read-only: it sees session metadata and statistics, never table

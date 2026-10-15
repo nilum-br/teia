@@ -9,6 +9,66 @@
 listen: ${TEIA_LISTEN:-127.0.0.1:8080}
 interval: 10s
 
+# Public browser destinations, independent of source credentials/addresses.
+# These are service/time searches, never an exact trace/log correlation.
+evidenceLinks:
+  - label: Search traces for this service
+    target: node
+    kind: traces
+    source: tempo
+    url: ${GRAFANA_PUBLIC_URL:-http://localhost:3480}/explore
+    explore:
+      type: tempo
+      datasourceUID: tempo
+      query: '{ resource.service.name = {{id|json}} || span.peer.service = {{id|json}} || span.server.address = {{id|json}} }'
+  - label: Search traces for these endpoints
+    target: edge
+    kind: traces
+    source: tempo
+    url: ${GRAFANA_PUBLIC_URL:-http://localhost:3480}/explore
+    explore:
+      type: tempo
+      datasourceUID: tempo
+      query: '({ resource.service.name = {{from|json}} } && { resource.service.name = {{to|json}} }) || { resource.service.name = {{from|json}} && (span.peer.service = {{to|json}} || span.server.address = {{to|json}}) }'
+  - label: Search service logs
+    target: node
+    kind: logs
+    source: loki/access-logs
+    url: ${GRAFANA_PUBLIC_URL:-http://localhost:3480}/explore
+    explore:
+      type: loki
+      datasourceUID: loki
+      query: '{service={{id|json}}}'
+  - label: Search caller logs
+    target: edge
+    kind: logs
+    source: loki/access-logs
+    url: ${GRAFANA_PUBLIC_URL:-http://localhost:3480}/explore
+    explore:
+      type: loki
+      datasourceUID: loki
+      query: '{service={{from|json}}}'
+  - label: Service metrics dashboard
+    target: node
+    kind: dashboard
+    source: prometheus
+    url: ${GRAFANA_PUBLIC_URL:-http://localhost:3480}/d/teia-evidence
+    params:
+      var-service: '{{id}}'
+      from: '{{period.fromMs}}'
+      to: '{{period.toMs}}'
+  - label: Connection metrics dashboard
+    target: edge
+    kind: dashboard
+    source: prometheus
+    url: ${GRAFANA_PUBLIC_URL:-http://localhost:3480}/d/teia-evidence
+    params:
+      var-service: '{{from}}'
+      var-target: '{{to}}'
+      from: '{{period.fromMs}}'
+      to: '{{period.toMs}}'
+
+
 health:
   degraded: 0.01
   failing: 0.05

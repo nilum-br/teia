@@ -8,6 +8,11 @@ spec:
   # One pod: teia keeps the map in memory and a second replica would only
   # double the queries to your telemetry.
   replicas: 1
+  {{- if .Values.persistence.enabled }}
+  # The archive has exactly one writer, including while upgrading.
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       {{- include "teia.selectorLabels" . | nindent 6 }}
@@ -41,7 +46,11 @@ spec:
       priorityClassName: {{ . }}
       {{- end }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- $podSecurity := deepCopy .Values.podSecurityContext }}
+        {{- if and .Values.persistence.enabled (not (hasKey $podSecurity "fsGroup")) }}
+        {{- $_ := set $podSecurity "fsGroup" 65532 }}
+        {{- end }}
+        {{- toYaml $podSecurity | nindent 8 }}
       containers:
         - name: teia
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -85,7 +94,16 @@ spec:
             - name: flows
               mountPath: /etc/teia/flows
               readOnly: true
+            {{- if .Values.persistence.enabled }}
+            - name: history
+              mountPath: /var/lib/teia/history
+            {{- end }}
       volumes:
+        {{- if .Values.persistence.enabled }}
+        - name: history
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (printf "%s-history" (include "teia.fullname" .)) }}
+        {{- end }}
         - name: config
           configMap:
             name: {{ include "teia.fullname" . }}

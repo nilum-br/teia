@@ -73,6 +73,14 @@ env: []
 #      secretKeyRef: { name: orders-db-teia, key: password }
 envFrom: []
 
+# Optional durable observation history. One writer owns the claim; upgrades use
+# Recreate. Limits belong under config.history; the chart sets its directory.
+persistence:
+  enabled: false
+  existingClaim: ""
+  size: 1Gi
+  storageClass: ""
+
 rbac:
   # A ClusterRole that can only get, list and watch pods, services and
   # namespaces: no Secrets, no exec, no logs, no writes.

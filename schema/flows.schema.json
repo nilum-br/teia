@@ -56,6 +56,12 @@
         "reason": {
           "type": "string",
           "description": "Why this communication exists. Reviewers and firewall teams read this."
+        },
+        "expectedFrequency": {
+          "type": "string",
+          "pattern": "^\\+?(?:(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:ns|us|µs|μs|ms|s|m|h))+$",
+          "description": "Maximum interval between original observations, as a positive Go duration (24h, 168h). Not a cron schedule. Zero/overflow are rejected by teia validate.",
+          "examples": ["24h", "168h"]
         }
       }
     }

@@ -26,6 +26,41 @@ cors:
 # Concurrent /api/v1/stream clients; more get 503 with Retry-After.
 maxStreams: 100
 
+# Optional bounded historical snapshots; omit this section to keep no archive.
+# Enabled by teia serve; mount a writable volume at this path in containers.
+history:
+  directory: /var/lib/teia/history
+  retention: 168h
+  maxBytes: 268435456
+  maxSnapshots: 10000
+
+# Public navigation targets. Never put source tokens or credentials here.
+evidenceLinks:
+  - label: Search service traces
+    target: node
+    kind: traces
+    source: tempo/traces
+    url: https://grafana.example.com/explore
+    requires: [namespace]
+    params:
+      orgId: "1"
+    explore:
+      type: tempo
+      datasourceUID: tempo
+      query: '{ resource.service.name = {{id|json}} && resource.service.namespace = {{namespace|json}} }'
+  - label: Connection dashboard
+    target: edge
+    kind: dashboard
+    source: prometheus/main
+    url: https://grafana.example.com/d/service
+    params:
+      var-client: '{{from}}'
+      var-server: '{{to}}'
+      var-namespace: '{{toNamespace}}'
+      var-technology: '{{toTech}}'
+      from: '{{period.fromMs}}'
+      to: '{{period.toMs}}'
+
 # --- discovery rounds --------------------------------------------------------
 
 # Durations use Go syntax: 30s, 2m, 1h30m.
@@ -57,6 +92,39 @@ health:
   restarts: # container restarts within the source's window
     degraded: 1
     failing: 3
+  evictions: # cache evictions in the source window; tune for the intended cache policy
+    degraded: 1
+    failing: 100
+  rejections: # rejected client connections in the source window
+    degraded: 1
+    failing: 10
+  overrides:
+    - name: reporting-budget
+      target: node
+      id: reports # exact canonical node ID, after aliases; does not affect its edges
+      priority: 10
+      limits:
+        degraded: 0.01
+        failing: 0.05
+        latency: {degraded: 3s, failing: 8s}
+        saturation: {degraded: 0.8, failing: 0.95}
+        locks: {degraded: 1, failing: 5}
+        backlog: {degraded: 1000, failing: 10000}
+        lag: {degraded: 1m, failing: 5m}
+        restarts: {degraded: 1, failing: 3}
+        evictions: {degraded: 1, failing: 100}
+        rejections: {degraded: 1, failing: 10}
+    - name: background-workers
+      target: node
+      labels: {namespace: workers} # exact equality, every label required
+      limits:
+        latency: {degraded: 5s, failing: 20s}
+    - name: worker-database-calls
+      target: edge
+      fromLabels: {namespace: workers}
+      toLabels: {tier: database}
+      limits:
+        latency: {degraded: 2s, failing: 10s}
 
 # One node for things known under several names (matched case-insensitively).
 # A key can also be an address no inventory knows.

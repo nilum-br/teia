@@ -1,5 +1,11 @@
 # Landscape
 
+**Current delivery evidence:** the T01–T16 candidate now has a running-browser
+[UI and scale report](ui-validation.md), [installed Novatec comparison](competitive-validation.md),
+and [installation matrix](installation-candidate.md). The human pilot and public signing are deferred until
+after handoff by the maintainer. The review below retains its original baseline and limitations; it does not
+describe those subsequently fixed defects as still open.
+
 Reviewed on **15 October 2026**, using teia `62ef24b`, official product documentation and Novatec's official
 repository/catalog. This compares documented capabilities; it is not proof that a competitor lacks every feature
 not mentioned. Priorities are our assessment.

@@ -1,0 +1,11 @@
+{
+  "uid": "teia-comparison-destination",
+  "title": "Comparison drilldown context receipt",
+  "schemaVersion": 41,
+  "version": 1,
+  "time": { "from": "now-15m", "to": "now" },
+  "templating": { "list": [{ "name": "service", "type": "textbox", "label": "Service", "query": "", "current": { "text": "", "value": "" } }] },
+  "panels": [{ "id": 1, "type": "text", "title": "Selected service: ${service}",
+    "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+    "options": { "mode": "markdown", "content": "Synthetic navigation receipt. The selected service is in the panel title and the requested period is in Grafana's time picker. This dashboard contains no traces or logs and does not prove an exact evidence correlation." } }]
+}

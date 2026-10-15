@@ -2,13 +2,16 @@
 
 /** Why a node or edge is amber or red: a golden signal past its limit. */
 export interface TeiaReason {
-  cause: 'errors' | 'latency' | 'saturation' | 'backlog' | 'locks';
+  cause: 'errors' | 'latency' | 'saturation' | 'backlog' | 'locks' | 'lag' | 'restarts' | 'evictions' | 'rejections';
   health: 'degraded' | 'failing';
   value: number;
   limit: number;
   summary: string;
   coverage?: number;
   approximate?: boolean;
+  rule?: string;
+  unit?: string;
+  evidence?: TeiaEvidence[];
   /** The measure behind a saturation, backlog or locks reason. */
   what?: string;
   /** The dependency it most likely comes from, or who holds the lock. */
@@ -45,7 +48,29 @@ export interface TeiaEvidence {
 
 export interface TeiaTimeRange { from: string; to: string; }
 
+export interface TeiaEvidenceLink {
+  label: string;
+  url: string;
+  kind: 'traces' | 'logs' | 'dashboard';
+  description: string;
+  periodFrom?: string;
+  periodTo?: string;
+}
+
+export interface TeiaHealthRule {
+  cause: TeiaReason['cause'];
+  name: string;
+  match: 'global' | 'identity' | 'selector';
+  priority?: number;
+  degraded: number;
+  failing: number;
+  unit: string;
+}
+
 export interface TeiaNode {
+  links?: TeiaEvidenceLink[];
+  healthRules?: TeiaHealthRule[];
+  journeys?: string[];
   evidence?: TeiaEvidence[];
   id: string;
   kind: string;
@@ -73,6 +98,10 @@ export interface TeiaNode {
 }
 
 export interface TeiaEdge {
+  expectedFrequencySeconds?: number;
+  frequency?: { status: 'unknown' | 'not-due' | 'overdue'; lastObservedAt?: string; nextExpectedAt?: string; detail: string };
+  links?: TeiaEvidenceLink[];
+  healthRules?: TeiaHealthRule[];
   evidence?: TeiaEvidence[];
   from: string;
   to: string;
@@ -131,7 +160,9 @@ export interface TeiaChange {
 }
 
 export interface TeiaSnapshot {
-  timeMode?: 'current' | 'query' | 'mixed';
+  journeys?: TeiaJourneyContract;
+  timeMode?: 'current' | 'query' | 'mixed' | 'historical';
+  history?: TeiaHistory;
   period?: TeiaTimeRange;
   observedAt?: string;
   round: number;
@@ -144,6 +175,44 @@ export interface TeiaSnapshot {
   /** False for data without intent (plain Node Graph frames): no drift to show. */
   drift?: boolean;
   changes?: TeiaChange[];
+}
+
+export interface TeiaHistory {
+  id: string;
+  recordedAt: string;
+  availability: 'stored-snapshot';
+  nodes: Record<string, TeiaPresence>;
+  edges: Record<string, TeiaPresence>;
+}
+export interface TeiaPresence {
+  episode: string;
+  identity: string;
+  identityConfidence: string;
+  firstSeen: string;
+  lastSeen: string;
+  firstObservedAt?: string;
+  lastObservedAt?: string;
+}
+
+/** Ownership topology only; never request or transaction correlation. */
+export interface TeiaJourneyContract {
+  version: 1;
+  mode: 'ownership';
+  key: string;
+  maxDepth: number;
+  maxNodes: number;
+  scopes: TeiaJourneyScope[];
+}
+
+export interface TeiaJourneyScope {
+  name: string;
+  key: string;
+  roles: Record<string, 'member' | 'dependency'>;
+  entryPoints: string[];
+  entryEdges: string[];
+  boundaryPorts: Array<{ kind: 'caller' | 'tenant' | 'exit'; edgeId: string; from: string; to: string }>;
+  health: TeiaNode['health'];
+  truncated: boolean;
 }
 
 export interface TeiaMountOptions {

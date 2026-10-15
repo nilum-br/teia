@@ -30,6 +30,49 @@ const edges = toDataFrame({
 });
 
 describe('framesToSnapshot', () => {
+  it('rejects a named query whose columns cannot identify its topology', () => {
+    expect(framesToSnapshot([toDataFrame({ refId: 'nodes', fields: [{ name: 'service', values: ['a'] }] })], 1).snapshot).toBeUndefined();
+    expect(framesToSnapshot([nodes, toDataFrame({ refId: 'edges', fields: [{ name: 'source', values: ['a'] }] })], 1).snapshot).toBeUndefined();
+    // A valid schema with no rows is a real empty result, not a mapping error.
+    expect(framesToSnapshot([toDataFrame({ refId: 'nodes', fields: [{ name: 'id', values: [] }] })], 1).snapshot?.nodes).toEqual([]);
+  });
+
+  it('keeps a stored snapshot historical and marks mixed current/history frames explicitly', () => {
+    const history = { id: 'stored-one', availability: 'stored-snapshot', recordedAt: '2026-10-15T12:00:00Z', nodes: {}, edges: {} };
+    const h = toDataFrame({ refId: 'nodes', fields: [
+      { name: 'id', values: ['a', 'b'] }, { name: 'timeMode', values: ['historical', 'historical'] },
+      { name: 'historyId', values: ['stored-one', 'stored-one'] },
+      { name: 'snapshotAt', values: ['2026-10-15T11:59:00Z', '2026-10-15T11:59:00Z'] }, { name: 'history', values: [JSON.stringify(history), ''] },
+    ] });
+    expect(framesToSnapshot([h], 1).snapshot).toMatchObject({ timeMode: 'historical', history, generatedAt: '2026-10-15T11:59:00.000Z' });
+    const live = toDataFrame({ refId: 'edges', fields: [{ name: 'source', values: ['a'] }, { name: 'target', values: ['b'] }, { name: 'timeMode', values: ['current'] }] });
+    expect(framesToSnapshot([h, live], 2).snapshot).toMatchObject({ timeMode: 'mixed', history: undefined });
+    const different = toDataFrame({ refId: 'edges', fields: [{ name: 'source', values: ['a'] }, { name: 'target', values: ['b'] },
+      { name: 'timeMode', values: ['historical'] }, { name: 'historyId', values: ['stored-two'] }] });
+    expect(framesToSnapshot([h, different], 3).snapshot).toMatchObject({ timeMode: 'mixed', history: undefined });
+    const advice = toDataFrame({ refId: 'findings', fields: [{ name: 'title', values: ['Other snapshot finding'] },
+      { name: 'timeMode', values: ['historical'] }, { name: 'historyId', values: ['stored-two'] }] });
+    expect(framesToSnapshot([h, advice], 4).snapshot).toMatchObject({ timeMode: 'mixed', history: undefined });
+    const emptyCoverage = toDataFrame({ refId: 'coverage', fields: [{ name: 'timeMode', values: ['historical'] },
+      { name: 'historyId', values: ['stored-one'] }, { name: 'history', values: [JSON.stringify(history)] }] });
+    expect(framesToSnapshot([toDataFrame({ refId: 'nodes', fields: [] }), emptyCoverage], 5).snapshot).toMatchObject({ timeMode: 'historical', history, nodes: [] });
+  });
+  it('accepts historical context in custom metadata for every role and rejects a mismatched auxiliary query', () => {
+    const history = { id: 'stored-one', availability: 'stored-snapshot', recordedAt: '2026-10-15T12:00:00Z', nodes: {}, edges: {} };
+    const metadata = { timeMode: 'historical', historyId: history.id, snapshotAt: '2026-10-15T11:59:00Z', history };
+    const frames = [
+      toDataFrame({ refId: 'nodes', fields: [{ name: 'id', values: ['a'] }] }),
+      toDataFrame({ refId: 'findings', fields: [{ name: 'title', values: ['A finding'] }] }),
+      toDataFrame({ refId: 'sources', fields: [{ name: 'name', values: ['prometheus'] }] }),
+      toDataFrame({ refId: 'coverage', fields: [{ name: 'visibility', values: [1] }] }),
+      toDataFrame({ refId: 'changes', fields: [{ name: 'kind', values: ['node-health'] }] }),
+    ];
+    for (const frame of frames) frame.meta = { custom: { teia: metadata } };
+    expect(framesToSnapshot(frames, 1).snapshot).toMatchObject({ timeMode: 'historical', history });
+    frames[2].meta = { custom: { teia: { ...metadata, historyId: 'stored-two' } } };
+    expect(framesToSnapshot(frames, 2).snapshot).toMatchObject({ timeMode: 'mixed', history: undefined });
+  });
+
   it('maps teia frames and adds nodes only edges mention', () => {
     const { snapshot } = framesToSnapshot([nodes, edges], 3);
     expect(snapshot).toBeDefined();

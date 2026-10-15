@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/nilum-br/teia/internal/graph"
 	"github.com/nilum-br/teia/internal/model"
@@ -325,6 +326,17 @@ func undeclaredFlows(in Input) []model.Finding {
 func staleFlows(in Input) []model.Finding {
 	var out []model.Finding
 	for _, e := range in.Graph.SortedEdges() {
+		if e.ExpectedFrequencySeconds > 0 {
+			// Rare flows need original event times across windows. Even full
+			// visibility in this round cannot prove a daily/monthly job is late.
+			if e.Frequency != nil && e.Frequency.Status == "overdue" {
+				out = append(out, model.Finding{Kind: model.FindingDrift, Severity: model.SeverityInfo, Subject: e.Key(),
+					Title:  fmt.Sprintf("%s has no newer observation of its expected call to %s", e.From, e.To),
+					Detail: fmt.Sprintf("Last original observation: %s; expected interval: %s. %s", e.Frequency.LastObservedAt.Format(time.RFC3339), model.FormatSeconds(e.ExpectedFrequencySeconds), e.Frequency.Detail),
+					Fix:    &model.Fix{Summary: "Check the job schedule and telemetry coverage before changing its declared flow."}})
+			}
+			continue
+		}
 		if e.State != model.EdgeStale {
 			continue
 		}
@@ -339,7 +351,7 @@ func staleFlows(in Input) []model.Finding {
 			Subject:  e.Key(),
 			Title:    fmt.Sprintf("%s declares a call to %s that was not observed", e.From, e.To),
 			Detail:   fmt.Sprintf("%s reports its own telemetry and made no call to %s in the discovery window.", e.From, e.To),
-			Fix:      &model.Fix{Summary: "Remove it from the flows file if the dependency is gone. If it only happens rarely (a monthly batch, a fallback), keep it: teia will show it as stale until it runs."},
+			Fix:      &model.Fix{Summary: "Remove it from the flows file only if the dependency is gone. For rare or batch calls, set expectedFrequency (for example 24h) and inspect original observation history before treating silence as drift."},
 		})
 	}
 	return out

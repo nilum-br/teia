@@ -177,7 +177,11 @@ has full visibility. Otherwise teia cannot tell "not happening" from "not visibl
 | Endpoint | Content |
 |---|---|
 | `GET /api/v1/snapshot` | everything below in one document |
-| `GET /api/v1/graph` | nodes and edges |
+| `GET /api/v1/graph` | nodes, edges and the engine's ownership journey contract |
+| `GET /api/v1/journeys` | versioned membership, entry points and boundary ports; optional `?key=team` |
+| `GET /api/v1/history` | retained discrete captures, optional inclusive RFC3339 `from`/`to` interval; disabled/unavailable are explicit |
+| `GET /api/v1/history/{id}` | immutable stored snapshot, original evidence and presence episodes; marked historical |
+| `GET /api/v1/history/{id}/grafana/{table}` | Grafana frames pinned to one stored snapshot ID |
 | `GET /api/v1/findings` | findings, most urgent first |
 | `GET /api/v1/coverage` | coverage scores |
 | `GET /api/v1/sources` | per-source status of the last round |

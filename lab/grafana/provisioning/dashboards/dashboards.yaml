@@ -3,5 +3,7 @@ providers:
   - name: teia
     folder: teia
     type: file
+    # Poll: Docker Desktop bind mounts may not deliver filesystem watch events.
+    updateIntervalSeconds: 30
     options:
       path: /var/lib/grafana/dashboards

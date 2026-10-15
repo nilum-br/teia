@@ -8,6 +8,7 @@
 //	teia.nilum.io/node-id: override the node ID
 //	teia.nilum.io/kind:    service | database | cache | queue | external
 //	teia.nilum.io/tech:    technology for the icon (postgresql, redis, kafka...)
+//	teia.nilum.io/journeys: JSON array of ownership journey names
 //	teia.nilum.io/ignore:  "true" to keep it out of the graph
 //
 // Without the kind annotation a workload reports kind "unknown": a pod
@@ -34,6 +35,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/pager"
 
+	"github.com/nilum-br/teia/internal/journey"
 	"github.com/nilum-br/teia/internal/model"
 	"github.com/nilum-br/teia/internal/source"
 )
@@ -184,6 +186,18 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 			}
 			if t := p.Annotations[annotationPrefix+"tech"]; t != "" {
 				w.Labels["teia.tech"] = t
+			}
+			if raw, present := p.Annotations[journey.Annotation]; present {
+				memberships, err := journey.ParseAnnotation(raw)
+				if err != nil {
+					obs.Findings = append(obs.Findings, model.Finding{
+						ID: "invalid-journeys:" + id, Rule: "invalid-journeys", Kind: model.FindingSource,
+						Severity: model.SeverityWarning, Subject: id, Title: "Journey annotation is invalid",
+						Detail: journey.Annotation + " " + err.Error() + "; existing journey labels still apply.",
+					})
+				} else {
+					w.Journeys = memberships
+				}
 			}
 			workloads[id] = w
 		}

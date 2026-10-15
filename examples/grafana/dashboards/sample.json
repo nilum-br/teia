@@ -1,0 +1,33 @@
+{
+  "uid": "teia-candidate-sample",
+  "title": "teia candidate · synthetic data",
+  "tags": ["teia", "synthetic"],
+  "schemaVersion": 41,
+  "version": 1,
+  "time": { "from": "now-15m", "to": "now" },
+  "refresh": "",
+  "panels": [
+    {
+      "id": 1,
+      "type": "nilum-teia-panel",
+      "title": "Synthetic example · not live telemetry",
+      "gridPos": { "h": 24, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-testdata-datasource", "uid": "teia-sample" },
+      "options": { "flow": false },
+      "targets": [
+        {
+          "refId": "nodes",
+          "datasource": { "type": "grafana-testdata-datasource", "uid": "teia-sample" },
+          "scenarioId": "csv_content",
+          "csvContent": "id,title,kind,tech,visibility,requestRate,errorRate,latencyP95Ms\ncheckout,Checkout,service,go,full,10,0,45\npayments,Payments,service,go,full,10,0.2,600\npayment-db,Payment database,database,postgres,partial,10,,120\n"
+        },
+        {
+          "refId": "edges",
+          "datasource": { "type": "grafana-testdata-datasource", "uid": "teia-sample" },
+          "scenarioId": "csv_content",
+          "csvContent": "id,source,target,protocol,requestRate,errorRate,latencyP95Ms\ncheckout-payments,checkout,payments,http,10,0.2,600\npayments-db,payments,payment-db,postgres,10,,120\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+# Optional installed comparison. Download/extract the official signed 4.2.0 ZIP first.
+services:
+  grafana:
+    volumes:
+      - ${NOVATEC_PLUGIN_DIR:?Set the absolute extracted novatec-sdg-panel directory}:/var/lib/grafana/plugins/novatec-sdg-panel:ro

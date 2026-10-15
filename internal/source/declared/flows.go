@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -46,6 +47,9 @@ type Flow struct {
 	Protocol string `yaml:"protocol,omitempty" json:"protocol,omitempty"`
 	Port     int    `yaml:"port,omitempty" json:"port,omitempty"`
 	Reason   string `yaml:"reason,omitempty" json:"reason,omitempty"`
+	// ExpectedFrequency is a maximum interval between observed calls, not a
+	// cron schedule. Empty keeps the ordinary short-window drift semantics.
+	ExpectedFrequency string `yaml:"expectedFrequency,omitempty" json:"expectedFrequency,omitempty"`
 }
 
 // Parse decodes the Flows documents in data. Everything else is skipped
@@ -156,6 +160,11 @@ func Validate(doc Document) []error {
 		}
 		if f.Port < 0 || f.Port > 65535 {
 			errs = append(errs, fmt.Errorf("spec.egress[%d].port %d is out of range", i, f.Port))
+		}
+		if f.ExpectedFrequency != "" {
+			if d, err := time.ParseDuration(f.ExpectedFrequency); err != nil || d <= 0 {
+				errs = append(errs, fmt.Errorf("spec.egress[%d].expectedFrequency must be a positive duration such as 24h or 168h", i))
+			}
 		}
 	}
 	return errs

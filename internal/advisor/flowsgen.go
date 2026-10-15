@@ -34,7 +34,11 @@ func ref(g *graph.Graph, id string) string {
 }
 
 func flow(g *graph.Graph, e model.Edge) declared.Flow {
-	f := declared.Flow{To: ref(g, e.To), Protocol: e.Protocol, Reason: todoReason}
+	reason := e.Reason
+	if reason == "" {
+		reason = todoReason
+	}
+	f := declared.Flow{To: ref(g, e.To), Protocol: e.Protocol, Port: e.Port, Reason: reason}
 	if n := g.Nodes[e.To]; n != nil && n.Kind != model.KindService && n.Kind != model.KindUnknown {
 		f.Kind = string(n.Kind)
 	}

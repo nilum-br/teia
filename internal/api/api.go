@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"github.com/nilum-br/teia/internal/export"
+	"github.com/nilum-br/teia/internal/history"
+	"github.com/nilum-br/teia/internal/journey"
 	"github.com/nilum-br/teia/internal/model"
 )
 
@@ -37,6 +39,7 @@ const DefaultMaxStreams = 100
 
 // Options secures and tunes the HTTP API.
 type Options struct {
+	History *history.Store
 	// Token, when set, is required on every endpoint but /healthz: as
 	// "Authorization: Bearer <token>", or as the cookie a browser gets by
 	// opening /?token=<token> once (EventSource cannot send headers).
@@ -66,6 +69,7 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 		opts.Log = slog.New(slog.DiscardHandler)
 	}
 	mux := http.NewServeMux()
+	registerHistory(mux, opts)
 	snap := func() model.Snapshot { return eng.Snapshot() }
 	send := func(w http.ResponseWriter, v any) { writeJSON(w, opts.Log, v) }
 
@@ -82,7 +86,16 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 	})
 	mux.HandleFunc("GET /api/v1/graph", func(w http.ResponseWriter, _ *http.Request) {
 		s := snap()
-		send(w, map[string]any{"generatedAt": s.GeneratedAt, "timeMode": s.TimeMode, "nodes": s.Nodes, "edges": s.Edges})
+		send(w, map[string]any{"generatedAt": s.GeneratedAt, "timeMode": s.TimeMode, "nodes": s.Nodes, "edges": s.Edges, "journeys": s.Journeys})
+	})
+	mux.HandleFunc("GET /api/v1/journeys", func(w http.ResponseWriter, r *http.Request) {
+		s := snap()
+		key := r.URL.Query().Get("key")
+		contract := s.Journeys
+		if contract == nil || (key != "" && key != contract.Key) {
+			contract = journey.Build(s, key)
+		}
+		send(w, contract)
 	})
 	mux.HandleFunc("GET /api/v1/findings", func(w http.ResponseWriter, _ *http.Request) {
 		send(w, snap().Findings)

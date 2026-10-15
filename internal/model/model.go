@@ -66,6 +66,8 @@ const (
 	CauseLag        Cause = "lag"        // Value: seconds behind, or without progress
 	CauseLocks      Cause = "locks"      // Value: sessions waiting on locks
 	CauseRestarts   Cause = "restarts"   // Value: restarts in the window
+	CauseEvictions  Cause = "evictions"  // Value: cache evictions in the window; pressure, not proof of failed requests
+	CauseRejections Cause = "rejections" // Value: rejected client connections in the window
 )
 
 // Measure is a reading beyond traffic that tells how a node or edge is
@@ -128,6 +130,11 @@ type Reason struct {
 	Value   float64 `json:"value"`
 	Limit   float64 `json:"limit"` // the limit it crossed, in Value's unit
 	Summary string  `json:"summary"`
+	Rule    string  `json:"rule,omitempty"`
+	Unit    string  `json:"unit,omitempty"`
+	// Evidence contains only current evidence for this signal, preserving
+	// separate source periods instead of inventing one combined window.
+	Evidence []Evidence `json:"evidence,omitempty"`
 	// Coverage qualifies a rate computed over only part of the traffic.
 	Coverage    float64 `json:"coverage,omitempty"`
 	Approximate bool    `json:"approximate,omitempty"`
@@ -216,6 +223,8 @@ type Evidence struct {
 type Node struct {
 	ID   string   `json:"id"`
 	Kind NodeKind `json:"kind"`
+	// Journeys are additional explicit ownership memberships from inventory.
+	Journeys []string `json:"journeys,omitempty"`
 	// Tech is the recognised technology (postgresql, redis, kafka...).
 	Tech       string     `json:"tech,omitempty"`
 	Visibility Visibility `json:"visibility"`
@@ -244,11 +253,13 @@ type Node struct {
 	// Measures are readings beyond traffic (connections in use...).
 	Measures []Measure `json:"measures,omitempty"`
 	// Reasons explain a health other than healthy, worst first.
-	Reasons   []Reason          `json:"reasons,omitempty"`
-	Sources   []string          `json:"sources"`
-	Addresses []string          `json:"addresses,omitempty"`
-	Labels    map[string]string `json:"labels,omitempty"`
-	Evidence  []Evidence        `json:"evidence,omitempty"`
+	Reasons     []Reason          `json:"reasons,omitempty"`
+	HealthRules []HealthRule      `json:"healthRules,omitempty"`
+	Sources     []string          `json:"sources"`
+	Addresses   []string          `json:"addresses,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	Evidence    []Evidence        `json:"evidence,omitempty"`
+	Links       []EvidenceLink    `json:"links,omitempty"`
 }
 
 // EdgeState is the result of comparing declared and observed communication.
@@ -276,10 +287,12 @@ type Edge struct {
 	Sources  []string  `json:"sources"`
 	// Signals are the kinds of telemetry that observed the edge: traces,
 	// mesh, network, logs, metrics, database.
-	Signals     []string `json:"signals,omitempty"`
-	Reason      string   `json:"reason,omitempty"`
-	RequestRate float64  `json:"requestRate,omitempty"` // requests per second
-	ErrorRate   float64  `json:"errorRate,omitempty"`   // failed share, 0..1
+	Signals                  []string       `json:"signals,omitempty"`
+	Reason                   string         `json:"reason,omitempty"`
+	ExpectedFrequencySeconds float64        `json:"expectedFrequencySeconds,omitempty"`
+	Frequency                *FlowFrequency `json:"frequency,omitempty"`
+	RequestRate              float64        `json:"requestRate,omitempty"` // requests per second
+	ErrorRate                float64        `json:"errorRate,omitempty"`   // failed share, 0..1
 	// ErrorsUnknown: traffic was seen, but no signal measured its failures
 	// (a custom query without an errors query), so ErrorRate says nothing.
 	ErrorsUnknown bool `json:"errorsUnknown,omitempty"`
@@ -292,8 +305,10 @@ type Edge struct {
 	// Measures are readings beyond traffic (sessions waiting on locks...).
 	Measures []Measure `json:"measures,omitempty"`
 	// Reasons explain a health other than healthy, worst first.
-	Reasons  []Reason   `json:"reasons,omitempty"`
-	Evidence []Evidence `json:"evidence,omitempty"`
+	Reasons     []Reason       `json:"reasons,omitempty"`
+	HealthRules []HealthRule   `json:"healthRules,omitempty"`
+	Evidence    []Evidence     `json:"evidence,omitempty"`
+	Links       []EvidenceLink `json:"links,omitempty"`
 }
 
 // Key identifies an edge inside a graph.
@@ -419,14 +434,16 @@ type Change struct {
 
 // Snapshot is the result of one discovery round.
 type Snapshot struct {
-	Round       int64          `json:"round"`
-	GeneratedAt time.Time      `json:"generatedAt"`
-	TimeMode    string         `json:"timeMode"` // current: a discovery snapshot, not a historical query
-	Nodes       []Node         `json:"nodes"`
-	Edges       []Edge         `json:"edges"`
-	Findings    []Finding      `json:"findings"`
-	Sources     []SourceStatus `json:"sources"`
-	Coverage    Coverage       `json:"coverage"`
+	History     *HistoryContext  `json:"history,omitempty"`
+	Journeys    *JourneyContract `json:"journeys,omitempty"`
+	Round       int64            `json:"round"`
+	GeneratedAt time.Time        `json:"generatedAt"`
+	TimeMode    string           `json:"timeMode"` // current discovery, or historical replay of a stored snapshot
+	Nodes       []Node           `json:"nodes"`
+	Edges       []Edge           `json:"edges"`
+	Findings    []Finding        `json:"findings"`
+	Sources     []SourceStatus   `json:"sources"`
+	Coverage    Coverage         `json:"coverage"`
 	// Changes since the previous round.
 	Changes []Change `json:"changes,omitempty"`
 }

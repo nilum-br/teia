@@ -59,6 +59,23 @@ describe('TeiaPanel', () => {
     expect(shadow(container).querySelector('#empty')!.hasAttribute('hidden')).toBe(true);
   });
 
+  it.each(['panel id', 'dashboard UID'])('replays unchanged query data after a %s remount', (identity) => {
+    const original = props();
+    const { container, rerender } = render(<TeiaPanel {...original} />);
+    const firstMap = shadow(container).querySelector('.teia');
+    // Keep data and options referentially unchanged: only the controller's
+    // storage scope changes, so waiting for another query would leave it blank.
+    const next = identity === 'panel id' ? { ...original, id: 8 } : {
+      ...original,
+      replaceVariables: (value: string) => value === '${__dashboard.uid}' ? 'dash-2' : original.replaceVariables(value),
+    };
+    rerender(<TeiaPanel {...next} />);
+    expect(shadow(container).querySelector('.teia')).not.toBe(firstMap);
+    const ids = [...shadow(container).querySelectorAll('.node')].map(n => (n as HTMLElement).dataset.id);
+    expect(ids.sort()).toEqual(['orders', 'web']);
+    expect(shadow(container).querySelector('#empty')!.hasAttribute('hidden')).toBe(true);
+  });
+
   it('follows Grafana theme changes without remounting the map', () => {
     const panel = <TeiaPanel {...props()} />;
     const { container, rerender } = render(
@@ -244,6 +261,26 @@ describe('TeiaPanel', () => {
     expect(shadow(container).querySelector('#live')!.textContent).toContain('datasource down');
   });
 
+  it('accepts a new historical query while paused and replaces activity with that snapshot', () => {
+    const make = (id: string) => [toDataFrame({ refId: 'nodes', fields: [
+      { name: 'id', values: [id] }, { name: 'timeMode', values: ['historical'] }, { name: 'historyId', values: [id] },
+      { name: 'history', values: [JSON.stringify({ id, availability: 'stored-snapshot', nodes: {}, edges: {} })] },
+    ] }), toDataFrame({ refId: 'changes', fields: [
+      { name: 'message', values: ['Activity for ' + id] }, { name: 'timeMode', values: ['historical'] }, { name: 'historyId', values: [id] },
+      { name: 'at', values: ['2026-10-15T12:00:00Z'] },
+    ] })];
+    const { container, rerender } = render(<TeiaPanel {...props()} />);
+    const root = shadow(container);
+    (root.querySelector('#liveBtn') as HTMLButtonElement).click();
+    rerender(<TeiaPanel {...props({ data: { series: make('one'), state: LoadingState.Done } as never })} />);
+    expect(root.querySelector('#timeContext')!.textContent).toContain('Historical snapshot');
+    expect(root.querySelector('#pane-activity')!.textContent).toContain('Activity for one');
+    rerender(<TeiaPanel {...props({ data: { series: make('two'), state: LoadingState.Done } as never })} />);
+    expect(root.querySelector('.node')?.getAttribute('data-id')).toBe('two');
+    expect(root.querySelector('#pane-activity')!.textContent).toContain('Activity for two');
+    expect(root.querySelector('#pane-activity')!.textContent).not.toContain('Activity for one');
+  });
+
   it('opens the details of a line with its readings and why it is amber', () => {
     const queue = [
       toDataFrame({ refId: 'nodes', fields: [{ name: 'id', values: ['email-worker', 'order-events'] }] }),
@@ -264,7 +301,7 @@ describe('TeiaPanel', () => {
     expect(root.querySelector('.why-tag')?.textContent).toContain('1.5k messages waiting');
     (root.querySelector('.edge path.hit') as SVGElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
     const details = root.querySelector('#pane-details')!.textContent!;
-    expect(details).toContain('Why it is amber');
+    expect(details).toContain('Primary signal');
     expect(details).toContain('messages waiting');
     expect(details).toContain('1.5k');
   });

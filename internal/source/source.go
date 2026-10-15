@@ -25,8 +25,9 @@ func IsAddressID(id string) bool { return strings.HasPrefix(id, AddressPrefix) }
 
 // NodeObservation is a node as seen by one source.
 type NodeObservation struct {
-	ID   string
-	Kind model.NodeKind
+	ID       string
+	Kind     model.NodeKind
+	Journeys []string
 	// SelfReported is true when the node emitted the data itself
 	// (e.g. its own spans), which gives it full visibility.
 	SelfReported bool
@@ -66,11 +67,12 @@ type Reading struct {
 
 // EdgeObservation is a communication as seen by one source.
 type EdgeObservation struct {
-	From, To string
-	Protocol string
-	Port     int
-	Declared bool // true for intent (flows files), false for traffic
-	Reason   string
+	From, To          string
+	Protocol          string
+	Port              int
+	Declared          bool // true for intent (flows files), false for traffic
+	Reason            string
+	ExpectedFrequency time.Duration // declared maximum interval between observed calls
 	// Signal is the kind of telemetry that observed the edge.
 	Signal string
 	// Window is how far back the observation looks (log and metric

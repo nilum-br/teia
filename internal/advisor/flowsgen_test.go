@@ -40,6 +40,18 @@ spec:
 	}
 }
 
+func TestFlowsFileKeepsObservedPortAndExistingRationale(t *testing.T) {
+	g := &graph.Graph{Nodes: map[string]*model.Node{"orders": node("orders", model.KindService, model.VisibilityFull, nil), "db": node("db", model.KindDatabase, model.VisibilityPartial, nil)}}
+	text := FlowsFile(g, "orders", []model.Edge{{From: "orders", To: "db", Protocol: "postgresql", Port: 5432, Reason: "persist orders"}})
+	var doc declared.Document
+	if err := yaml.Unmarshal([]byte(text), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if flow := doc.Spec.Egress[0]; flow.Port != 5432 || flow.Protocol != "postgresql" || flow.Reason != "persist orders" {
+		t.Fatalf("lost contract metadata: %+v", flow)
+	}
+}
+
 // Names come from telemetry: whatever they hold, the generated file must
 // stay one valid Flows document carrying exactly those names.
 func TestFlowsFileSurvivesHostileNames(t *testing.T) {

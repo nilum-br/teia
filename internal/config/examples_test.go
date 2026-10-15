@@ -111,6 +111,10 @@ func structKeys(t reflect.Type, prefix string, out map[string]bool) {
 	for i := range t.NumField() {
 		f := t.Field(i)
 		name, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
+		if f.Tag.Get("yaml") == ",inline" {
+			structKeys(f.Type, prefix, out)
+			continue
+		}
 		if name == "" || name == "-" {
 			continue
 		}

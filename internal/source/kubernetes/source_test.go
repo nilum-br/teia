@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -175,6 +176,32 @@ func TestInventory(t *testing.T) {
 	}
 	if !nodes["debug"].Ignore {
 		t.Error("ignore annotation not honoured")
+	}
+}
+
+func TestJourneyAnnotationUsesNewestPodAndKeepsLabels(t *testing.T) {
+	older := pod("shop", "web-old", "10.1.0.1", ctrl("Deployment", "web"), map[string]string{"journey": "legacy"}, map[string]string{"teia.nilum.io/journeys": `["old"]`})
+	newer := pod("shop", "web-new", "10.1.0.2", ctrl("Deployment", "web"), map[string]string{"journey": "checkout"}, map[string]string{"teia.nilum.io/journeys": `["Browse", "checkout", "browse"]`})
+	older.CreationTimestamp = metav1.NewTime(time.Unix(100, 0))
+	newer.CreationTimestamp = metav1.NewTime(time.Unix(200, 0))
+	obs := discover(t, inventoryClient(t, older, newer))
+	if len(obs.Findings) != 0 {
+		t.Fatalf("unexpected findings: %+v", obs.Findings)
+	}
+	for _, n := range obs.Nodes {
+		if !reflect.DeepEqual(n.Journeys, []string{"browse", "checkout"}) || n.Labels["journey"] != "checkout" {
+			t.Errorf("newest workload metadata lost: %+v", n)
+		}
+	}
+}
+
+func TestInvalidJourneyAnnotationIsActionableWithoutDroppingWorkload(t *testing.T) {
+	obs := discover(t, inventoryClient(t, pod("shop", "web", "10.1.0.1", nil, map[string]string{"journey": "checkout"}, map[string]string{"teia.nilum.io/journeys": "checkout,browse"})))
+	if len(obs.Nodes) != 1 || len(obs.Nodes[0].Journeys) != 0 || obs.Nodes[0].Labels["journey"] != "checkout" {
+		t.Fatalf("legacy membership or workload lost: %+v", obs.Nodes)
+	}
+	if len(obs.Findings) != 1 || obs.Findings[0].Rule != "invalid-journeys" || !strings.Contains(obs.Findings[0].Detail, "JSON array") {
+		t.Fatalf("missing useful validation finding: %+v", obs.Findings)
 	}
 }
 

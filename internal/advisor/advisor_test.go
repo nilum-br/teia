@@ -3,10 +3,27 @@ package advisor
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nilum-br/teia/internal/graph"
 	"github.com/nilum-br/teia/internal/model"
 )
+
+func TestRareFlowDoesNotBecomeStaleInAShortWindow(t *testing.T) {
+	e := edge("daily", "archive", model.EdgeStale, "postgresql")
+	e.ExpectedFrequencySeconds = 86400
+	g := &graph.Graph{Nodes: map[string]*model.Node{"daily": node("daily", model.KindService, model.VisibilityFull, nil)}, Edges: map[string]*model.Edge{e.Key(): e}}
+	for _, status := range []string{"unknown", "not-due"} {
+		e.Frequency = &model.FlowFrequency{Status: status}
+		if findings := staleFlows(Input{Graph: g}); len(findings) != 0 {
+			t.Fatalf("%s rare flow treated as stale: %+v", status, findings)
+		}
+	}
+	e.Frequency = &model.FlowFrequency{Status: "overdue", LastObservedAt: time.Now().Add(-25 * time.Hour), Detail: "Sampling or collection gaps may hide a call; this does not prove the job failed."}
+	if findings := staleFlows(Input{Graph: g}); len(findings) != 1 || findings[0].Severity != model.SeverityInfo || !strings.Contains(findings[0].Detail, "does not prove") {
+		t.Fatalf("overdue evidence not qualified: %+v", findings)
+	}
+}
 
 func node(id string, kind model.NodeKind, vis model.Visibility, labels map[string]string) *model.Node {
 	return &model.Node{ID: id, Kind: kind, Visibility: vis, Sources: []string{"test"}, Labels: labels}

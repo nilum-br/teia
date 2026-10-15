@@ -1,5 +1,6 @@
 import { DataFrame } from '@grafana/data';
-import type { TeiaChange, TeiaEdge, TeiaEvidence, TeiaFinding, TeiaMeasure, TeiaNode, TeiaReason, TeiaSnapshot, TeiaSource } from './teia-ui';
+import { journeyContract } from './journeys';
+import type { TeiaChange, TeiaEdge, TeiaEvidence, TeiaEvidenceLink, TeiaFinding, TeiaHealthRule, TeiaHistory, TeiaMeasure, TeiaNode, TeiaReason, TeiaSnapshot, TeiaSource } from './teia-ui';
 
 type Row = Record<string, unknown>;
 type Role = 'nodes' | 'edges' | 'findings' | 'sources' | 'changes' | 'coverage';
@@ -141,6 +142,13 @@ function jsonList<T>(v: unknown): T[] {
   }
 }
 
+function jsonObject<T>(v: unknown): T | undefined {
+  try {
+    const parsed: unknown = typeof v === 'string' ? JSON.parse(v) : v;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as T : undefined;
+  } catch { return undefined; }
+}
+
 function toNode(r: Row): TeiaNode {
   // Plain Node Graph frames (e.g. Tempo) carry a rate in secondarystat and
   // the failed share in arc__failed.
@@ -151,12 +159,15 @@ function toNode(r: Row): TeiaNode {
     visibility: oneOf(r.visibility, VISIBILITY, 'partial'),
     ...traffic(r, true),
     evidence: jsonList<TeiaEvidence>(r.evidence),
+    links: jsonList<TeiaEvidenceLink>(r.links),
+    healthRules: jsonList<TeiaHealthRule>(r.healthRules),
     trafficDirection: str(r.trafficDirection) || undefined,
     reasons: jsonList<TeiaReason>(r.reasons),
     measures: jsonList<TeiaMeasure>(r.measures),
     sources: list(r.sources),
     addresses: list(r.addresses),
     labels: labelsOf(r.labels),
+    journeys: jsonList<unknown>(r.journeys).filter((value): value is string => typeof value === 'string'),
   };
 }
 
@@ -169,11 +180,15 @@ function toEdge(r: Row, drift: boolean): TeiaEdge {
   const observed = has(r, 'observed') ? bool(r.observed) : true;
   const derived: TeiaEdge['state'] = !drift ? 'ok' : declared ? (observed ? 'ok' : 'stale') : 'ghost';
   return {
+    expectedFrequencySeconds: has(r, 'expectedFrequencySeconds') ? num(r.expectedFrequencySeconds) : undefined,
+    frequency: jsonObject<TeiaEdge['frequency']>(r.frequency),
     from: str(r.source),
     to: str(r.target),
     state: oneOf(r.state, STATES, derived),
     ...traffic(r, false),
     evidence: jsonList<TeiaEvidence>(r.evidence),
+    links: jsonList<TeiaEvidenceLink>(r.links),
+    healthRules: jsonList<TeiaHealthRule>(r.healthRules),
     protocol: str(r.protocol) || undefined,
     port: num(r.port) || undefined,
     reason: str(r.reason) || undefined,
@@ -211,8 +226,12 @@ function timestamp(v: unknown): string {
 
 /** Only supplied metadata establishes time. Grafana's requested range and
  * conversion time cannot prove the period or age of the returned data. */
-function temporal(records: Row[]): Pick<TeiaSnapshot, 'timeMode' | 'generatedAt' | 'period' | 'observedAt'> {
+function temporal(records: Row[]): Pick<TeiaSnapshot, 'timeMode' | 'generatedAt' | 'period' | 'observedAt' | 'history'> {
   const current = records.filter(r => r.timeMode === 'current').length;
+  const historical = records.filter(r => r.timeMode === 'historical').length;
+  const histories = records.map(r => jsonObject<TeiaHistory>(r.history)).filter((h): h is TeiaHistory => !!h?.id && h.availability === 'stored-snapshot');
+  const history = historical === records.length && histories.length && histories.every(h => h.id === histories[0].id) &&
+    records.every(r => r.historyId === histories[0].id) ? histories[0] : undefined;
   const oldest = (key: string) => {
     const values = records.map(r => timestamp(r[key]));
     return values.length && values.every(Boolean) ? values.sort()[0] : '';
@@ -220,7 +239,8 @@ function temporal(records: Row[]): Pick<TeiaSnapshot, 'timeMode' | 'generatedAt'
   const from = oldest('periodFrom'), to = oldest('periodTo');
   const samePeriod = from && to && records.every(r => timestamp(r.periodFrom) === from && timestamp(r.periodTo) === to) && from <= to;
   return {
-    timeMode: current === records.length && current > 0 ? 'current' : current > 0 ? 'mixed' : 'query',
+    timeMode: history ? 'historical' : current === records.length && current > 0 ? 'current' : current > 0 || historical > 0 ? 'mixed' : 'query',
+    history,
     generatedAt: oldest('snapshotAt'), observedAt: oldest('observedAt'),
     period: samePeriod ? { from, to } : undefined,
   };
@@ -258,15 +278,22 @@ export function coverageOf(nodes: TeiaNode[], edges: TeiaEdge[]): TeiaSnapshot['
 export function framesToSnapshot(series: DataFrame[], round: number): { snapshot?: TeiaSnapshot; changes: TeiaChange[] } {
   const byRole: Partial<Record<Role, Row[]>> = {};
   const metadata: Row[] = [];
+  const allMetadata: Row[] = [];
   for (const frame of series) {
     const role = roleOf(frame);
     if (role) {
+      const fields = new Set(frame.fields.map(f => f.name));
+      if (frame.fields.length > 0 && ((role === 'nodes' && !fields.has('id')) || (role === 'edges' && (!fields.has('source') || !fields.has('target'))))) {
+        return { changes: [] };
+      }
       const data = rows(frame);
+      const custom: unknown = frame.meta?.custom?.teia;
+      const meta: Row = custom && typeof custom === 'object' && !Array.isArray(custom) ? custom as Row : {};
+      const normalized = data.length ? data.map(row => ({ ...meta, ...row })) : Object.keys(meta).length ? [meta] : [];
+      allMetadata.push(...normalized);
       byRole[role] = [...(byRole[role] ?? []), ...data];
       if (role === 'nodes' || role === 'edges') {
-        const custom: unknown = frame.meta?.custom?.teia;
-        const meta: Row = custom && typeof custom === 'object' && !Array.isArray(custom) ? custom as Row : {};
-        metadata.push(...(data.length ? data.map(row => ({ ...meta, ...row })) : Object.keys(meta).length ? [meta] : []));
+        metadata.push(...normalized);
       }
     }
   }
@@ -300,9 +327,10 @@ export function framesToSnapshot(series: DataFrame[], round: number): { snapshot
   return {
     snapshot: {
       round,
-      ...temporal(metadata),
+      ...temporal(allMetadata.some(r => r.timeMode === 'historical') ? allMetadata : metadata),
       nodes,
       edges,
+      journeys: journeyContract((byRole.nodes ?? []).find((r) => has(r, 'journeyContract'))?.journeyContract, nodes, edges),
       findings: (byRole.findings ?? []).map(toFinding).filter((f) => f.title),
       sources: (byRole.sources ?? []).map(toSource).filter((s) => s.name),
       coverage,

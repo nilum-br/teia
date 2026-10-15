@@ -5,7 +5,8 @@ name: release
 # draft release, the multi-arch image and chart are pushed to ghcr.io, and only then is
 # the release published. A tag with a hyphen (v1.2.0-rc.1) is a pre-release.
 #
-# Run it by hand (workflow_dispatch) to build everything without publishing.
+# Run it by hand (workflow_dispatch) to build everything without publishing,
+# including when the selected ref is a tag. Only a tag push is a release.
 on:
   push:
     tags: ["v*"]
@@ -19,9 +20,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # vX.Y.Z for a tag, dev-<commit> for a manual run. Scripts read it from the
+  # vX.Y.Z for a tag push, dev-<commit> for every manual run. Scripts read it from the
   # environment, never through ${{ }}, because a tag name is user input.
-  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}
+  VERSION: ${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}
 
 jobs:
   ci:
@@ -87,18 +88,35 @@ jobs:
           package-manager-cache: false
       - run: npm install --global npm@12.2.0
       - run: npm ci --no-audit --no-fund
-      - name: version the panel like the release
-        if: github.ref_type == 'tag'
+      - name: version the panel as a release or unique candidate
         # plugin.json takes its version from package.json at build time.
-        run: npm pkg set "version=${VERSION#v}"
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF_TYPE" = tag ]; then
+            panel_version="${VERSION#v}"
+          else
+            panel_version="0.0.0-candidate.${GITHUB_SHA}"
+          fi
+          npm pkg set "version=$panel_version"
+          echo "PANEL_VERSION=$panel_version" >> "$GITHUB_ENV"
       - run: npm run build
+      - name: sign the tagged plugin for public distribution
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
+        run: |
+          if [ -z "$GRAFANA_ACCESS_POLICY_TOKEN" ]; then
+            echo "::error::Tagged plugin releases require Grafana public-signature approval and the GRAFANA_ACCESS_POLICY_TOKEN secret (plugins:write). Use workflow_dispatch to build an unsigned candidate."
+            exit 1
+          fi
+          npm run sign
+          test -s dist/MANIFEST.txt
       - name: package nilum-teia-panel-<version>.zip
         # The layout Grafana expects: one top-level folder named after the plugin ID.
         run: |
           mkdir -p package
           cp -R dist package/nilum-teia-panel
-          (cd package && zip -qr "nilum-teia-panel-${VERSION#v}.zip" nilum-teia-panel)
-          unzip -l "package/nilum-teia-panel-${VERSION#v}.zip"
+          (cd package && zip -qr "nilum-teia-panel-${PANEL_VERSION}.zip" nilum-teia-panel)
+          unzip -l "package/nilum-teia-panel-${PANEL_VERSION}.zip"
       - uses: actions/upload-artifact@v7
         with:
           name: panel
@@ -120,7 +138,7 @@ jobs:
           version: v4.3.1
       - name: package the chart with the release's image tag
         run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF_TYPE" = tag ]; then
             helm package charts/teia --version "${VERSION#v}" --app-version "${VERSION#v}" --destination dist
           else
             # A manual build validates the package without inventing a release.
@@ -134,7 +152,7 @@ jobs:
 
   draft:
     needs: [binaries, panel, chart]
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -198,7 +216,7 @@ jobs:
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -208,24 +226,24 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{version}},enable=${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'push' && github.ref_type == 'tag' }}
             type=sha
       - uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.ref_type == 'tag' }}
+          push: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: VERSION=${{ env.VERSION }}
           # SBOM and full provenance, attached to the pushed image.
-          sbom: ${{ github.ref_type == 'tag' }}
-          provenance: ${{ github.ref_type == 'tag' && 'mode=max' || 'false' }}
+          sbom: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+          provenance: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 'mode=max' || 'false' }}
 
   chart-registry:
     needs: [draft, image]
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -248,7 +266,7 @@ jobs:
 
   publish:
     needs: [draft, image, chart-registry]
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

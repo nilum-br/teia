@@ -1,0 +1,21 @@
+# An isolated candidate installation, deliberately unsigned until Grafana approves signing.
+# GRAFANA_VERSION=13.2.0 docker compose -p teia-candidate -f examples/grafana/compose.yaml up -d
+services:
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION:-13.2.4}
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: nilum-teia-panel
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "127.0.0.1:${GRAFANA_CANDIDATE_PORT:-3481}:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ${TEIA_PLUGIN_DIR:-../../plugins/grafana/dist}:/var/lib/grafana/plugins/nilum-teia-panel:ro
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards:/etc/teia-sample-dashboards:ro
+volumes:
+  grafana-data:

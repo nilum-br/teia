@@ -217,7 +217,7 @@ older LTS or suppress major updates. Prereleases and unreleased Git HEADs are no
 | Grafana SDK and lab host; React | 13.2.4; 19.3.1 |
 | Jest; Playwright | 30.5.2; 1.64.1 |
 | Webpack; webpack-cli; SWC | 5.111.1; 7.2.3; 1.16.18 |
-| ESLint; typescript-eslint; ESLint React | 10.12.0; 8.71.2; 5.27.1 |
+| ESLint; typescript-eslint; ESLint React | 10.12.0; 8.71.2; 5.27.2 |
 | Helm; setup-helm; chart test Busybox | 4.3.1; v5; 1.38.0 |
 | Redis exporter | 1.94.0 |
 
@@ -293,6 +293,9 @@ Review `npm run deps:check`, `npm audit` and `go list -m -u all` in both modules
 paths (`/v2`, `/v3`, etc.): `-u` alone only checks the current module path. Verify the upstream limits above.
 Keep Node/npm, Go and Grafana aligned across manifests, lockfiles, CI, Makefile, Docker/Compose and these instructions.
 Chart image tags and compatibility exceptions need explicit review; automated update PRs do not replace it.
+
+The [15 October dependency recheck](docs/dependency-status.md) records the current audit results, upstream
+constraints and the distinction between installed, compiled and host-provided dependencies.
 
 ## Troubleshooting
 

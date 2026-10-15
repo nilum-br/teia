@@ -1,0 +1,351 @@
+{
+    "uid":  "teia-history",
+    "title":  "teia - observation history",
+    "tags":  [
+                 "teia"
+             ],
+    "timezone":  "browser",
+    "schemaVersion":  41,
+    "version":  2,
+    "editable":  true,
+    "graphTooltip":  0,
+    "time":  {
+                 "from":  "now-15m",
+                 "to":  "now"
+             },
+    "refresh":  "",
+    "panels":  [
+                   {
+                       "id":  1,
+                       "type":  "nilum-teia-panel",
+                       "title":  "",
+                       "datasource":  {
+                                          "type":  "yesoreyeram-infinity-datasource",
+                                          "uid":  "teia"
+                                      },
+                       "gridPos":  {
+                                       "h":  30,
+                                       "w":  24,
+                                       "x":  0,
+                                       "y":  0
+                                   },
+                       "targets":  [
+                                       {
+                                           "refId":  "nodes",
+                                           "datasource":  {
+                                                              "type":  "yesoreyeram-infinity-datasource",
+                                                              "uid":  "teia"
+                                                          },
+                                           "type":  "json",
+                                           "source":  "url",
+                                           "parser":  "backend",
+                                           "format":  "table",
+                                           "url":  "/api/v1/history/${snapshot}/grafana/nodes",
+                                           "url_options":  {
+                                                               "method":  "GET",
+                                                               "data":  ""
+                                                           },
+                                           "root_selector":  "",
+                                           "columns":  [
+
+                                                       ]
+                                       },
+                                       {
+                                           "refId":  "edges",
+                                           "datasource":  {
+                                                              "type":  "yesoreyeram-infinity-datasource",
+                                                              "uid":  "teia"
+                                                          },
+                                           "type":  "json",
+                                           "source":  "url",
+                                           "parser":  "backend",
+                                           "format":  "table",
+                                           "url":  "/api/v1/history/${snapshot}/grafana/edges",
+                                           "url_options":  {
+                                                               "method":  "GET",
+                                                               "data":  ""
+                                                           },
+                                           "root_selector":  "",
+                                           "columns":  [
+
+                                                       ]
+                                       },
+                                       {
+                                           "refId":  "findings",
+                                           "datasource":  {
+                                                              "type":  "yesoreyeram-infinity-datasource",
+                                                              "uid":  "teia"
+                                                          },
+                                           "type":  "json",
+                                           "source":  "url",
+                                           "parser":  "backend",
+                                           "format":  "table",
+                                           "url":  "/api/v1/history/${snapshot}/grafana/findings",
+                                           "url_options":  {
+                                                               "method":  "GET",
+                                                               "data":  ""
+                                                           },
+                                           "root_selector":  "",
+                                           "columns":  [
+
+                                                       ]
+                                       },
+                                       {
+                                           "refId":  "sources",
+                                           "datasource":  {
+                                                              "type":  "yesoreyeram-infinity-datasource",
+                                                              "uid":  "teia"
+                                                          },
+                                           "type":  "json",
+                                           "source":  "url",
+                                           "parser":  "backend",
+                                           "format":  "table",
+                                           "url":  "/api/v1/history/${snapshot}/grafana/sources",
+                                           "url_options":  {
+                                                               "method":  "GET",
+                                                               "data":  ""
+                                                           },
+                                           "root_selector":  "",
+                                           "columns":  [
+
+                                                       ]
+                                       },
+                                       {
+                                           "refId":  "coverage",
+                                           "datasource":  {
+                                                              "type":  "yesoreyeram-infinity-datasource",
+                                                              "uid":  "teia"
+                                                          },
+                                           "type":  "json",
+                                           "source":  "url",
+                                           "parser":  "backend",
+                                           "format":  "table",
+                                           "url":  "/api/v1/history/${snapshot}/grafana/coverage",
+                                           "url_options":  {
+                                                               "method":  "GET",
+                                                               "data":  ""
+                                                           },
+                                           "root_selector":  "",
+                                           "columns":  [
+
+                                                       ]
+                                       },
+                                       {
+                                           "refId":  "changes",
+                                           "datasource":  {
+                                                              "type":  "yesoreyeram-infinity-datasource",
+                                                              "uid":  "teia"
+                                                          },
+                                           "type":  "json",
+                                           "source":  "url",
+                                           "parser":  "backend",
+                                           "format":  "table",
+                                           "url":  "/api/v1/history/${snapshot}/grafana/changes",
+                                           "url_options":  {
+                                                               "method":  "GET",
+                                                               "data":  ""
+                                                           },
+                                           "root_selector":  "",
+                                           "columns":  [
+
+                                                       ]
+                                       }
+                                   ],
+                       "options":  {
+                                       "groupBy":  "",
+                                       "flow":  true,
+                                       "teiaUrl":  "",
+                                       "journey":  "${journey}",
+                                       "values":  true
+                                   }
+                   },
+                   {
+                       "id":  10,
+                       "type":  "row",
+                       "title":  "Grafana native panels (for comparison)",
+                       "collapsed":  true,
+                       "gridPos":  {
+                                       "h":  1,
+                                       "w":  24,
+                                       "x":  0,
+                                       "y":  30
+                                   },
+                       "panels":  [
+                                      {
+                                          "id":  4,
+                                          "type":  "nodeGraph",
+                                          "title":  "Node Graph (built-in)",
+                                          "datasource":  {
+                                                             "type":  "yesoreyeram-infinity-datasource",
+                                                             "uid":  "teia"
+                                                         },
+                                          "gridPos":  {
+                                                          "h":  16,
+                                                          "w":  24,
+                                                          "x":  0,
+                                                          "y":  31
+                                                      },
+                                          "targets":  [
+                                                          {
+                                                              "refId":  "nodes",
+                                                              "datasource":  {
+                                                                                 "type":  "yesoreyeram-infinity-datasource",
+                                                                                 "uid":  "teia"
+                                                                             },
+                                                              "type":  "json",
+                                                              "source":  "url",
+                                                              "parser":  "backend",
+                                                              "format":  "node-graph-nodes",
+                                                              "url":  "/api/v1/grafana/nodes",
+                                                              "url_options":  {
+                                                                                  "method":  "GET",
+                                                                                  "data":  ""
+                                                                              },
+                                                              "root_selector":  "",
+                                                              "columns":  [
+
+                                                                          ]
+                                                          },
+                                                          {
+                                                              "refId":  "edges",
+                                                              "datasource":  {
+                                                                                 "type":  "yesoreyeram-infinity-datasource",
+                                                                                 "uid":  "teia"
+                                                                             },
+                                                              "type":  "json",
+                                                              "source":  "url",
+                                                              "parser":  "backend",
+                                                              "format":  "node-graph-edges",
+                                                              "url":  "/api/v1/grafana/edges",
+                                                              "url_options":  {
+                                                                                  "method":  "GET",
+                                                                                  "data":  ""
+                                                                              },
+                                                              "root_selector":  "",
+                                                              "columns":  [
+
+                                                                          ]
+                                                          }
+                                                      ],
+                                          "options":  {
+                                                          "nodes":  {
+
+                                                                    },
+                                                          "edges":  {
+
+                                                                    }
+                                                      }
+                                      },
+                                      {
+                                          "id":  5,
+                                          "type":  "table",
+                                          "title":  "Next steps",
+                                          "datasource":  {
+                                                             "type":  "yesoreyeram-infinity-datasource",
+                                                             "uid":  "teia"
+                                                         },
+                                          "gridPos":  {
+                                                          "h":  10,
+                                                          "w":  24,
+                                                          "x":  0,
+                                                          "y":  47
+                                                      },
+                                          "targets":  [
+                                                          {
+                                                              "refId":  "A",
+                                                              "datasource":  {
+                                                                                 "type":  "yesoreyeram-infinity-datasource",
+                                                                                 "uid":  "teia"
+                                                                             },
+                                                              "type":  "json",
+                                                              "source":  "url",
+                                                              "parser":  "backend",
+                                                              "format":  "table",
+                                                              "url":  "/api/v1/grafana/findings",
+                                                              "url_options":  {
+                                                                                  "method":  "GET",
+                                                                                  "data":  ""
+                                                                              },
+                                                              "root_selector":  "",
+                                                              "columns":  [
+                                                                              {
+                                                                                  "selector":  "severity",
+                                                                                  "text":  "Severity",
+                                                                                  "type":  "string"
+                                                                              },
+                                                                              {
+                                                                                  "selector":  "kind",
+                                                                                  "text":  "Kind",
+                                                                                  "type":  "string"
+                                                                              },
+                                                                              {
+                                                                                  "selector":  "subject",
+                                                                                  "text":  "Subject",
+                                                                                  "type":  "string"
+                                                                              },
+                                                                              {
+                                                                                  "selector":  "title",
+                                                                                  "text":  "Finding",
+                                                                                  "type":  "string"
+                                                                              },
+                                                                              {
+                                                                                  "selector":  "nextStep",
+                                                                                  "text":  "Next step",
+                                                                                  "type":  "string"
+                                                                              }
+                                                                          ]
+                                                          }
+                                                      ],
+                                          "fieldConfig":  {
+                                                              "defaults":  {
+                                                                               "custom":  {
+                                                                                              "cellOptions":  {
+                                                                                                                  "type":  "auto",
+                                                                                                                  "wrapText":  true
+                                                                                                              }
+                                                                                          }
+                                                                           },
+                                                              "overrides":  [
+
+                                                                            ]
+                                                          },
+                                          "options":  {
+                                                          "showHeader":  true,
+                                                          "cellHeight":  "md"
+                                                      }
+                                      }
+                                  ]
+                   }
+               ],
+    "templating":  {
+                       "list":  [
+                                    {
+                                        "name":  "snapshot",
+                                        "label":  "Stored snapshot ID",
+                                        "type":  "textbox",
+                                        "query":  "",
+                                        "current":  {
+                                                        "text":  "",
+                                                        "value":  ""
+                                                    },
+                                        "hide":  0
+                                    },
+                                    {
+                                        "type":  "textbox",
+                                        "name":  "journey",
+                                        "label":  "Journey",
+                                        "query":  "",
+                                        "current":  {
+                                                        "text":  "",
+                                                        "value":  ""
+                                                    },
+                                        "options":  [
+
+                                                    ],
+                                        "hide":  2,
+                                        "skipUrlSync":  false,
+                                        "description":  "The journey the teia panel opens on, for links such as ?var-journey=checkout. Viewers pick journeys on the panel\u0027s own bar, from what the services carry."
+                                    }
+                                ]
+                   }
+}

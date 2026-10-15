@@ -379,7 +379,9 @@ services:
     environment:
       GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: nilum-teia-panel
       GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # This loopback-only demo needs Explore for trace/log evidence links.
+      # Production must use authenticated users with the appropriate Explore role.
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Editor
       GF_PLUGINS_PREINSTALL_SYNC: yesoreyeram-infinity-datasource@4.1.1
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/teia.json
       # Extra CAs from ../certs for networks with TLS inspection (plugin download).
@@ -417,6 +419,7 @@ services:
     security_opt: [no-new-privileges:true]
     environment:
       TEIA_PG_PASSWORD: teia
+      GRAFANA_PUBLIC_URL: ${GRAFANA_PUBLIC_URL:-http://localhost:${GRAFANA_PORT:-3480}}
       DOCKER_HOST: tcp://docker-proxy-teia:2375 # also used by teia detect --docker
       LAB_PROJECT: ${COMPOSE_PROJECT_NAME:-teia-lab}
       # TEIA_LAB_UI_DIR=/ui serves the UI from internal/api/ui instead of the
@@ -426,6 +429,7 @@ services:
       - ./teia.yaml:/etc/teia/teia.yaml:ro
       - ./flows:/etc/teia/flows:ro
       - ../internal/api/ui:/ui:ro
+      - teia-history:/var/lib/teia/history
     networks: [default, docker-teia]
     depends_on: [docker-proxy-teia]
     ports:
@@ -450,4 +454,5 @@ networks:
     internal: true
 
 volumes:
+  teia-history:
   teia-panel-node-modules:

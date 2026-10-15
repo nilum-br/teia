@@ -30,8 +30,8 @@
   :host(:not([data-theme="dark"])) {
     --bg: #f7f8ff; --bg-2: #eef0fb; --panel: #ffffff; --panel-2: #f7f8ff; --line: #dfe3f5; --line-2: #c9d0ee;
     --ink: #1e1917; --ink-2: #3a3f5c; --muted: #5d6690; --accent: #005aff; --accent-2: #005aff; --accent-ink: #ffffff;
-    --healthy: #1f9d63; --degraded: #d99a00; --failing: #e04848; --unknown: #7d8ac2;
-    --ghost: #d99a00; --stale: #9aa6d6; --edge: #8fb0ff; --particle: #005aff;
+    --healthy: #1f9d63; --degraded: #9a6900; --failing: #e04848; --unknown: #7d8ac2;
+    --ghost: #9a6900; --stale: #7d8ac2; --edge: #3e70c0; --particle: #005aff;
     --card: #ffffff; --card-hi: #eef0fb; --grid: rgba(0, 90, 255, .06);
     --shadow: 0 8px 24px rgba(2, 15, 89, .10);
     --critical: #e04848; --warning: #d99a00; --info: #005aff;
@@ -42,8 +42,8 @@
 :host([data-theme="light"]) {
   --bg: #f7f8ff; --bg-2: #eef0fb; --panel: #ffffff; --panel-2: #f7f8ff; --line: #dfe3f5; --line-2: #c9d0ee;
   --ink: #1e1917; --ink-2: #3a3f5c; --muted: #5d6690; --accent: #005aff; --accent-2: #005aff; --accent-ink: #ffffff;
-  --healthy: #1f9d63; --degraded: #d99a00; --failing: #e04848; --unknown: #7d8ac2;
-  --ghost: #d99a00; --stale: #9aa6d6; --edge: #8fb0ff; --particle: #005aff;
+  --healthy: #1f9d63; --degraded: #9a6900; --failing: #e04848; --unknown: #7d8ac2;
+  --ghost: #9a6900; --stale: #7d8ac2; --edge: #3e70c0; --particle: #005aff;
   --card: #ffffff; --card-hi: #eef0fb; --grid: rgba(0, 90, 255, .06);
   --shadow: 0 8px 24px rgba(2, 15, 89, .10);
   --critical: #e04848; --warning: #d99a00; --info: #005aff;
@@ -63,6 +63,7 @@
 button, input, select { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .search input:focus-visible, #map :focus-visible { outline: none; }
+.search:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
 .num { font-variant-numeric: tabular-nums; }
 
 /* ---- top bar ---------------------------------------------------------- */
@@ -82,6 +83,7 @@ header {
 .ring .value { transition: stroke-dasharray .6s ease; }
 .ring b { font-size: 15px; display: block; }
 .ring span { color: var(--muted); font-size: 11px; }
+.ring small { display: block; color: var(--ink-2); font-size: 10px; }
 .spacer { flex: 1; }
 .live { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 12px; white-space: nowrap; }
 .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--unknown); }
@@ -174,6 +176,7 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 410px; min-height: 0
 .toast small { color: var(--muted); display: block; font-size: 11px; }
 @keyframes toast-in { from { transform: translateY(-6px); opacity: 0; } to { transform: none; opacity: 1; } }
 .empty-state { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); pointer-events: none; }
+.empty-state button { pointer-events: auto; }
 
 /* ---- side panel ------------------------------------------------------- */
 aside { background: var(--panel); border-left: 1px solid var(--line); display: grid; grid-template-rows: auto 1fr; min-height: 0; }
@@ -218,8 +221,8 @@ details summary { cursor: pointer; color: var(--accent); font-size: 12px; margin
 .why .btn { height: 26px; font-size: 11.5px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .search .isolate { position: absolute; right: 4px; top: 3px; height: 24px; padding: 0 8px; font-size: 11.5px; }
-.scope { display: flex; align-items: center; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--line);
-  background: var(--bg-2); overflow-x: auto; scrollbar-width: thin; }
+.scope { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--line);
+  background: var(--bg-2); }
 .scope .caption { color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; margin-right: 6px; white-space: nowrap; }
 .filter-btn .count { background: var(--accent); color: var(--accent-ink); border-radius: 999px; padding: 0 6px; font-size: 11px; font-weight: 700; }
 .fchip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 10px; border-radius: 999px; white-space: nowrap;
@@ -251,7 +254,8 @@ details summary { cursor: pointer; color: var(--accent); font-size: 12px; margin
 .jtab .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .jtab .x { margin-left: 2px; color: var(--muted); }
 .scope select.btn { height: 28px; }
-.scope .headline { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; padding-left: 16px; white-space: nowrap; font-size: 12.5px; color: var(--ink-2); }
+.scope .headline { margin-left: auto; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; font-size: 12.5px; color: var(--ink-2); }
+.scope .headline b { overflow-wrap: anywhere; }
 .scope .headline svg { width: 15px; height: 15px; }
 .scope .headline.failing svg { color: var(--err-text); } .scope .headline.degraded svg { color: var(--warn-text); }
 .scope .headline b { color: var(--ink); }
@@ -286,6 +290,20 @@ button.label { cursor: pointer; }
 .state { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; border-radius: 6px; padding: 1px 6px; border: 1px solid var(--line-2); white-space: nowrap; }
 .state.ok { color: var(--ok-text); } .state.degraded { color: var(--warn-text); } .state.error { color: var(--err-text); }
 .muted { color: var(--muted); }
+.map-help { position: absolute; left: 12px; top: 8px; z-index: 4; max-width: calc(100% - 24px); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; color: var(--ink-2); font-size: 12px; }
+.map-help button { border: 0; background: none; color: var(--accent); cursor: pointer; min-height: 24px; }
+.evidence-card { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.evidence-card p { margin: 4px 0; overflow-wrap: anywhere; }
+.evidence-card .kv { grid-template-columns: 95px 1fr; margin: 8px 0; font-size: 12px; }
+.detail-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+.pane :is(.label, summary, .rel, .clear) { min-height: 24px; }
+.filter-panel summary { min-height: 28px; }
+.share-dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line-2); border-radius: 12px; padding: 18px; width: min(560px, 90vw); }
+.share-dialog::backdrop { background: #020a3388; }
+.share-dialog input { display: block; width: 100%; padding: 8px; margin: 8px 0; background: var(--bg); border: 1px solid var(--line-2); }
+.share-dialog { max-height: 90vh; overflow: auto; }
+.detail-actions small { display: block; }
+.scope :is(button, select), .filter-panel button { min-height: 24px; }
 
 @container teia (max-width: 1200px) {
   .page main { grid-template-columns: minmax(0, 1fr); }
@@ -326,6 +344,18 @@ button.label { cursor: pointer; }
   .ctl { gap: 4px; }
   .ctl .btn { padding: 0 8px; font-size: 12px; }
   .ctl select { width: 150px; }
+}
+@container teia (max-width: 480px) {
+  .teia header { gap: 6px; padding: 6px 8px; min-height: 0; }
+  .teia .brand, .teia .spacer, .teia .rings svg { display: none; }
+  .teia .rings { gap: 10px; }
+  .teia .ring { gap: 0; }
+  .teia .ring b { display: inline; font-size: 12px; margin-right: 4px; }
+  .teia .search { flex: 1; min-width: 100px; }
+  .teia .search input { width: 100%; }
+  .teia .btn { height: 28px; }
+  .teia .live, .teia .time-context { font-size: 10px; }
+  .teia .scope { padding: 4px 8px; }
 }
 `;
 
@@ -376,10 +406,12 @@ button.label { cursor: pointer; }
     <button type="button" class="btn" id="valuesBtn" title="Traffic and latency on every line (V)"></button>
     <button type="button" class="btn" id="flowBtn" title="Animate traffic (space)"></button>
     <button type="button" class="btn" id="liveBtn" title="Follow live updates"></button>
+    <button type="button" class="btn" id="historyBtn" title="Replay a stored discovery snapshot">History</button>
     <button type="button" class="btn stepsBtn" id="stepsBtn" title="Next steps">Next steps <span class="count" id="stepsBadge">0</span></button>
     <div class="menu" id="exportMenu">
       <button type="button" class="btn" id="exportBtn" title="Export" aria-haspopup="true" aria-expanded="false">Export ▾</button>
       <div class="menu-list">
+        <button type="button" id="shareBtn">Share this view</button>
         <button type="button" data-export="png">Map as PNG</button>
         <button type="button" data-export="svg">Map as SVG</button>
         <a data-api="export/matrix.csv" download>Flow matrix (CSV)</a>
@@ -392,9 +424,12 @@ button.label { cursor: pointer; }
 </header>
 <nav class="scope" id="scope" aria-label="Filters"></nav>
 <div class="filter-panel" id="filterPanel" role="dialog" aria-label="Filter the map" hidden></div>
+<dialog class="share-dialog" id="shareDialog" aria-label="Share this view"><h2>Share this view</h2><p id="shareContext"></p><label>View link<input id="shareURL" readonly></label><p id="shareStatus" role="status"></p><div class="detail-actions"><button type="button" class="btn" id="copyViewBtn">Copy link</button><button type="button" class="btn" id="closeShareBtn">Close sharing</button></div></dialog>
+<dialog class="share-dialog" id="historyDialog" aria-label="Observation history"><h2>Observation history</h2><p>Replay stored discovery snapshots. Gaps between snapshots are unmeasured; unavailable history does not mean no traffic.</p><form id="historyForm"><label>From (UTC)<input id="historyFrom" type="datetime-local" required></label><label>To (UTC)<input id="historyTo" type="datetime-local" required></label><button class="btn" type="submit">Find snapshots</button></form><p id="historyStatus" role="status"></p><div id="historyList"></div><div class="detail-actions"><button type="button" class="btn" id="currentBtn">Return to current state</button><button type="button" class="btn" id="closeHistoryBtn">Close history</button></div></dialog>
 <main>
   <div id="stage">
     <svg id="map" role="group" aria-label="Communication map. Drag to pan, F to fit, slash to search."></svg>
+    <div class="map-help" id="mapHelp" hidden><span>Overview · select a component for its evidence.</span><button type="button" id="readableBtn">Read names</button></div>
     <div class="empty-state" id="empty"><p>Waiting for the first discovery round…</p></div>
     <div class="floating legend" id="legend"></div>
     <div class="floating zoom">
@@ -506,13 +541,15 @@ button.label { cursor: pointer; }
     latency: { label: 'Latency', icon: '<circle cx="12" cy="12" r="8.6"/><path d="M12 7v5.2l3.4 2"/>' },
     saturation: { label: 'Saturation', icon: '<path d="M3.8 17a8.2 8.2 0 0116.4 0"/><path d="M12 17l4.6-5.6"/><path d="M3.5 20.5h17"/>' },
     backlog: { label: 'Queue backlog', icon: '<rect x="3" y="3.5" width="18" height="4.6" rx="1.3"/><rect x="3" y="9.7" width="18" height="4.6" rx="1.3"/><rect x="3" y="15.9" width="12" height="4.6" rx="1.3"/>' },
-    lag: { label: 'Queue lag', icon: '<path d="M6.5 3h11M6.5 21h11"/><path d="M7.5 3c0 4.5 4.5 5.5 4.5 9s-4.5 4.5-4.5 9M16.5 3c0 4.5-4.5 5.5-4.5 9s4.5 4.5 4.5 9"/><path d="M9.5 19h5"/>' },
+    lag: { label: 'Delay / age', icon: '<path d="M6.5 3h11M6.5 21h11"/><path d="M7.5 3c0 4.5 4.5 5.5 4.5 9s-4.5 4.5-4.5 9M16.5 3c0 4.5-4.5 5.5-4.5 9s4.5 4.5 4.5 9"/><path d="M9.5 19h5"/>' },
     locks: { label: 'Locks', icon: '<rect x="5" y="10.5" width="14" height="10" rx="2.2"/><path d="M8.2 10.5V7.8a3.8 3.8 0 017.6 0v2.7"/><path d="M12 14.6v2"/>' },
     restarts: { label: 'Restarts', icon: '<path d="M20 11.5A8 8 0 006.3 6.3L4 8.6"/><path d="M4 4v4.6h4.6"/><path d="M4 12.5a8 8 0 0013.7 5.2l2.3-2.3"/><path d="M20 20v-4.6h-4.6"/>' },
+    evictions: { label: 'Cache evictions', icon: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 12h10m-3-3 3 3-3 3"/>' },
+    rejections: { label: 'Rejected clients', icon: '<circle cx="12" cy="12" r="8.6"/><path d="M7 12h10"/>' },
   };
   // healthText says a node's or line's health in words.
   const healthText = x => x.health === 'unknown' && x.errorsUnknown && x.requestRate > 0 ? 'failures not measured' : HEALTH_LABEL[x.health];
-  const HEALTH_LABEL = { healthy: 'healthy', degraded: 'degraded', failing: 'failing', unknown: 'no traffic data' };
+  const HEALTH_LABEL = { healthy: 'healthy', degraded: 'degraded', failing: 'failing', unknown: 'health unknown' };
   const HEALTH_RANK = { failing: 3, degraded: 2, healthy: 1, unknown: 0 };
   const STATE_LABEL = { ok: 'declared and observed', ghost: 'observed, not declared', stale: 'declared, not observed' };
   const VIS_EXPLAIN = {
@@ -567,6 +604,7 @@ button.label { cursor: pointer; }
     const observed = timestamp(snap.observedAt);
     const windows = [...new Set([...snap.nodes, ...snap.edges].flatMap(x => (x.evidence || []).map(e => e.windowSeconds)).filter(w => w > 0))].sort((a, b) => a - b);
     const parts = [mode === 'current' ? 'Current state' : mode === 'mixed' ? 'Mixed time modes' : 'Query data'];
+    if (mode === 'historical') return `Historical snapshot · ${collected || 'time unknown'} · recorded ${snap.history?.recordedAt || 'unknown'} · discrete observation, not continuous interval coverage · live updates suspended`;
     if (mode !== 'current') parts.push(snap.period ? `${snap.period.from} – ${snap.period.to}` : 'effective period unknown');
     parts.push(collected ? `snapshot updated ${age(collected)}` : 'collection time unknown');
     if (windows.length) parts.push(`source lookbacks ${windows.map(fmtSec).join(', ')}`);
@@ -582,8 +620,45 @@ button.label { cursor: pointer; }
   // reasons keeps the ones the map knows how to draw, worst first.
   const reasons = v => (Array.isArray(v) ? v : [])
     .filter(r => r && has(REASON, r.cause) && (r.health === 'degraded' || r.health === 'failing'))
-    .map(r => ({ cause: r.cause, health: r.health, value: finite(r.value), limit: finite(r.limit), summary: text(r.summary), what: text(r.what), via: text(r.via), coverage: finite(r.coverage), approximate: r.approximate === true }))
+    .map(r => ({ cause: r.cause, health: r.health, value: finite(r.value), limit: finite(r.limit), summary: text(r.summary), what: text(r.what), via: text(r.via), coverage: finite(r.coverage), approximate: r.approximate === true, rule: text(r.rule), unit: text(r.unit), evidence: evidence(r.evidence) }))
     .sort((a, b) => HEALTH_RANK[b.health] - HEALTH_RANK[a.health]);
+
+  // Keep a measured cause at its origin; details retain every propagated reason.
+  function mapReasons(item, nodes) {
+    return (item.reasons || []).filter(r => {
+      const origin = r.via || item.to;
+      if (!origin || origin === item.id) return true;
+      return !(nodes.get(origin)?.reasons || []).some(other => !other.via &&
+        other.cause === r.cause && other.what === r.what && other.value === r.value && other.health === r.health);
+    });
+  }
+
+  const healthRules = v => (Array.isArray(v) ? v : []).filter(r => r && has(REASON, r.cause)).map(r => ({
+    cause: r.cause, name: text(r.name), match: oneOf(r.match, ['global', 'identity', 'selector'], 'global'),
+    priority: finite(r.priority), degraded: finite(r.degraded), failing: finite(r.failing), unit: text(r.unit),
+  }));
+  function safeLinks(v) {
+    return (Array.isArray(v) ? v : []).flatMap(l => {
+      if (!l || !text(l.label)) return [];
+      try {
+        const url = new URL(l.url);
+        if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) return [];
+        return [{ label: text(l.label), url: url.href, kind: text(l.kind), description: text(l.description), periodFrom: timestamp(l.periodFrom), periodTo: timestamp(l.periodTo) }];
+      } catch { return []; }
+    });
+  }
+
+  function journeyContractOf(value, nodes, edges) {
+    if (!value || value.version !== 1 || value.mode !== 'ownership' || typeof value.key !== 'string' || !Array.isArray(value.scopes) ||
+      !Number.isInteger(value.maxDepth) || value.maxDepth < 0 || !Number.isInteger(value.maxNodes) || value.maxNodes < 1) return undefined;
+    const ids = new Set(nodes.map(n => n.id)), edgeIDs = new Set(edges.map(e => e.from + '->' + e.to));
+    if (!value.scopes.every(s => s && typeof s.name === 'string' && s.key === value.key && s.roles && typeof s.roles === 'object' &&
+      Object.entries(s.roles).every(([id, role]) => ids.has(id) && ['member', 'dependency'].includes(role)) &&
+      Array.isArray(s.entryPoints) && s.entryPoints.every(id => ids.has(id)) && Array.isArray(s.entryEdges) && s.entryEdges.every(id => edgeIDs.has(id)) &&
+      Array.isArray(s.boundaryPorts) && s.boundaryPorts.every(b => b && ['caller', 'tenant', 'exit'].includes(b.kind) && edgeIDs.has(b.edgeId) && b.edgeId === b.from + '->' + b.to) &&
+      typeof s.truncated === 'boolean')) return undefined;
+    return value;
+  }
 
   // sanitize turns whatever arrived (teia's API, a Grafana data frame, a
   // proxy's error page) into a snapshot the map can always draw.
@@ -595,12 +670,13 @@ button.label { cursor: pointer; }
       seen.add(n.id);
       nodes.push({
         ...n,
+        journeys: strings(n.journeys),
         kind: typeof n.kind === 'string' && n.kind ? n.kind : 'unknown',
         health: oneOf(n.health, ['healthy', 'degraded', 'failing', 'unknown'], 'unknown'),
         visibility: oneOf(n.visibility, ['full', 'partial', 'none'], 'partial'),
         requestRate: finite(n.requestRate), errorRate: finite(n.errorRate), errorsUnknown: n.errorsUnknown === true,
         latencyP50Ms: finite(n.latencyP50Ms), latencyP95Ms: finite(n.latencyP95Ms),
-        reasons: reasons(n.reasons), measures: measures(n.measures), evidence: evidence(n.evidence),
+        reasons: reasons(n.reasons), measures: measures(n.measures), evidence: evidence(n.evidence), healthRules: healthRules(n.healthRules), links: safeLinks(n.links),
         sources: strings(n.sources), addresses: strings(n.addresses),
         labels: n.labels && typeof n.labels === 'object' ? n.labels : {},
       });
@@ -617,7 +693,7 @@ button.label { cursor: pointer; }
         health: oneOf(e.health, ['healthy', 'degraded', 'failing', 'unknown'], 'unknown'),
         requestRate: finite(e.requestRate), errorRate: finite(e.errorRate), errorsUnknown: e.errorsUnknown === true,
         latencyP50Ms: finite(e.latencyP50Ms), latencyP95Ms: finite(e.latencyP95Ms),
-        reasons: reasons(e.reasons), measures: measures(e.measures), evidence: evidence(e.evidence),
+        reasons: reasons(e.reasons), measures: measures(e.measures), evidence: evidence(e.evidence), healthRules: healthRules(e.healthRules), links: safeLinks(e.links),
         declared: !!e.declared, observed: e.observed !== false,
         signals: strings(e.signals), sources: strings(e.sources),
       });
@@ -626,12 +702,13 @@ button.label { cursor: pointer; }
     return {
       round: Number.isFinite(s.round) ? s.round : 0,
       generatedAt: timestamp(s.generatedAt), observedAt: timestamp(s.observedAt),
-      timeMode: oneOf(s.timeMode, ['current', 'query', 'mixed'], ''),
+      timeMode: oneOf(s.timeMode, ['current', 'query', 'mixed', 'historical'], ''),
+      history: s.history?.availability === 'stored-snapshot' && typeof s.history.id === 'string' ? s.history : undefined,
       period: timestamp(s.period?.from) && timestamp(s.period?.to) && s.period.from <= s.period.to ? { from: timestamp(s.period.from), to: timestamp(s.period.to) } : undefined,
-      nodes, edges,
+      nodes, edges, journeys: journeyContractOf(s.journeys, nodes, edges),
       findings: (Array.isArray(s.findings) ? s.findings : []).filter(f => f && typeof f.title === 'string').map(f => ({
         ...f, severity: oneOf(f.severity, ['critical', 'warning', 'info'], 'info'), subject: String(f.subject || ''),
-      })),
+      })).sort((a, b) => ['critical', 'warning', 'info'].indexOf(a.severity) - ['critical', 'warning', 'info'].indexOf(b.severity) || a.subject.localeCompare(b.subject)),
       sources: (Array.isArray(s.sources) ? s.sources : []).filter(x => x && typeof x.name === 'string'),
       coverage: { visibility: finite(cov.visibility), declared: finite(cov.declared), observed: finite(cov.observed) },
       // Data without intent (plain Node Graph frames) has no drift to show.
@@ -642,7 +719,7 @@ button.label { cursor: pointer; }
 
   // signature identifies what is drawn, so refreshes with the same data are no-ops.
   function signature(snap) {
-    return JSON.stringify([snap.nodes, snap.edges, snap.findings, snap.sources, snap.coverage]);
+    return JSON.stringify([snap.nodes, snap.edges, snap.findings, snap.sources, snap.coverage, snap.journeys, snap.timeMode, snap.history, snap.drift]);
   }
 
   function indexSnapshot(snap) {
@@ -715,7 +792,7 @@ button.label { cursor: pointer; }
   }
 
   // fmtValue writes a measure's value in its unit.
-  const fmtValue = (v, unit) => unit === 'bytes' ? fmtBytes(v) : unit === 'seconds' ? fmtSec(v) : unit === 'share' ? pct(v) : compact(v);
+  const fmtValue = (v, unit) => unit === 'milliseconds' ? fmtMs(v) : unit === 'bytes' ? fmtBytes(v) : unit === 'seconds' ? fmtSec(v) : unit === 'share' ? pct(v) : compact(v);
 
   // fmtMs writes milliseconds the way people read them, like teia's CLI.
   function fmtMs(ms) {
@@ -774,6 +851,8 @@ button.label { cursor: pointer; }
       lag: () => `${fmtSec(r.value)} ${r.what || 'behind'}`,
       locks: () => `${compact(r.value)} on locks`,
       restarts: () => `${compact(r.value)} restarts`,
+      evictions: () => `${compact(r.value)} evictions`,
+      rejections: () => `${compact(r.value)} rejected clients`,
     }[r.cause]();
     const via = r.via ? (r.cause === 'locks' ? ` held by ${r.via}` : ` from ${r.via}`) : r.subject ? ` · ${r.subject}` : '';
     return what + via + (more > 0 ? ` +${more}` : '');
@@ -829,6 +908,7 @@ button.label { cursor: pointer; }
   // of JOURNEY_KEYS some node carries.
   function journeyKeyOf(snap, preferred) {
     if (preferred) return preferred;
+    if (snap.journeys) return snap.journeys.key;
     return JOURNEY_KEYS.find(k => snap.nodes.some(n => labelValues(n, k).length)) || JOURNEY_KEY;
   }
 
@@ -847,6 +927,7 @@ button.label { cursor: pointer; }
   // labelValues splits a label's value on commas: a service can take part in
   // several journeys ("checkout,browse").
   const labelValues = (n, key) => String(n?.labels?.[key] ?? '').split(',').map(v => v.trim().toLowerCase()).filter(Boolean);
+  const memberships = (snap, n, key) => [...new Set([...labelValues(n, key), ...(key === journeyKeyOf(snap) ? strings(n?.journeys).map(v => v.toLowerCase()) : [])])];
   const isService = n => !!n && n.kind === 'service';
 
   // journeyOf expands a journey over a snapshot. Members are the nodes the
@@ -859,6 +940,10 @@ button.label { cursor: pointer; }
     const j = typeof spec === 'string' ? parseJourney(spec, key) : spec;
     const roles = new Map(); // id -> 'member' | 'dependency'
     if (!j) return { spec: j, roles, truncated: false, empty: true };
+    const contract = snap.journeys;
+    const supplied = !j.entry && contract?.key === j.key && contract.maxDepth === maxDepth && contract.maxNodes === maxNodes
+      ? contract.scopes.find(s => s.name.toLowerCase() === j.value.toLowerCase()) : null;
+    if (supplied) return { ...supplied, spec: j, roles: new Map(Object.entries(supplied.roles)), empty: !Object.keys(supplied.roles).length, backend: true };
     const nodes = new Map(snap.nodes.map(n => [n.id, n]));
     const out = new Map();
     for (const e of snap.edges) {
@@ -866,11 +951,14 @@ button.label { cursor: pointer; }
       out.get(e.from).push(e.to);
     }
     const want = j.entry ? null : j.value.toLowerCase();
-    const member = n => !!n && (j.entry ? n.id.toLowerCase() === j.entry.toLowerCase() : labelValues(n, j.key).includes(want));
-    const elsewhere = n => !j.entry && isService(n) && labelValues(n, j.key).length > 0 && !member(n);
+    const member = n => !!n && (j.entry ? n.id.toLowerCase() === j.entry.toLowerCase() : memberships(snap, n, j.key).includes(want));
+    const elsewhere = n => !j.entry && isService(n) && memberships(snap, n, j.key).length > 0 && !member(n);
     const queue = [];
-    for (const n of snap.nodes) if (member(n)) { roles.set(n.id, 'member'); queue.push([n.id, 0]); }
     let truncated = false;
+    for (const n of [...snap.nodes].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) if (member(n)) {
+      if (roles.size >= maxNodes) { truncated = true; continue; }
+      roles.set(n.id, 'member'); queue.push([n.id, 0]);
+    }
     for (let q = 0; q < queue.length; q++) {
       const [id, depth] = queue[q];
       if (!isService(nodes.get(id))) continue; // included, not walked past
@@ -879,7 +967,7 @@ button.label { cursor: pointer; }
         const n = nodes.get(to);
         if (elsewhere(n)) continue; // owned by another journey: a stub
         const next = member(n) ? 0 : depth + 1;
-        if (isService(n) && next > maxDepth) continue;
+        if (isService(n) && next > maxDepth) { truncated = true; continue; }
         if (roles.size >= maxNodes) { truncated = true; break; }
         roles.set(to, member(n) ? 'member' : 'dependency');
         queue.push([to, next]);
@@ -959,6 +1047,7 @@ button.label { cursor: pointer; }
   // node, so the same stubs and headline apply), or null for the whole map.
   function scopeOf(snap, filters) {
     if (!filtersActive(filters)) return null;
+    if (filters.journeys.length === 1 && !activeFacets(filters).length) return { ...journeyOf(snap, filters.journeys[0], { key: filters.journeyKey || JOURNEY_KEY }), filters };
     const roles = new Map();
     let truncated = false;
     if (filters.journeys.length) {
@@ -1074,15 +1163,18 @@ button.label { cursor: pointer; }
       p.reasons.push(...(e.reasons || []));
       p.edges.push(e);
     };
+    const boundaries = scope.backend ? new Map(scope.boundaryPorts.map(p => [p.edgeId, p])) : null;
     for (const e of snap.edges) {
+      const boundary = boundaries?.get(e.from + '->' + e.to);
+      if (boundaries && !boundary) continue;
       const fromIn = inside(e.from), toIn = inside(e.to);
       if (fromIn === toIn) continue;
       if (toIn) {
         const target = nodes.get(e.to);
-        const kind = isResource(target) ? 'tenant' : 'caller';
+        const kind = boundary?.kind || (isResource(target) ? 'tenant' : 'caller');
         add(port(kind === 'tenant' ? 'out' : 'in', kind, e.from, e.from), e.from, e.to, e);
       } else {
-        const j = labelValues(nodes.get(e.to), journeyKey)[0];
+        const j = memberships(snap, nodes.get(e.to), journeyKey)[0];
         add(port('out', 'exit', j ? 'journey:' + j : e.to, j ? `↗ ${j}` : `→ ${e.to}`, j), e.to, e.from, e);
       }
     }
@@ -1186,7 +1278,8 @@ button.label { cursor: pointer; }
     const nodes = new Map(snap.nodes.map(n => [n.id, n]));
     const called = new Set(snap.edges.map(e => e.to));
     const latency = latencySum();
-    const into = snap.edges.filter(e => inside(e.to) && (inside(e.from) ? !called.has(e.from) : !isResource(nodes.get(e.to))));
+    const into = scope.backend ? snap.edges.filter(e => scope.entryEdges.includes(e.from + '->' + e.to))
+      : snap.edges.filter(e => inside(e.to) && (inside(e.from) ? !called.has(e.from) : !isResource(nodes.get(e.to))));
     for (const e of into) {
       latency.add(e);
     }
@@ -1197,30 +1290,56 @@ button.label { cursor: pointer; }
 
   // journeyNames lists the journeys the label names, for the selector.
   function journeyNames(snap, key = JOURNEY_KEY) {
+    if (snap.journeys?.key === key) return snap.journeys.scopes.map(s => s.name).sort();
     const names = new Set();
-    for (const n of snap.nodes) for (const v of String(n.labels?.[key] ?? '').split(',')) if (v.trim()) names.add(v.trim());
+    for (const n of snap.nodes) for (const v of memberships(snap, n, key)) if (v.trim()) names.add(v.trim());
     return [...names].sort();
+  }
+
+  // Ordered paths are JSON, so keys/values containing punctuation cannot collide.
+  function groupingPath(node, groupBy) {
+    if (!groupBy.startsWith('hierarchy:')) {
+      const value = node?.labels?.[groupBy];
+      return value ? [{ id: 'group:' + value, title: value, labelKey: groupBy, expansionKey: value }] : [];
+    }
+    let keys;
+    try { keys = JSON.parse(groupBy.slice(10)); } catch { return []; }
+    if (!Array.isArray(keys) || !keys.length || keys.length > 6 || keys.some(k => typeof k !== 'string')) return [];
+    const path = [];
+    return keys.flatMap(key => {
+      // Externals without hierarchy labels remain distinct and reachable.
+      const value = node?.labels?.[key];
+      if (!value) return [];
+      path.push([key, value]);
+      const id = 'group:path:' + JSON.stringify(path);
+      return [{ id, title: String(value), labelKey: key, expansionKey: id }];
+    });
+  }
+
+  function neighbourOrder(edges, by = 'traffic') {
+    const value = e => by === 'errors' ? (errorStats(e.members || [e]).errorCoverage > 0 ? e.errorRate : -1)
+      : by === 'latency' ? (e.latencyP95Ms > 0 ? e.latencyP95Ms : -1) : e.requestRate;
+    return [...edges].sort((a, b) => (value(b) ?? -1) - (value(a) ?? -1) || a.id.localeCompare(b.id));
   }
 
   // buildView: what is drawn. Grouping by a label folds nodes into one card
   // and sums the traffic between groups.
   function buildView(snap, index, { groupBy = '', expanded = new Set() } = {}) {
-    const groupOf = id => {
-      if (!groupBy) return null;
-      const v = index.nodes.get(id)?.labels?.[groupBy];
-      if (!v || expanded.has(v)) return null;
-      return 'group:' + v;
-    };
+    const groupInfo = new Map(snap.nodes.map(n => [n.id, groupingPath(n, groupBy).find(g => !expanded.has(g.expansionKey))]));
+    const groupOf = id => groupInfo.get(id)?.id || null;
     const nodes = new Map();
     for (const n of snap.nodes) {
       const g = groupOf(n.id);
       if (!g) { nodes.set(n.id, { ...n, title: n.id, signals: nodeSignals(n, index) }); continue; }
       let gn = nodes.get(g);
       if (!gn) {
-        gn = { id: g, group: true, kind: 'group', title: g.slice(6), labelKey: groupBy, members: [], health: 'unknown', visibility: 'none', requestRate: 0, latency: latencySum(), reasons: [], measures: [], signals: [], labels: { [groupBy]: g.slice(6) } };
+        const info = groupInfo.get(n.id);
+        gn = { ...info, group: true, kind: 'group', members: [], health: 'unknown', visibility: 'none', requestRate: 0, latency: latencySum(), reasons: [], measures: [], signals: [], labels: { [info.labelKey]: info.title } };
         nodes.set(g, gn);
       }
       gn.members.push(n);
+      gn.links = [...(gn.links || []), ...(n.links || []).map(l => ({ ...l, label: n.id + ': ' + l.label }))];
+      gn.healthRules = [...(gn.healthRules || []), ...(n.healthRules || []).map(r => ({ ...r, subject: n.id }))];
       gn.evidence = [...(gn.evidence || []), ...(n.evidence || []).map(ev => ({ ...ev, subject: { node: n.id } }))];
       if (HEALTH_RANK[n.health] > HEALTH_RANK[gn.health]) gn.health = n.health;
       if (n.visibility === 'full' || (n.visibility === 'partial' && gn.visibility === 'none')) gn.visibility = n.visibility;
@@ -1240,6 +1359,8 @@ button.label { cursor: pointer; }
         edges.set(id, ve);
       }
       ve.members.push(e);
+      ve.links = [...(ve.links || []), ...(e.links || []).map(l => from === e.from && to === e.to ? l : ({ ...l, label: `${e.from} → ${e.to}: ${l.label}` }))];
+      ve.healthRules = [...(ve.healthRules || []), ...(e.healthRules || []).map(r => ({ ...r, subject: `${e.from} → ${e.to}` }))];
       // Equal source/timing/count metadata on two different relationships
       // is still two samples. Keep their identities when details deduplicate.
       ve.evidence = [...(ve.evidence || []), ...(e.evidence || []).map(ev =>
@@ -1259,6 +1380,8 @@ button.label { cursor: pointer; }
       Object.assign(ve, ve.latency.result());
       if (ve.members.length === 1) {
         const member = ve.members[0];
+        ve.expectedFrequencySeconds = member.expectedFrequencySeconds;
+        ve.frequency = member.frequency;
         // A single sampled edge can have latency without a request rate.
         ve.latencyP50Ms = member.latencyP50Ms; ve.latencyP95Ms = member.latencyP95Ms;
         ve.latencyApproximate = !!member.latencyApproximate;
@@ -1396,6 +1519,7 @@ button.label { cursor: pointer; }
   }
 
   const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, scopeSnapshot, scopePins, journeyWhy, journeyNames, scopeOf, facetsOf, facetValues, journeyKeyOf, JOURNEY_KEYS, filtersFromParams, filtersToParams, filterLabel, filtersActive, emptyFilters, journeyPorts, packColumn, frameLayout, scopeStats, TECH, CATEGORY, SIGNAL, REASON };
+  Object.assign(core, { groupingPath, neighbourOrder, mapReasons, safeLinks });
 
   // ============================================================== mount
   function mount(host, opts = {}) {
@@ -1458,6 +1582,7 @@ button.label { cursor: pointer; }
     // -------------------------------------------------------------------- state
     const state = {
       snap: null, sig: '', pending: null, connected: false, error: '', lastData: 0,
+      historyId: '', historyLoading: false,
       view: { x: 0, y: 0, k: 1 }, fitted: false, userMoved: false,
       positions: stored('positions', {}),
       selected: null, hover: null, hoverEdge: null,
@@ -1504,6 +1629,12 @@ button.label { cursor: pointer; }
       .kind-group .card { stroke: var(--accent); stroke-width: 1.4; }
       .node .icon { color: #020f59; }
       .node .title { fill: var(--ink); font-weight: 600; font-size: 14px; letter-spacing: .01em; }
+      .compact .node :is(.sub, .badges, .alert, .why-tag, .tile, .icon, .glyph),
+      .compact :is(.value-tag, .why-tag, .elabel, .frame-stats, .lane-caption) { display: none; }
+      .compact .h-degraded .card { stroke: var(--warn-text); stroke-width: 2; }
+      .compact .h-failing .card { stroke: var(--err-text); stroke-width: 2; }
+      .dense .node .title { display: none; }
+      .dense .node:is(.sel, :hover, :focus-visible) .title { display: block; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
       .node .sub { fill: var(--muted); font-size: 11px; }
       .node .badge circle { fill: var(--bg-2); stroke: var(--line-2); }
       .node .badge svg { color: var(--ink-2); }
@@ -1552,6 +1683,7 @@ button.label { cursor: pointer; }
       .edge.s-ghost path.line { stroke-dasharray: 8 6; }
       .edge.s-stale path.line { stroke-dasharray: 2 6; stroke: var(--stale); stroke-opacity: .85; }
       .edge.sel path.line, .edge:hover path.line { stroke-opacity: 1; }
+      .edge:focus-visible path.line { stroke: var(--accent); stroke-width: 4; stroke-opacity: 1; }
       .arrow.healthy { fill: var(--healthy); } .arrow.degraded { fill: var(--degraded); } .arrow.failing { fill: var(--failing); }
       .arrow.unknown { fill: var(--edge); } .arrow.ghost { fill: var(--stale); } .arrow.accent { fill: var(--accent); }
       .mark { cursor: pointer; }
@@ -1564,7 +1696,10 @@ button.label { cursor: pointer; }
       .particles circle.ghost { fill: var(--ghost); }
       .particles circle.err { fill: var(--failing); }
       .particles circle.faint { opacity: .55; }
-      .dim, .node.dim { opacity: .14; transition: opacity .2s; }
+      .dim { opacity: .4; transition: opacity .2s; }
+      .node.dim { opacity: 1; }
+      .node.dim .title { fill: var(--muted); }
+      .node.dim :is(.tile, .icon) { opacity: .5; }
       @media (prefers-reduced-motion: reduce) { .node.enter, .flowing .h-failing .halo { animation: none; } .dim, .card, .tile { transition: none; } }
     `;
 
@@ -1639,6 +1774,7 @@ button.label { cursor: pointer; }
         let g = edgeEls.get(e.id);
         if (!g) { g = createEdge(); edgeEls.set(e.id, g); layerEdges.append(g); }
         g._edge = e;
+        g.setAttribute('aria-label', `${e.from} to ${e.to}, ${healthText(e)}, ${errorText(e)}`);
         g.style.display = edgeVisible(e) ? '' : 'none';
         g.setAttribute('class', `edge s-${e.state} h-${e.health}${state.selected?.id === e.id ? ' sel' : ''}`);
         routeEdge(g, posOf(e.from), posOf(e.to), view.edges.has(e.to + '->' + e.from) ? 7 : 0);
@@ -1648,9 +1784,8 @@ button.label { cursor: pointer; }
       const empty = $('#empty');
       empty.hidden = view.nodes.size > 0;
       if (!empty.hidden) {
-        empty.firstChild.textContent = scope
-          ? 'Nothing matches these filters. Remove one in the bar above, or clear them all.'
-          : 'No communication discovered yet. The Sources tab shows what teia reads and what failed.';
+        empty.replaceChildren(el('div', {}, el('p', {}, scope ? 'Nothing matches these filters.' : 'No communication discovered yet.'),
+          el('button', { class: 'btn', type: 'button', onclick: () => { if (scope) setFilters(emptyFilters()); else { showTab('sources'); setDrawer(true); } } }, scope ? 'Clear filters' : 'Inspect sources')));
       }
 
       renderFrame(scope, pin);
@@ -1660,6 +1795,7 @@ button.label { cursor: pointer; }
       applyHighlight();
       renderEdgeLabel();
       if (!state.fitted && view.nodes.size) state.fitted = fit();
+      else applyView();
     }
 
     // renderFrame draws a scope: the frame with its name, health and what
@@ -1819,7 +1955,7 @@ button.label { cursor: pointer; }
         const t = sv('text', { y: 3.6 }); t.textContent = fs.length; p.alert.append(t);
       }
       const traffic = n.requestRate > 0 ? `, ${fmtRate(n.requestRate)} requests per second${n.latencyP95Ms > 0 ? `, ${latencyText(n)}` : ''}, ${errorText(n)}` : '';
-      drawWhy(p.why, n.reasons);
+      drawWhy(p.why, currentView.nodes.size > 200 ? [] : mapReasons(n, currentView.nodes));
       const because = n.reasons.length ? `, because of ${n.reasons.map(r => r.summary || reasonTag(r)).join('; ')}` : '';
       const label = `${n.title}, ${n.group ? 'group' : CATEGORY[cat]?.label || n.kind}${n.tech ? ' (' + techLabel(n) + ')' : ''}, ${healthText(n)}${because}${traffic}, ${n.visibility} visibility${fs.length ? `, ${fs.length} next step${fs.length > 1 ? 's' : ''}` : ''}`;
       p.tip.textContent = label;
@@ -1846,7 +1982,7 @@ button.label { cursor: pointer; }
     }
 
     function createEdge() {
-      const g = sv('g', { class: 'edge' });
+      const g = sv('g', { class: 'edge', tabindex: '0', role: 'button' });
       const line = sv('path', { class: 'line' });
       const hit = sv('path', { class: 'hit' });
       g.append(line, hit);
@@ -1854,6 +1990,11 @@ button.label { cursor: pointer; }
       hit.addEventListener('click', ev => { ev.stopPropagation(); select({ type: 'edge', id: g._edge.id }); });
       hit.addEventListener('mouseenter', () => { state.hoverEdge = g._edge.id; renderEdgeLabel(); });
       hit.addEventListener('mouseleave', () => { state.hoverEdge = null; renderEdgeLabel(); });
+      g.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); select({ type: 'edge', id: g._edge.id }); }
+      });
+      g.addEventListener('focus', () => { state.hoverEdge = g._edge.id; renderEdgeLabel(); });
+      g.addEventListener('blur', () => { state.hoverEdge = null; renderEdgeLabel(); });
       return g;
     }
 
@@ -1916,6 +2057,9 @@ button.label { cursor: pointer; }
     // where it covers no card and no tag placed before it.
     function renderReasons() {
       layerReasons.replaceChildren();
+      // Global annotations stop being readable on a dense overview. Every
+      // connection retains its keyboard target, hover label and full details.
+      if (currentView.nodes.size > 200) return;
       const obstacles = [...nodeEls.values()].map(n => ({
         x0: n._pos.x - NODE_W / 2 - 6, x1: n._pos.x + NODE_W / 2 + 6,
         y0: n._pos.y - NODE_H / 2 - 14, y1: n._pos.y + NODE_H / 2 + 12, // the card's own tag and badges
@@ -1934,11 +2078,12 @@ button.label { cursor: pointer; }
       // Reasons first: they matter most and take the best spots.
       for (const g of shown) {
         const e = g._edge;
-        if (!e.reasons.length) continue;
+        const shownReasons = mapReasons(e, currentView.nodes);
+        if (!shownReasons.length) continue;
         const tag = sv('g');
         tag._edge = e;
         layerReasons.append(tag);
-        drawWhy(tag, e.reasons);
+        drawWhy(tag, shownReasons);
         const w = Number(tag.querySelector('rect')?.getAttribute('width')) || 80;
         const at = placeTag(spotsOf(g), w, 18, obstacles);
         obstacles.push(at.box);
@@ -2001,6 +2146,7 @@ button.label { cursor: pointer; }
       const old = new Map(particles.map(p => [p.key, p]));
       particles = [];
       layerParticles.replaceChildren();
+      if (!state.flow) return;
       const visible = [...edgeEls.values()].filter(g => g.style.display !== 'none');
       const budget = particleBudget(visible.map(g => g._edge));
       for (const g of visible) {
@@ -2057,6 +2203,23 @@ button.label { cursor: pointer; }
     function applyView() {
       const { x, y, k } = state.view;
       viewport.setAttribute('transform', `translate(${x},${y}) scale(${k})`);
+      const compactView = k < 0.85;
+      const denseView = k < 0.12 && nodeEls.size > 200;
+      viewport.classList.toggle('compact', compactView);
+      viewport.classList.toggle('dense', denseView);
+      $('#mapHelp').hidden = !compactView || !nodeEls.size;
+      $('#mapHelp span').textContent = denseView ? `${nodeEls.size} components · ${edgeEls.size} connections. Group, search or focus to read names.` : 'Overview · select a component for its evidence.';
+      for (const [id, g] of nodeEls) {
+        const n = currentView.nodes.get(id), title = g._parts.title;
+        const prefix = n.health === 'failing' ? '× ' : n.health === 'degraded' ? '▲ ' : '';
+        const max = compactView ? Math.max(3, Math.floor((NODE_W * k - 12) / 7) - prefix.length) : 17;
+        const name = denseView ? n.title : n.title.length > max ? n.title.slice(0, max - 1) + '…' : n.title;
+        title.textContent = (compactView ? prefix : '') + name;
+        title.setAttribute('x', compactView ? 0 : -NODE_W / 2 + 60);
+        title.setAttribute('y', compactView ? 4 / k : -3);
+        title.setAttribute('text-anchor', compactView ? 'middle' : 'start');
+        title.style.fontSize = compactView ? `${12 / k}px` : '14px';
+      }
       layerReasons?.classList.toggle('far', k < 0.55); // values unreadable this small
       stage.style.setProperty('--grid-x', x + 'px');
       stage.style.setProperty('--grid-y', y + 'px');
@@ -2079,9 +2242,12 @@ button.label { cursor: pointer; }
         x0 = Math.min(x0, fb.x0, ...fb.chips.map(c => c.x - c.w / 2)); x1 = Math.max(x1, fb.x1, ...fb.chips.map(c => c.x + c.w / 2));
         y0 = Math.min(y0, fb.y0, ...fb.chips.map(c => c.y - 13)); y1 = Math.max(y1, fb.y1, ...fb.chips.map(c => c.y + 13));
       }
-      const padTop = page ? 24 : 16, pad = page ? 40 : 16;
-      const k = Math.max(0.05, Math.min(state.frameBox ? 1.1 : 1.25, (r.width - pad * 2) / (x1 - x0), (r.height - padTop - pad) / (y1 - y0)));
-      state.view = { k, x: (r.width - (x1 - x0) * k) / 2 - x0 * k, y: padTop + (r.height - padTop - pad - (y1 - y0) * k) / 2 - y0 * k };
+      // Reserve space for map controls instead of covering the last column.
+      const left = 16, right = 64, bottom = 58;
+      let top = 24;
+      let k = Math.max(0.05, Math.min(state.frameBox ? 1.1 : 1.25, (r.width - left - right) / (x1 - x0), (r.height - top - bottom) / (y1 - y0)));
+      if (k < 0.85) { top = 48; k = Math.max(0.05, Math.min(k, (r.height - top - bottom) / (y1 - y0))); }
+      state.view = { k, x: left + (r.width - left - right - (x1 - x0) * k) / 2 - x0 * k, y: top + (r.height - top - bottom - (y1 - y0) * k) / 2 - y0 * k };
       state.userMoved = false;
       applyView();
       return true;
@@ -2217,12 +2383,14 @@ button.label { cursor: pointer; }
     function select(sel) {
       const changed = state.selected?.type !== sel?.type || state.selected?.id !== sel?.id;
       state.selected = sel;
+      syncSharedURL();
       for (const [id, g] of nodeEls) g.classList.toggle('sel', sel?.type === 'node' && sel.id === id);
       for (const [id, g] of edgeEls) g.classList.toggle('sel', sel?.type === 'edge' && sel.id === id);
       for (const [id, { g }] of portEls) g.classList.toggle('sel', sel?.type === 'port' && sel.id === id);
       applyHighlight();
       renderEdgeLabel();
       renderDetails();
+      renderSteps();
       if (sel) { showTab('details'); setDrawer(true); }
       if (changed) $('#pane-details').scrollTop = 0;
     }
@@ -2238,35 +2406,57 @@ button.label { cursor: pointer; }
       select({ type: 'node', id });
     }
 
+    function focusSelection() {
+      if ((!state.selected || state.selected.type === 'port') && currentView?.nodes.size) {
+        const node = [...currentView.nodes.values()].sort((a, b) => HEALTH_RANK[b.health] - HEALTH_RANK[a.health] || a.id.localeCompare(b.id))[0];
+        select({ type: 'node', id: node.id });
+      }
+      const sel = state.selected;
+      const edge = sel?.type === 'edge' ? currentView.edges.get(sel.id) : null;
+      const ids = edge ? [edge.from, edge.to] : sel?.type === 'node' ? [sel.id] : [];
+      const positions = ids.map(id => nodeEls.get(id)?._pos).filter(Boolean);
+      setDrawer(false);
+      const r = stage.getBoundingClientRect();
+      if (positions.length) {
+        const x = positions.reduce((a, p) => a + p.x, 0) / positions.length;
+        const y = positions.reduce((a, p) => a + p.y, 0) / positions.length;
+        const k = Math.max(0.9, state.view.k);
+        state.view = { k, x: (r.width - 48) / 2 - x * k, y: r.height / 2 - y * k };
+        state.userMoved = true; applyView();
+        (edge ? edgeEls.get(sel.id) : nodeEls.get(sel?.id))?.focus({ preventScroll: true });
+      } else zoomAt(Math.max(1, 0.9 / state.view.k), r.width / 2, r.height / 2);
+    }
+
     function toggleGroup(id) {
-      if (id.startsWith('group:')) state.expanded.add(id.slice(6));
+      const node = currentView.nodes.get(id);
+      const representative = node?.group ? node.members[0]?.id : id;
+      if (node?.group) state.expanded.add(node.expansionKey);
       else {
-        const v = index.nodes.get(id)?.labels?.[state.groupBy];
-        if (v && state.expanded.has(v)) state.expanded.delete(v); else return;
+        const path = groupingPath(index.nodes.get(id), state.groupBy);
+        const last = [...path].reverse().find(g => state.expanded.has(g.expansionKey));
+        if (last) state.expanded.delete(last.expansionKey); else return;
       }
       renderMap();
-      const sel = state.selected;
-      if (sel && !currentView.nodes.has(sel.id) && !currentView.edges.has(sel.id)) {
-        const g = currentView.groupOf(sel.id);
-        select(g && currentView.nodes.has(g) ? { type: 'node', id: g } : null);
-      } else renderDetails();
+      locate(representative, { move: false }); fit();
     }
 
     // --------------------------------------------------------------- top bar
     function renderRings() {
       const c = state.snap.coverage;
-      const ring = (label, v, hint) => {
+      const internal = state.snap.nodes.filter(n => n.kind !== 'external');
+      const observed = state.snap.edges.filter(e => e.observed), declared = state.snap.edges.filter(e => e.declared);
+      const ring = (label, v, hint, numerator, denominator) => {
         const r = 15, circ = 2 * Math.PI * r;
         const color = v >= 0.8 ? css('--healthy') : v >= 0.5 ? css('--degraded') : css('--failing');
         const s = sv('svg', { viewBox: '0 0 38 38', 'aria-hidden': 'true' });
         s.append(sv('circle', { class: 'track', cx: 19, cy: 19, r, fill: 'none', 'stroke-width': 4 }));
         s.append(sv('circle', { class: 'value', cx: 19, cy: 19, r, fill: 'none', stroke: color, 'stroke-width': 4, 'stroke-linecap': 'round', 'stroke-dasharray': `${circ * v} ${circ}` }));
-        return el('div', { class: 'ring', title: hint }, s, el('div', {}, el('b', { class: 'num' }, pct(v)), el('span', {}, label)));
+        return el('div', { class: 'ring', title: hint }, s, el('div', {}, el('b', { class: 'num' }, denominator ? pct(v) : '—'), el('span', {}, label), el('small', {}, `${numerator} of ${denominator}`)));
       };
-      const rings = [ring('visibility', c.visibility, 'Share of internal nodes teia sees first-hand')];
+      const rings = [ring('visibility', c.visibility, 'Internal components seen first-hand', internal.filter(n => n.visibility === 'full').length, internal.length)];
       if (state.snap.drift) {
-        rings.push(ring('declared', c.declared, 'Share of observed communication declared in flows files'));
-        rings.push(ring('observed', c.observed, 'Share of declared communication actually observed'));
+        rings.push(ring('declared', c.declared, 'Observed communications declared in flows files', observed.filter(e => e.declared).length, observed.length));
+        rings.push(ring('observed', c.observed, 'Declared communications actually observed', declared.filter(e => e.observed).length, declared.length));
       }
       $('#rings').replaceChildren(...rings);
     }
@@ -2276,6 +2466,7 @@ button.label { cursor: pointer; }
       $('#timeContext').title = opts.requestedRange ? `Dashboard requests ${opts.requestedRange.from} – ${opts.requestedRange.to}. Collection time is not the age of the original measurement.` : 'Collection time is not the age of the original measurement. A source lookback is its query window.';
       const l = $('#live');
       if (state.error) { l.className = 'live error'; l.querySelector('span').textContent = state.error; return; }
+      if (state.snap?.timeMode === 'historical') { l.className = 'live paused'; l.querySelector('span').textContent = 'historical · stored snapshot'; return; }
       l.className = 'live ' + (!state.live ? 'paused' : state.connected ? 'on' : '');
       const since = opts.api && state.snap ? new Date(state.snap.generatedAt).getTime() : state.lastData;
       const ago = since ? Math.max(0, Math.round((Date.now() - since) / 1000)) : 0;
@@ -2404,15 +2595,17 @@ button.label { cursor: pointer; }
 
     // ----------------------------------------------------- the filter panel
     const filterPanelOpen = () => !$('#filterPanel').hidden;
-    let panelQuery = '';
+    let panelQuery = '', panelAdvanced = false;
     function setFilterPanel(open) {
       const panel = $('#filterPanel');
       panel.hidden = !open;
       $('#filterBtn')?.setAttribute('aria-expanded', String(open));
       if (open) {
-        panel.style.top = `${$('#scope').getBoundingClientRect().bottom - app.getBoundingClientRect().top}px`;
+        const top = $('#scope').getBoundingClientRect().bottom - app.getBoundingClientRect().top;
+        panel.style.top = `${top}px`;
+        panel.style.maxHeight = `${Math.max(48, app.clientHeight - top - 8)}px`;
         renderFilterPanel(); panel.querySelector('input')?.focus();
-      }
+      } else $('#filterBtn')?.focus();
     }
     function toggleEdgeState(st) { state.states[st] = !state.states[st]; store.set('states', state.states); renderAll(); if (filterPanelOpen()) renderFilterPanel(); }
     function toggleSignal(sg) {
@@ -2425,32 +2618,34 @@ button.label { cursor: pointer; }
     // kind of component, technology, and the communication itself.
     function renderFilterPanel() {
       const panel = $('#filterPanel');
+      const focused = panel.getRootNode().activeElement?.getAttribute('data-filter-key');
       const q = panelQuery.trim().toLowerCase();
       const f = state.filters;
-      const value = (on, label, n, dot, icon, onclick) => el('button', { type: 'button', class: 'fv' + (on ? ' on' : ''), 'aria-pressed': String(on), onclick },
+      const value = (on, label, n, dot, icon, onclick, key) => el('button', { type: 'button', class: 'fv' + (on ? ' on' : ''), 'data-filter-key': key, 'aria-pressed': String(on), onclick },
         el('span', { class: 'check', 'aria-hidden': 'true' }, on ? '✓' : ''), dot ? el('i', { class: 'dot', style: `background:${css('--' + dot)}` }) : null,
         icon ? iconSVG(icon) : null, label, el('span', { class: 'n num' }, String(n)));
-      const sections = [];
+      const sections = [], advanced = [];
       for (const sec of facetsOf(state.snap, state.jkey)) {
         const chosen = sec.key === 'journey' ? f.journeys : (f.facets[sec.key] || []);
         const values = sec.values.filter(v => !q || String(v.label).toLowerCase().includes(q) || sec.title.toLowerCase().includes(q));
         if (!values.length) continue;
         const icon = v => sec.key === 'category' && has(CATEGORY, v.value) ? CATEGORY[v.value].icon : null;
         const dot = v => sec.key === 'category' || sec.key === 'tech' ? null : v.health;
-        sections.push(el('section', {}, el('h5', {}, sec.title), el('div', { class: 'values' },
-          ...values.map(v => value(chosen.includes(v.value), v.label, v.count, dot(v), icon(v), () => toggleFacet(sec.key, v.value))))));
+        const destination = ['journey', 'k8s.namespace', 'namespace', 'health'].includes(sec.key) ? sections : advanced;
+        destination.push(el('section', {}, el('h5', {}, sec.title), el('div', { class: 'values' },
+          ...values.map(v => value(chosen.includes(v.value), v.label, v.count, dot(v), icon(v), () => toggleFacet(sec.key, v.value), JSON.stringify([sec.key, v.value]))))));
       }
       if (state.snap.drift) {
         const count = st => state.snap.edges.filter(e => e.state === st).length;
         const states = [['ok', 'declared and seen'], ['ghost', 'not declared'], ['stale', 'declared, not seen']].filter(([, l]) => !q || l.includes(q) || 'communication'.includes(q));
-        if (states.length) sections.push(el('section', {}, el('h5', {}, 'Communication'), el('div', { class: 'values' },
-          ...states.map(([st, label]) => value(state.states[st], label, count(st), null, null, () => toggleEdgeState(st))))));
+        if (states.length) advanced.push(el('section', {}, el('h5', {}, 'Communication'), el('div', { class: 'values' },
+          ...states.map(([st, label]) => value(state.states[st], label, count(st), null, null, () => toggleEdgeState(st), 'state:' + st)))));
       }
       const present = new Map();
       for (const e of state.snap.edges) for (const sg of e.signals) present.set(sg, (present.get(sg) || 0) + 1);
       const signals = [...present.entries()].filter(([sg]) => has(SIGNAL, sg) && (!q || SIGNAL[sg].label.toLowerCase().includes(q) || 'seen by'.includes(q))).sort();
-      if (signals.length) sections.push(el('section', {}, el('h5', {}, 'Seen by'), el('div', { class: 'values' },
-        ...signals.map(([sg, n]) => value(state.signals.has(sg), SIGNAL[sg].label, n, null, SIGNAL[sg].icon, () => toggleSignal(sg))))));
+      if (signals.length) advanced.push(el('section', {}, el('h5', {}, 'Seen by'), el('div', { class: 'values' },
+        ...signals.map(([sg, n]) => value(state.signals.has(sg), SIGNAL[sg].label, n, null, SIGNAL[sg].icon, () => toggleSignal(sg), 'signal:' + sg)))));
       const search = el('input', { type: 'search', placeholder: 'Find a journey, namespace, team…', 'aria-label': 'Find a filter', value: panelQuery });
       search.addEventListener('input', ev => {
         panelQuery = ev.target.value;
@@ -2461,23 +2656,31 @@ button.label { cursor: pointer; }
       });
       panel.replaceChildren(
         el('div', { class: 'top' }, search, el('button', { type: 'button', class: 'btn', onclick: () => setFilterPanel(false) }, 'Done')),
-        sections.length ? el('div', { class: 'facets' }, ...sections) : el('p', { class: 'muted' }, 'Nothing matches.'),
+        el('p', { class: 'explain' }, 'Counts cover the whole snapshot. Different filters intersect; values within one filter are combined.'),
+        sections.length ? el('div', { class: 'facets' }, ...sections) : null,
+        advanced.length ? el('details', { open: q || panelAdvanced ? '' : null, ontoggle: ev => { if (!q) panelAdvanced = ev.target.open; } }, el('summary', {}, 'Advanced filters'), el('div', { class: 'facets' }, ...advanced)) : null,
+        !sections.length && !advanced.length ? el('p', { class: 'muted' }, 'Nothing matches. Try a different filter search.') : null,
       );
+      if (focused) [...panel.querySelectorAll('[data-filter-key]')].find(b => b.getAttribute('data-filter-key') === focused)?.focus({ preventScroll: true });
     }
 
     let groupKeys = null;
     function renderGroupBy() {
       const sel = $('#groupBy');
       const keys = labelKeys(state.snap, state.jkey);
+      const path = [['k8s.cluster.name', 'cluster'], ['k8s.namespace', 'namespace'], ['service.name', 'app.kubernetes.io/name']].map(choices => choices.find(key => keys.includes(key))).filter(Boolean);
+      const hierarchical = path.length > 1 ? 'hierarchy:' + JSON.stringify(path) : '';
+      if (hierarchical) keys.push(hierarchical);
       if (state.groupBy && !keys.includes(state.groupBy)) { state.groupBy = ''; state.expanded.clear(); }
       if (groupKeys !== keys.join('|')) { // rebuilding would close an open dropdown on every update
         groupKeys = keys.join('|');
-        sel.replaceChildren(el('option', { value: '' }, 'No grouping'), ...keys.map(k => el('option', { value: k }, 'Group by ' + k)));
+        sel.replaceChildren(el('option', { value: '' }, 'No grouping'), ...keys.map(k => el('option', { value: k }, k === hierarchical ? path.join(' → ') : 'Group by ' + k)));
       }
       sel.value = state.groupBy;
     }
 
     function renderButtons() {
+      syncSharedURL();
       const flow = $('#flowBtn');
       flow.replaceChildren(iconSVG(state.flow ? '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>' : '<path d="M7 4.5v15l12-7.5z"/>'), 'Flow');
       flow.classList.toggle('on', state.flow);
@@ -2487,6 +2690,9 @@ button.label { cursor: pointer; }
       live.replaceChildren(iconSVG('<circle cx="12" cy="12" r="3"/><path d="M5.6 5.6a9 9 0 000 12.8M18.4 5.6a9 9 0 010 12.8M8.5 8.5a5 5 0 000 7M15.5 8.5a5 5 0 010 7"/>'), 'Live');
       live.classList.toggle('on', state.live);
       live.setAttribute('aria-pressed', String(state.live));
+      live.disabled = !!state.historyId || state.snap?.timeMode === 'historical';
+      live.title = live.disabled ? 'Historical snapshot: return to current state to follow updates' : 'Follow live data updates; Flow only animates traffic';
+      $('#historyBtn').hidden = !opts.api;
       const values = $('#valuesBtn');
       values.replaceChildren(iconSVG('<path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/>'), 'Values');
       values.classList.toggle('on', state.values);
@@ -2496,8 +2702,11 @@ button.label { cursor: pointer; }
     // ------------------------------------------------------------- side panel
     function showTab(tab) {
       state.tab = tab;
-      app.querySelectorAll('.tab').forEach(t => { const on = t.dataset.tab === tab; t.classList.toggle('on', on); t.setAttribute('aria-selected', String(on)); });
-      app.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + tab));
+      app.querySelectorAll('.tab').forEach(t => {
+        const on = t.dataset.tab === tab; t.classList.toggle('on', on); t.setAttribute('aria-selected', String(on));
+        t.id = 'tab-' + t.dataset.tab; t.setAttribute('aria-controls', 'pane-' + t.dataset.tab); t.tabIndex = on ? 0 : -1;
+      });
+      app.querySelectorAll('.pane').forEach(p => { p.classList.toggle('on', p.id === 'pane-' + tab); p.setAttribute('aria-labelledby', 'tab-' + p.id.slice(5)); p.tabIndex = 0; });
       if (tab === 'activity') $('#activityCount').textContent = '0';
     }
 
@@ -2533,6 +2742,7 @@ button.label { cursor: pointer; }
     // group when it is folded into one. move: false selects it in place.
     function locate(subject, { move = true } = {}) {
       if (!subject || !currentView) return;
+      if (portEls.has(subject)) { select({ type: 'port', id: subject }); return; }
       const viewId = id => currentView.nodes.has(id) ? id : currentView.groupOf(id);
       if (subject.includes('->')) {
         const [a, b] = subject.split('->');
@@ -2550,8 +2760,17 @@ button.label { cursor: pointer; }
       $('#stepsCount').textContent = fs.length;
       $('#stepsBadge').textContent = fs.length;
       const pane = $('#pane-steps');
-      if (!fs.length) { pane.replaceChildren(el('p', { class: 'muted' }, 'Nothing to do: the picture is complete for the configured sources.')); return; }
-      pane.replaceChildren(el('h3', {}, 'What teia needs to see more'), ...fs.map(f => findingCard(f)));
+      if (!fs.length) { pane.replaceChildren(el('p', { class: 'muted' }, 'No findings from the configured sources. Missing telemetry may still hide problems.')); return; }
+      const sel = state.selected;
+      const selected = sel?.type === 'node' ? currentView.nodes.get(sel.id) : sel?.type === 'edge' ? currentView.edges.get(sel.id) : null;
+      const ids = selected ? new Set(selected.from ? selected.members.map(e => e.from + '->' + e.to) : selected.group ? selected.members.map(n => n.id) : [selected.id])
+        : state.scope ? new Set(state.scope.roles.keys()) : null;
+      const local = ids ? fs.filter(f => ids.has(f.subject) || f.subject.split('->').some(id => ids.has(id))) : fs;
+      const other = fs.filter(f => !local.includes(f));
+      pane.replaceChildren(el('h3', {}, ids ? 'Next steps for this selection' : 'Next steps for the whole map'),
+        ...local.map(f => findingCard(f)),
+        !local.length ? el('p', { class: 'explain' }, 'No advisor actions for this selection. Inspect its measured signals and evidence in Details.') : null,
+        other.length ? el('details', {}, el('summary', {}, `Other platform advice (${other.length})`), ...other.map(f => findingCard(f))) : null);
     }
 
     // measureText reads a measure out: "12 of 97 (12%)", "3, held by legacy-reports".
@@ -2561,12 +2780,15 @@ button.label { cursor: pointer; }
     // with a way to the dependency it most likely comes from.
     function whyBlock(list) {
       if (!list.length) return [];
-      const red = list.some(r => r.health === 'failing');
-      return [el('h3', {}, red ? 'Why it is red' : 'Why it is amber'), ...list.map(r => el('div', { class: 'why ' + r.health },
-        iconSVG(REASON[r.cause].icon),
-        el('span', {}, (r.summary || reasonTag(r)) + (r.subject ? ` (${r.subject})` : '')),
-        r.via ? el('button', { type: 'button', class: 'btn', title: `Show ${r.via} on the map`, onclick: () => locate(r.via) }, 'go to ' + r.via) : el('span'),
-      ))];
+      const unique = [...new Map(list.map(r => [JSON.stringify(r), r])).values()];
+      const card = r => el('div', { class: 'evidence-card' },
+        el('strong', {}, r.summary || reasonTag(r)),
+        el('p', { class: 'explain' }, r.via ? `Dependency signal from ${r.via}; this suggests a relationship, not proof of causation.` : `Measured ${r.what || REASON[r.cause].label.toLowerCase()}${r.subject ? ` on ${r.subject}` : ''}.`),
+        el('p', {}, `${r.approximate ? 'Approximate ' : ''}value ${r.cause === 'latency' ? fmtMs(r.value) : fmtValue(r.value, r.unit)} · ${r.health} limit ${r.cause === 'latency' ? fmtMs(r.limit) : fmtValue(r.limit, r.unit)}${r.rule ? ` · rule ${r.rule}` : ''}`),
+        r.evidence?.length ? el('p', { class: 'explain' }, 'Sources: ' + [...new Set(r.evidence.map(e => e.source))].join(', ')) : null,
+        r.via ? el('button', { type: 'button', class: 'btn', title: `Show ${r.via} on the map`, onclick: () => locate(r.via) }, 'Inspect ' + r.via) : null);
+      return [el('h3', {}, 'Primary signal'), card(unique[0]),
+        unique.length > 1 ? el('details', {}, el('summary', {}, `Other signals (${unique.length - 1})`), ...unique.slice(1).map(card)) : null];
     }
 
     function rel(label, sub, health, onclick) {
@@ -2575,11 +2797,60 @@ button.label { cursor: pointer; }
 
     function evidenceBlock(item) {
       const entries = [...new Map((item.evidence || []).map(e => [JSON.stringify(e), e])).values()];
-      return [el('h3', {}, 'Evidence and time'), ...(entries.length ? entries.map(e => el('p', { class: 'explain' }, evidenceText(e)))
+      return [el('h3', {}, 'Evidence and time'), ...(entries.length ? entries.map(e => {
+        const original = e.oldestSampleAt || e.observedAt;
+        const summary = e.retained ? 'Retained topology; current measurements unavailable'
+          : original && e.collectedAt ? `Sample age at collection: ${ageText(original, Date.parse(e.collectedAt))}` : 'Original sample age unknown';
+        const subject = e.subject?.node || (e.subject?.from ? `${e.subject.from} → ${e.subject.to}` : '');
+        return el('article', { class: 'evidence-card' },
+          el('strong', {}, `${e.source}${e.origin ? ` · ${e.origin}` : ''}`),
+          subject ? el('p', { class: 'explain' }, subject) : null,
+          el('p', {}, e.metrics.join(', ') || e.signal || 'inventory'), el('p', { class: 'explain' }, summary),
+          e.windowSeconds ? el('p', { class: 'explain' }, `Query window: ${fmtSec(e.windowSeconds)}${e.sampleCount ? ` · ${e.sampleCount} sampled calls` : ''}`) : null,
+          el('details', { 'data-disclosure-key': JSON.stringify(['evidence', e.source, e.origin, e.signal, e.metrics, e.subject]) }, el('summary', {}, 'Collection and sample times'), el('p', { class: 'explain' }, evidenceText(e))));
+      })
         : [el('p', { class: 'explain' }, 'Source timing was not supplied; the age of these measurements is unknown.')])];
     }
 
+    function detailActions(item) {
+      return el('div', { class: 'detail-actions' },
+        el('button', { type: 'button', class: 'btn', onclick: focusSelection }, 'Focus on map'),
+        ...[...new Map((item.links || []).map(l => [l.url, l])).values()].map(l => el('span', {}, el('a', {
+          class: 'btn', href: l.url, target: '_blank', rel: 'noopener noreferrer', title: l.description,
+        }, l.label), l.description ? el('small', { class: 'explain' }, l.description) : null)));
+    }
+
+    function effectiveRules(item) {
+      const rules = [...new Map((item.healthRules || []).map(r => [JSON.stringify(r), r])).values()];
+      return rules.length ? el('details', {}, el('summary', {}, 'Effective health rules'), ...rules.map(r =>
+        el('p', { class: 'explain' }, `${r.subject ? r.subject + ' · ' : ''}${REASON[r.cause].label}: degraded ${fmtValue(r.degraded, r.unit)}, failing ${fmtValue(r.failing, r.unit)} · ${r.name} (${r.match}${r.priority ? `, priority ${r.priority}` : ''})`))) : null;
+    }
+
+    function presenceBlock(type, ids) {
+      const presence = state.snap.history?.[type];
+      if (!presence) return [];
+      return [el('details', {}, el('summary', {}, 'Historical identity and presence'), ...ids.flatMap(id => {
+        const p = presence[id];
+        return p ? [el('p', { class: 'explain' }, `${id} · ${p.identityConfidence || 'identity confidence unknown'} · first seen ${p.firstSeen} · last seen ${p.lastSeen} · original observation ${p.lastObservedAt || 'unknown'}. Graph presence is not proof of continuous activity.`)] : [];
+      }))];
+    }
+
     function renderDetails() {
+      const pane = $('#pane-details'), key = JSON.stringify(state.selected);
+      const same = pane.dataset.selection === key;
+      const disclosureKey = d => d.getAttribute('data-disclosure-key') || d.querySelector('summary')?.textContent;
+      const opened = new Set(same ? [...pane.querySelectorAll('details[open]')].map(disclosureKey) : []);
+      const scroll = same ? pane.scrollTop : 0;
+      const active = root.activeElement;
+      const focusIndex = same && pane.contains(active) ? [...pane.querySelectorAll('button,a,summary,select')].indexOf(active) : -1;
+      renderDetailsContent();
+      pane.dataset.selection = key;
+      for (const d of pane.querySelectorAll('details')) d.open = opened.has(disclosureKey(d));
+      if (focusIndex >= 0) pane.querySelectorAll('button,a,summary,select')[focusIndex]?.focus({ preventScroll: true });
+      pane.scrollTop = scroll;
+    }
+
+    function renderDetailsContent() {
       const pane = $('#pane-details');
       const sel = state.selected;
       if (!sel || !currentView) { pane.replaceChildren(el('p', { class: 'muted' }, 'Click a service, a datastore or a communication on the map.')); return; }
@@ -2590,14 +2861,20 @@ button.label { cursor: pointer; }
         const tile = el('div', { class: 'tile', style: `background:${css('--' + n.health)}` }, iconSVG(iconOf(n)));
         const parts = [el('div', { class: 'hero' }, tile, el('div', {}, el('h2', {}, n.title),
           el('span', { class: 'pill' }, el('i', { class: 'dot', style: `background:${css('--' + n.health)}` }), healthText(n)), ' ',
-          el('span', { class: 'pill' }, n.kind), ' ', el('span', { class: 'pill' }, n.visibility + ' visibility'))), ...whyBlock(n.reasons)];
+          el('span', { class: 'pill' }, n.kind), ' ', el('span', { class: 'pill' }, n.visibility + ' visibility'))), detailActions(n), ...whyBlock(n.reasons), ...evidenceBlock(n), effectiveRules(n)];
+        const fs = state.snap.findings.filter(f => n.group ? n.members.some(m => m.id === f.subject) : f.subject === n.id || f.subject.startsWith(n.id + '->'));
+        if (fs.length) { parts.push(el('h3', {}, 'Next steps')); parts.push(...fs.map(f => findingCard(f))); }
         if (n.group) {
           const inside = n.internal ? `, talking to each other through ${n.internal} communication${n.internal === 1 ? '' : 's'}` : '';
           parts.push(el('p', { class: 'explain' }, `${n.members.length} workload${n.members.length === 1 ? '' : 's'} with ${n.labelKey}=${n.title}${inside}. Double-click the card to expand it.`));
           parts.push(el('button', { type: 'button', class: 'btn', onclick: () => toggleGroup(n.id) }, 'Expand group'));
+          if (state.groupBy.startsWith('hierarchy:')) {
+            const parent = groupingPath(n.members[0], state.groupBy).find(g => state.expanded.has(g.expansionKey));
+            if (parent) parts.push(el('button', { type: 'button', class: 'btn', onclick: () => { state.expanded.delete(parent.expansionKey); renderMap(); locate(n.members[0].id, { move: false }); fit(); } }, 'Collapse to ' + parent.title));
+          }
           if (n.latencyP95Ms > 0) parts.push(el('p', { class: 'explain' }, latencyText(n)));
           parts.push(el('h3', {}, 'Members'));
-          parts.push(...n.members.map(m => rel(m.id, m.kind, m.health, () => { state.expanded.add(n.title); renderMap(); focusNode(m.id); })));
+          parts.push(...n.members.map(m => rel(m.id, m.kind, m.health, () => { for (const g of groupingPath(m, state.groupBy)) state.expanded.add(g.expansionKey); renderMap(); focusNode(m.id); })));
         } else {
           if (state.scope) {
             const others = state.snap.edges.some(e => e.to === n.id && !state.scope.roles.has(e.from));
@@ -2627,15 +2904,18 @@ button.label { cursor: pointer; }
             }, el('b', {}, k + '='), String(v)))));
           }
         }
-        parts.push(...evidenceBlock(n));
-        const out = [...currentView.edges.values()].filter(e => e.from === n.id);
-        const inn = [...currentView.edges.values()].filter(e => e.to === n.id);
-        const relEdge = (e, other) => rel(other, `${e.requestRate > 0 ? fmtRate(e.requestRate) + '/s · ' : ''}${state.snap.drift ? STATE_LABEL[e.state] : e.protocol || ''}`, e.state === 'stale' ? 'unknown' : e.health, () => select({ type: 'edge', id: e.id }));
+        parts.push(...presenceBlock('nodes', n.group ? n.members.map(m => m.id) : [n.id]));
+        if (!n.group && groupingPath(n, state.groupBy).length) parts.push(el('button', { type: 'button', class: 'btn', onclick: () => toggleGroup(n.id) }, 'Collapse parent group'));
+        const order = el('select', { 'aria-label': 'Sort neighbours', onchange: event => { state.neighbourSort = event.target.value; renderDetails(); } },
+          ...['traffic', 'errors', 'latency'].map(key => el('option', { value: key }, key)));
+        order.value = state.neighbourSort || 'traffic';
+        const out = neighbourOrder([...currentView.edges.values()].filter(e => e.from === n.id), order.value);
+        const inn = neighbourOrder([...currentView.edges.values()].filter(e => e.to === n.id), order.value);
+        if (out.length + inn.length) parts.push(el('label', {}, 'Sort neighbours ', order));
+        const relEdge = (e, other) => rel(other, `${e.requestRate > 0 ? fmtRate(e.requestRate) + '/s · ' : ''}${errorText(e)}${e.latencyP95Ms > 0 ? ' · ' + latencyText(e) : ''}`, e.state === 'stale' ? 'unknown' : e.health, () => select({ type: 'edge', id: e.id }));
         if (out.length) { parts.push(el('h3', {}, `Calls (${out.length})`)); parts.push(...out.map(e => relEdge(e, e.to))); }
         if (inn.length) { parts.push(el('h3', {}, `Called by (${inn.length})`)); parts.push(...inn.map(e => relEdge(e, e.from))); }
-        const fs = state.snap.findings.filter(f => n.group ? n.members.some(m => m.id === f.subject) : f.subject === n.id || f.subject.startsWith(n.id + '->'));
-        if (fs.length) { parts.push(el('h3', {}, 'Next steps')); parts.push(...fs.map(f => findingCard(f, true))); }
-        pane.replaceChildren(...parts);
+        pane.replaceChildren(...parts.filter(Boolean));
         return;
       }
       const e = currentView.edges.get(sel.id);
@@ -2645,7 +2925,9 @@ button.label { cursor: pointer; }
       if (state.snap.drift) pills.push(' ', el('span', { class: 'pill' }, STATE_LABEL[e.state]));
       const parts = [el('div', { class: 'hero' },
         el('div', { class: 'tile', style: `background:${css('--' + color)}` }, iconSVG('<path d="M4 12h14M13 6l6 6-6 6"/>')),
-        el('div', {}, el('h2', {}, `${e.from} → ${e.to}`), ...pills)), ...whyBlock(e.reasons)];
+        el('div', {}, el('h2', {}, `${e.from} → ${e.to}`), ...pills)), detailActions(e), ...whyBlock(e.reasons)];
+      for (const member of e.members.filter(m => m.frequency)) parts.push(el('p', { class: 'explain' }, `${e.members.length > 1 ? `${member.from} → ${member.to}: ` : ''}Expected every ${fmtSec(member.expectedFrequencySeconds)} · ${member.frequency.status}. ${text(member.frequency.detail)} Last observed: ${timestamp(member.frequency.lastObservedAt) || 'unknown'}. Next expected: ${timestamp(member.frequency.nextExpectedAt) || 'unknown'}.`));
+      parts.push(...presenceBlock('edges', e.members.map(m => m.from + '->' + m.to)));
       if (state.snap.drift) {
         parts.push(el('p', { class: 'explain' }, {
           ok: 'Declared in a flows file and observed in traffic: intent and reality agree.',
@@ -2666,10 +2948,10 @@ button.label { cursor: pointer; }
       row('seen by', e.signals.map(s => has(SIGNAL, s) ? SIGNAL[s].label : s).join(', ') || (e.observed ? '—' : 'nobody yet'));
       if (e.sources.length) row('sources', e.sources.join(', '));
       if (e.members.length > 1) row('aggregates', `${e.members.length} communications`);
-      parts.push(kv, ...evidenceBlock(e));
+      parts.push(kv, ...evidenceBlock(e), effectiveRules(e));
       const fs = state.snap.findings.filter(f => e.members.some(m => f.subject === m.from + '->' + m.to) || (e.state === 'ghost' && f.subject === e.from && f.rule === 'undeclared-flow'));
-      if (fs.length) { parts.push(el('h3', {}, 'Next steps')); parts.push(...fs.map(f => findingCard(f, true))); }
-      pane.replaceChildren(...parts);
+      if (fs.length) { parts.push(el('h3', {}, 'Next steps')); parts.push(...fs.map(f => findingCard(f))); }
+      pane.replaceChildren(...parts.filter(Boolean));
     }
 
     // renderPortDetails explains a port: who is outside the view, how they
@@ -2691,7 +2973,7 @@ button.label { cursor: pointer; }
       const actions = [el('button', { type: 'button', class: 'btn', onclick: () => { setFilters(emptyFilters()); locate(p.of[0]); } }, 'Show on the whole map')];
       if (p.journey) actions.push(el('button', { type: 'button', class: 'btn', onclick: () => setFilters({ journeys: [p.journey], facets: {} }) }, `Open journey ${p.journey}`));
       parts.push(el('div', { class: 'labels' }, ...actions));
-      pane.replaceChildren(...parts);
+      pane.replaceChildren(...parts.filter(Boolean));
     }
 
     function renderSources() {
@@ -2798,29 +3080,42 @@ button.label { cursor: pointer; }
 
     // ----------------------------------------------------------------- data
     function renderAll() {
+      const active = root.activeElement, focusId = active?.id;
+      const portId = [...portEls].find(([, port]) => port.g === active)?.[0];
       index = indexSnapshot(state.snap);
       state.jkey = journeyKeyOf(state.snap, state.journeyKey);
       state.scope = scopeOf(state.snap, { ...state.filters, journeyKey: state.jkey });
       renderRings(); renderGroupBy(); renderScope(); renderButtons();
       renderMap(); renderSteps(); renderSources(); renderDetails(); renderLive();
+      if (active && !active.isConnected) {
+        const target = portId ? portEls.get(portId)?.g || $('#filterBtn') : focusId ? $('#' + focusId) : null;
+        target?.focus({ preventScroll: true });
+      }
     }
 
-    function apply(raw, fresh) {
+    function apply(raw, fresh, force = false) {
       if (destroyed) return;
       const snap = sanitize(raw);
       state.connected = true;
       state.error = '';
-      if (!state.live && state.snap) { state.pending = snap; renderLive(); return; }
+      if (!force && (state.historyLoading || state.historyId)) return;
+      const hostReplayChanged = !opts.api && (snap.timeMode === 'historical' || state.snap?.timeMode === 'historical') &&
+        (snap.history?.id !== state.snap?.history?.id || snap.timeMode !== state.snap?.timeMode);
+      if (!force && !hostReplayChanged && !state.live && state.snap) { state.pending = snap; renderLive(); return; }
+      if (hostReplayChanged) { state.activity = []; renderActivity(); }
       const sig = signature(snap);
       const changed = sig !== state.sig;
       const isNew = !state.snap || snap.round !== state.snap.round;
       state.snap = snap;
       state.lastData = Date.now();
       if (changed) { state.sig = sig; renderAll(); } else renderLive();
-      if (fresh && isNew) pushActivity(snap.changes, true);
+      if (opts.select && !state.restoredSelect) { state.restoredSelect = true; locate(opts.select, { move: false }); }
+      if (fresh && isNew) pushActivity(snap.changes, snap.timeMode !== 'historical');
+      return true;
     }
 
     async function load(signal) {
+      if (state.historyId) { await replay(state.historyId); return; }
       const get = path => fetch(opts.api + path, { signal, headers: { Accept: 'application/json' } }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
       const [snap, changes] = await Promise.all([get('snapshot'), get('changes').catch(() => [])]);
       if (destroyed) return;
@@ -2828,8 +3123,54 @@ button.label { cursor: pointer; }
       pushActivity(changes, false);
     }
 
+    let historyRequest = 0;
+    async function replay(id) {
+      const request = ++historyRequest;
+      state.historyLoading = true;
+      if (es) { es.close(); es = null; }
+      try {
+        const response = await fetch(opts.api + (id ? 'history/' + encodeURIComponent(id) : 'snapshot'), { signal: aborter.signal });
+        if (!response.ok) throw new Error(id ? 'Historical snapshot unavailable. It may have expired; this does not mean no traffic.' : 'Current state could not be loaded.');
+        const snap = await response.json();
+        if (destroyed || request !== historyRequest) return;
+        if (id && (snap.timeMode !== 'historical' || snap.history?.id !== id)) throw new Error('The server did not return the requested historical snapshot.');
+        state.historyId = id; state.live = !id; state.pending = null;
+        state.activity = []; pushActivity(snap.changes, false); renderActivity();
+        apply(snap, false, true); renderButtons();
+        $('#historyDialog').close();
+      } catch (error) {
+        if (destroyed || request !== historyRequest) return;
+        state.error = error.message; $('#historyStatus').textContent = error.message; renderLive();
+      } finally {
+        if (request === historyRequest) { state.historyLoading = false; if (!state.historyId) connect(); }
+      }
+    }
+
+    let historyListRequest = 0;
+    async function listHistory() {
+      const request = ++historyListRequest;
+      const from = $('#historyFrom').value, to = $('#historyTo').value;
+      const query = from && to ? '?from=' + encodeURIComponent(new Date(from + 'Z').toISOString()) + '&to=' + encodeURIComponent(new Date(to + 'Z').toISOString()) : '';
+      $('#historyStatus').textContent = 'Loading history…'; $('#historyList').replaceChildren();
+      try {
+        const response = await fetch(opts.api + 'history' + query, { signal: aborter.signal });
+        if (!response.ok) throw new Error('History could not be loaded. Check the UTC range and source connection.');
+        const result = await response.json();
+        if (destroyed || request !== historyListRequest) return;
+        $('#historyStatus').textContent = !result.enabled ? 'History is disabled. Enable history.directory on the Teia server to persist snapshots.'
+          : result.snapshots?.length ? `${result.snapshots.length} stored snapshots. Retention: ${fmtSec(result.retentionSeconds)}.${result.writeError ? ' Latest write failed: ' + result.writeError : ''}`
+            : 'No stored snapshots in this interval. This does not mean no traffic.';
+        // Bound DOM work; the newest 200 snapshots are visible, narrower time ranges reach older ones.
+        const snapshots = [...(result.snapshots || [])].sort((a, b) => b.generatedAt.localeCompare(a.generatedAt));
+        $('#historyList').replaceChildren(...snapshots.slice(0, 200).map(s => el('button', {
+          type: 'button', class: 'rel', 'data-history-id': s.id, onclick: () => replay(s.id),
+        }, `${s.generatedAt} · ${s.nodes} components · ${s.edges} connections`)));
+        if (snapshots.length > 200) $('#historyList').append(el('p', {}, `${snapshots.length - 200} older snapshots hidden. Narrow the UTC range to inspect them.`));
+      } catch (error) { if (!destroyed && request === historyListRequest) $('#historyStatus').textContent = error.message; }
+    }
+
     function connect() {
-      if (destroyed || es || !state.live || !opts.api || opts.stream === false) return;
+      if (destroyed || es || !state.live || state.historyId || state.historyLoading || !opts.api || opts.stream === false) return;
       try { es = new EventSource(opts.api + 'stream'); } catch { return; }
       es.addEventListener('snapshot', ev => {
         reconnectDelay = 1000;
@@ -2855,14 +3196,15 @@ button.label { cursor: pointer; }
 
     // ------------------------------------------------------------------ wiring
     function onKey(ev) {
+      if ($('#shareDialog').open || $('#historyDialog').open) return;
       const t = ev.composedPath()[0];
       if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      if (ev.key === 'Escape' && filterPanelOpen()) { ev.preventDefault(); ev.stopPropagation(); setFilterPanel(false); return; }
       if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) { if (ev.key === 'Escape') t.blur(); return; }
       const onControl = t && (t.tagName === 'BUTTON' || t.tagName === 'A' || t.tagName === 'SUMMARY');
-      if (ev.key === 'Escape' && filterPanelOpen()) { ev.stopPropagation(); setFilterPanel(false); $('#filterBtn')?.focus(); return; }
       if (ev.key === 'Escape') {
         const open = $('aside').classList.contains('open');
-        if (state.selected || open) { ev.stopPropagation(); select(null); setDrawer(false); }
+        if (state.selected || open) { ev.stopPropagation(); select(null); setDrawer(false); $('#stepsBtn').focus(); }
         return;
       }
       if (onControl) return;
@@ -2875,24 +3217,35 @@ button.label { cursor: pointer; }
 
     let searchTimer = 0;
     app.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
+    $('.tabs').addEventListener('keydown', ev => {
+      if (!ev.target.classList.contains('tab') || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) return;
+      ev.preventDefault();
+      const tabs = [...app.querySelectorAll('.tab')], i = tabs.indexOf(ev.target);
+      const next = ev.key === 'Home' ? 0 : ev.key === 'End' ? tabs.length - 1 : (i + (ev.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+      showTab(tabs[next].dataset.tab); tabs[next].focus();
+    });
+    showTab(state.tab);
     $('#search').addEventListener('input', ev => {
       $('#isolateBtn').hidden = !ev.target.value.trim();
       clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => { state.query = ev.target.value; applyHighlight(); }, 120);
+      searchTimer = setTimeout(() => { state.query = ev.target.value; syncSharedURL(); applyHighlight(); }, 120);
     });
     $('#search').addEventListener('keydown', ev => {
       if (ev.key !== 'Enter') return;
       if (ev.shiftKey) { ev.preventDefault(); isolate(); return; }
-      state.query = ev.target.value; applyHighlight();
+      state.query = ev.target.value; syncSharedURL(); applyHighlight();
       const m = matcher(state.query);
       const hit = m && currentView && [...currentView.nodes.values()].find(m);
       if (hit) focusNode(hit.id);
     });
     $('#groupBy').addEventListener('change', ev => {
+      const selected = state.selected?.type === 'node' ? currentView.nodes.get(state.selected.id) : null;
+      const identity = selected?.group ? selected.members[0]?.id : state.selected?.id;
       state.groupBy = ev.target.value; state.expanded.clear(); store.set('groupBy', state.groupBy);
-      state.selected = null; renderMap(); renderDetails(); fit();
+      syncSharedURL();
+      renderMap(); if (identity) locate(identity, { move: false }); else renderDetails(); fit();
     });
-    $('#flowBtn').addEventListener('click', () => { state.flow = !state.flow; store.set('flow', state.flow); renderButtons(); wake(); });
+    $('#flowBtn').addEventListener('click', () => { state.flow = !state.flow; store.set('flow', state.flow); renderButtons(); rebuildParticles(); wake(); });
     $('#valuesBtn').addEventListener('click', () => { state.values = !state.values; store.set('values', state.values); renderButtons(); renderReasons(); applyHighlight(); });
     // isolate turns what the search names into the journey shown.
     const isolate = () => {
@@ -2921,6 +3274,7 @@ button.label { cursor: pointer; }
       connect();
     });
     $('#fitBtn').addEventListener('click', fit);
+    $('#readableBtn').addEventListener('click', focusSelection);
     $('#zoomIn').addEventListener('click', () => { const r = stage.getBoundingClientRect(); zoomAt(1.2, r.width / 2, r.height / 2); });
     $('#zoomOut').addEventListener('click', () => { const r = stage.getBoundingClientRect(); zoomAt(1 / 1.2, r.width / 2, r.height / 2); });
     $('#resetBtn').addEventListener('click', () => { state.positions = {}; store.set(posKey(), {}); topologyKey = ''; renderMap(); fit(); });
@@ -2931,6 +3285,37 @@ button.label { cursor: pointer; }
       if (filterPanelOpen() && !ev.composedPath().some(x => x === $('#filterPanel') || x?.id === 'filterBtn')) setFilterPanel(false);
     });
     app.querySelectorAll('[data-export]').forEach(b => b.addEventListener('click', () => exportMap(b.dataset.export)));
+    function viewState() {
+      return { version: 1, ...filtersToParams(state.filters), group: state.groupBy, query: state.query, select: state.selected?.id || (!state.restoredSelect && opts.select) || '',
+        flow: state.flow, values: state.values, live: state.live, journeyKey: state.journeyKey, states: state.states, signals: [...state.signals], history: state.historyId, expanded: [...state.expanded] };
+    }
+    function syncSharedURL() {
+      if (typeof location === 'undefined' || typeof history === 'undefined') return;
+      const url = new URL(location.href), key = page ? 'teiaView' : 'teiaView-' + (opts.storageKey || 'panel');
+      if (!url.searchParams.has(key)) return;
+      const value = JSON.stringify(viewState());
+      if (url.searchParams.get(key) !== value) { url.searchParams.set(key, value); history.replaceState(null, '', url); }
+    }
+    $('#shareBtn').addEventListener('click', () => {
+      const url = new URL(location.href);
+      url.searchParams.set(page ? 'teiaView' : 'teiaView-' + (opts.storageKey || 'panel'), JSON.stringify(viewState()));
+      $('#shareURL').value = url.href;
+      $('#shareContext').textContent = page ? 'Restores the filters, grouping, selection and update settings.'
+        : 'Restores this panel’s local view. Dashboard variables and the requested time range remain in the dashboard URL.';
+      $('#shareStatus').textContent = '';
+      $('#shareDialog').showModal(); $('#shareURL').select();
+    });
+    $('#copyViewBtn').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText($('#shareURL').value); $('#shareStatus').textContent = 'Link copied.'; }
+      catch { $('#shareURL').focus(); $('#shareURL').select(); $('#shareStatus').textContent = 'Copy the selected link with Ctrl+C or Command+C.'; }
+    });
+    $('#closeShareBtn').addEventListener('click', () => $('#shareDialog').close());
+    $('#shareDialog').addEventListener('close', () => $('#exportBtn').focus());
+    $('#historyBtn').addEventListener('click', () => { $('#historyDialog').showModal(); listHistory(); });
+    $('#historyForm').addEventListener('submit', event => { event.preventDefault(); listHistory(); });
+    $('#currentBtn').addEventListener('click', () => replay(''));
+    $('#closeHistoryBtn').addEventListener('click', () => $('#historyDialog').close());
+    $('#historyDialog').addEventListener('close', () => $('#historyBtn').focus());
     svg.addEventListener('wheel', onWheel, { passive: false });
     svg.addEventListener('pointerdown', onPointerDown);
     svg.addEventListener('pointermove', onPointerMove);
@@ -2955,7 +3340,7 @@ button.label { cursor: pointer; }
     const schemeMQ = matchMedia('(prefers-color-scheme: dark)');
     const onScheme = () => { if (state.snap) { renderLegend(); renderAll(); renderActivity(); } };
     schemeMQ.addEventListener('change', onScheme);
-    const onMotion = () => { if (store.get('flow', null) == null) { state.flow = !motionMQ.matches; renderButtons(); wake(); } };
+    const onMotion = () => { if (store.get('flow', null) == null) { state.flow = !motionMQ.matches; renderButtons(); rebuildParticles(); wake(); } };
     motionMQ.addEventListener('change', onMotion);
 
     // Shareable views (page mode): ?journey=checkout&group=team&q=kind:database&theme=light&select=orders-db&legend=icons&flow=1&values=0&live=0
@@ -2975,6 +3360,21 @@ button.label { cursor: pointer; }
     }
     if (opts.journey) state.filters.journeys = [String(opts.journey).trim()];
     let hostJourney = opts.journey || '';
+    const hostOptions = { journeyKey: opts.journeyKey || '', groupBy: opts.groupBy || '', flow: opts.flow, values: opts.values };
+    try {
+      const raw = new URLSearchParams(location.search).get(page ? 'teiaView' : 'teiaView-' + (opts.storageKey || 'panel'));
+      const view = raw && raw.length < 16000 ? JSON.parse(raw) : null;
+      if (view?.version === 1) {
+        state.filters = filtersFromParams(new URLSearchParams({ journey: text(view.journey), filter: text(view.filter) }));
+        state.groupBy = text(view.group); state.query = text(view.query); $('#search').value = state.query;
+        state.journeyKey = text(view.journeyKey); opts.select = text(view.select);
+        if (opts.api) state.historyId = text(view.history);
+        state.expanded = new Set(strings(view.expanded));
+        for (const key of ['flow', 'values', 'live']) if (typeof view[key] === 'boolean') state[key] = view[key];
+        for (const key of ['ok', 'ghost', 'stale']) if (typeof view.states?.[key] === 'boolean') state.states[key] = view.states[key];
+        state.signals = new Set(strings(view.signals).filter(s => has(SIGNAL, s)));
+      }
+    } catch { /* invalid shared views leave the normal dashboard controls available */ }
     state.positions = stored(posKey(), {});
     if (opts.theme) host.dataset.theme = opts.theme;
 
@@ -2999,7 +3399,7 @@ button.label { cursor: pointer; }
 
     return {
       // update feeds a snapshot from outside (the Grafana panel).
-      update(snap, changes) { apply(snap, true); if (changes) pushActivity(changes, state.activity.length > 0); },
+      update(snap, changes) { if (apply(snap, true) && changes) pushActivity(changes, state.snap.timeMode !== 'historical' && state.activity.length > 0); },
       // setStatus reports the host's own query state (the panel's data.state).
       setStatus(error) { state.error = error || ''; renderLive(); },
       setOptions(options = {}) {
@@ -3008,10 +3408,11 @@ button.label { cursor: pointer; }
         // A journey from the host (a dashboard variable) is the viewer's
         // choice; it applies when it changes, keeping filters picked since.
         if (journey != null && journey !== hostJourney) { hostJourney = journey; setJourney(journey); }
-        if (journeyKey != null && journeyKey !== state.journeyKey) { state.journeyKey = journeyKey; topologyKey = ''; if (state.snap) { renderAll(); state.fitted = fit(); } }
-        if (values != null && store.get('values', null) == null && values !== state.values) { state.values = values; renderButtons(); if (state.snap) renderReasons(); }
-        if (groupBy != null && store.get('groupBy', null) == null && groupBy !== state.groupBy) { state.groupBy = groupBy; state.expanded.clear(); if (state.snap) { renderGroupBy(); renderMap(); fit(); } }
-        if (flow != null && store.get('flow', null) == null && flow !== state.flow) { state.flow = flow; renderButtons(); wake(); }
+        if (journeyKey != null && journeyKey !== hostOptions.journeyKey) { state.journeyKey = journeyKey; topologyKey = ''; if (state.snap) { renderAll(); state.fitted = fit(); } }
+        if (values != null && values !== hostOptions.values) { state.values = values; renderButtons(); if (state.snap) renderReasons(); }
+        if (groupBy != null && groupBy !== hostOptions.groupBy) { state.groupBy = groupBy; state.expanded.clear(); if (state.snap) { renderGroupBy(); renderMap(); fit(); } }
+        if (flow != null && flow !== hostOptions.flow) { state.flow = flow; renderButtons(); rebuildParticles(); wake(); }
+        for (const key of Object.keys(hostOptions)) if (options[key] != null) hostOptions[key] = options[key];
       },
       setTheme(theme) { host.dataset.theme = theme; renderLegend(); if (state.snap) { renderAll(); renderActivity(); } },
       destroy() {

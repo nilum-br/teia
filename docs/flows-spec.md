@@ -39,6 +39,26 @@ spec:
 | `spec.egress[].protocol` | no | `http`, `grpc`, `postgresql`, `redis`, `kafka`... |
 | `spec.egress[].port` | no | destination port; goes to the flow matrix |
 | `spec.egress[].reason` | no, but please | why the call exists; reviewers and firewall teams read this |
+| `spec.egress[].expectedFrequency` | no | maximum interval between observed calls, as a positive Go duration such as `24h` or `168h`; not a cron schedule |
+
+## Rare and batch flows
+
+Declare `expectedFrequency: 24h` for a daily call. A short discovery window may contain no call even
+when the job is working. Teia keeps its structural edge state (`stale` means declared but not observed
+in this window), but suppresses the ordinary stale-flow recommendation and adds a separate frequency
+assessment: `not-due`, `overdue`, or `unknown`.
+
+Only original topology observation times establish `lastObservedAt`. Capture times, query evaluation
+times, retained samples and invalid/future timestamps do not. `nextExpectedAt` adds the declared
+interval to the last original observation. Passing that deadline gives an informational finding, not
+proof of a failed job: sampling and collection gaps can hide calls. No original time means `unknown`.
+The in-memory record lasts while the declaration remains; opt-in [snapshot history](configuration.md#observation-history)
+can restore it after a restart. Multiple declarations for the same caller/callee use the shortest
+positive interval. Empty leaves ordinary window-based drift behavior unchanged.
+
+Use hours for days/weeks (`24h`, `168h`); Go durations do not accept `1d`, calendar months or cron expressions.
+Zero, negative and overflowing values are rejected by `teia validate`. See the
+[local contract-review workflow](contract-review.md) for saved-snapshot comparisons and accepted flow generation.
 
 ## Refs and identity
 
@@ -61,6 +81,5 @@ Documents of other kinds in the same file are skipped. CI runs this on `examples
 
 ## Compatibility
 
-`v1alpha1` may change. Planned additions: `expectedFrequency` (so rare flows such as monthly batches are
-not reported as stale), `direction` for UDP and streaming, and CIDR destinations for flows that leave the
-platform.
+`v1alpha1` may change. Planned additions include `direction` for UDP and streaming, and CIDR destinations
+for flows that leave the platform.

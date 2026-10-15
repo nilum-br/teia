@@ -25,6 +25,7 @@ import (
 	"github.com/nilum-br/teia/internal/config"
 	"github.com/nilum-br/teia/internal/engine"
 	exp "github.com/nilum-br/teia/internal/export"
+	"github.com/nilum-br/teia/internal/history"
 	"github.com/nilum-br/teia/internal/model"
 	"github.com/nilum-br/teia/internal/source/declared"
 )
@@ -43,6 +44,11 @@ Usage:
                                          probe what the platform already runs and print a starting config
   teia export matrix [--config teia.yaml] [--lang pt-BR] [--declared-only]
                                          flow matrix (CSV) for firewall and security reviews
+  teia diff --before OLD.json --after NEW.json [--format text|json]
+                                         compare saved topology, contract and health states
+  teia diff --snapshot GRAPH.json [--flows FILE] [--format text|json|flows]
+            [--accept 'caller->callee=reason']
+                                         review observed additions; emit only explicitly accepted flows
   teia validate FILE...                  check flows files
   teia version
 
@@ -68,6 +74,8 @@ func main() {
 		err = export(os.Args[2:])
 	case "validate":
 		err = validate(os.Args[2:])
+	case "diff":
+		err = diff(os.Args[2:])
 	case "version", "--version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -95,15 +103,22 @@ func newLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 }
 
-func newEngine(cfg *config.Config, log *slog.Logger) *engine.Engine {
+func newEngine(cfg *config.Config, log *slog.Logger, stores ...*history.Store) *engine.Engine {
+	var archive *history.Store
+	if len(stores) > 0 {
+		archive = stores[0]
+	}
 	return engine.New(cfg.BuildSources(), engine.Options{
-		Interval:  cfg.Interval,
-		Timeout:   cfg.Timeout,
-		Aliases:   cfg.Aliases,
-		Ignore:    cfg.Ignore,
-		Retention: cfg.Retention,
-		Health:    cfg.HealthThresholds(),
-		Notifiers: cfg.Notifiers(),
+		History:         archive,
+		Interval:        cfg.Interval,
+		Timeout:         cfg.Timeout,
+		Aliases:         cfg.Aliases,
+		Ignore:          cfg.Ignore,
+		Retention:       cfg.Retention,
+		Health:          cfg.HealthThresholds(),
+		HealthOverrides: cfg.HealthOverrides(),
+		Notifiers:       cfg.Notifiers(),
+		EvidenceLinks:   cfg.EvidenceLinks,
 	}, log)
 }
 
@@ -128,13 +143,18 @@ func serve(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	eng := newEngine(cfg, log)
+	archive, err := history.Open(cfg.History)
+	if err != nil {
+		return fmt.Errorf("opening observation history: %w", err)
+	}
+	eng := newEngine(cfg, log, archive)
 	go eng.Run(ctx)
 
 	if cfg.Auth.Token == "" {
 		log.Warn("the API has no auth.token: anyone who can reach this address can read the map", "addr", cfg.Listen)
 	}
 	srv := newServer(cfg.Listen, api.Handler(eng, api.Options{
+		History:        archive,
 		Token:          cfg.Auth.Token,
 		AllowedOrigins: cfg.CORS.AllowedOrigins,
 		MaxStreams:     cfg.MaxStreams,

@@ -27,6 +27,9 @@ type Probe struct {
 // ProbeReading is one measure a probe takes, per subject.
 type ProbeReading struct {
 	Cause model.Cause
+	// Missing explains an unavailable capability. Empty means absence is a
+	// normal filtered result (for example no stalled consumers), not a gap.
+	Missing string
 	// What names the measure; "%s" is replaced by the window ("restarts in
 	// the last %s").
 	What string
@@ -112,6 +115,14 @@ var redisProbe = &Probe{
 			SampleTimes: []string{gaugeTime(exporterBy, "redis_connected_clients", ""), gaugeTime(exporterBy, "redis_config_maxclients", "redis_config_maxclients > 0")},
 			Query:       func(window) string { return byExporter("redis_connected_clients") },
 			Max:         func(window) string { return byExporter("redis_config_maxclients > 0") }, Subject: exporterSubject},
+		{Cause: model.CauseEvictions, What: "cache keys evicted in the last %s", Subject: exporterSubject, Windowed: true,
+			Missing: "redis_evicted_keys_total and at least two samples in the lookback are required; absence is not zero evictions",
+			Query:   func(w window) string { return byExporter("increase(redis_evicted_keys_total[" + w.promql + "])") }},
+		{Cause: model.CauseRejections, What: "client connections rejected in the last %s", Subject: exporterSubject, Windowed: true,
+			Missing: "redis_rejected_connections_total and at least two samples in the lookback are required; absence is not zero rejected clients",
+			Query: func(w window) string {
+				return byExporter("increase(redis_rejected_connections_total[" + w.promql + "])")
+			}},
 	},
 }
 
@@ -121,26 +132,20 @@ const kafkaBy = "consumergroup, topic"
 
 var kafkaProbe = &Probe{
 	Name:        "kafka",
-	Description: "Kafka consumer groups through kafka_exporter: messages waiting, time behind, no progress",
+	Description: "Kafka consumer groups through kafka_exporter: backlog, drain estimate with no new arrivals, stalled offsets",
 	Detect:      "kafka_consumergroup_lag",
 	Readings: []ProbeReading{
 		// On the line from the consumer group to its topic.
 		{Cause: model.CauseBacklog, What: "messages waiting", Subject: consumerSubject,
 			SampleTimes: []string{gaugeTime(kafkaBy, "kafka_consumergroup_lag", "")},
 			Query:       func(window) string { return fmt.Sprintf("sum by (%s) (kafka_consumergroup_lag)", kafkaBy) }},
-		// Lag divided by how fast the group consumes: how long it would take
-		// to catch up, which is how far behind it is.
-		{Cause: model.CauseLag, What: "behind", Unit: model.UnitSeconds, Subject: consumerSubject, Windowed: true,
-			Query: func(w window) string {
-				return fmt.Sprintf("sum by (%[1]s) (kafka_consumergroup_lag) / sum by (%[1]s) (rate(kafka_consumergroup_current_offset[%[2]s])) > 0",
-					kafkaBy, w.promql)
-			}},
+		// Offsets are gauges, not counters: resets/rewinds must not be
+		// interpreted as consumption. This is not actual oldest-message age.
+		{Cause: model.CauseLag, What: "estimated drain time with no new arrivals", Unit: model.UnitSeconds, Subject: consumerSubject, Windowed: true,
+			Query: kafkaDrain},
 		// Waiting messages and an offset that did not move over the window.
 		{Cause: model.CauseLag, What: "without progress", Unit: model.UnitSeconds, Subject: consumerSubject, Windowed: true,
-			Query: func(w window) string {
-				return fmt.Sprintf("(sum by (%[1]s) (kafka_consumergroup_lag) > 0 and sum by (%[1]s) (increase(kafka_consumergroup_current_offset[%[2]s])) == 0) * 0 + %[3]g",
-					kafkaBy, w.promql, w.seconds)
-			}},
+			Query: kafkaStalled},
 		// On the topic itself, every group's lag together.
 		{Cause: model.CauseBacklog, What: "messages waiting",
 			SampleTimes: []string{gaugeTime("topic", "kafka_consumergroup_lag", "")},
@@ -158,17 +163,19 @@ func consumerSubject(m map[string]string) ([]string, []string) {
 var rabbitmqQueue = `{__name__=~"rabbitmq_(detailed_)?queue_messages_ready"}`
 
 var rabbitmqProbe = &Probe{
-	// No SampleTimes yet: timestamp() drops metric names, so the selector
-	// spanning two names can produce duplicate labelsets before aggregation.
 	Name:        "rabbitmq",
-	Description: "RabbitMQ queues through its built-in Prometheus plugin (per-object metrics): messages waiting",
+	Description: "RabbitMQ per-object metrics: ready, unacknowledged and head-message timestamp age when supplied",
 	Detect:      rabbitmqQueue,
 	Readings: []ProbeReading{
 		{Cause: model.CauseBacklog, What: "messages waiting",
-			Query: func(window) string { return "sum by (vhost, queue) (" + rabbitmqQueue + ")" },
-			Subject: func(m map[string]string) ([]string, []string) {
-				return nonEmpty(m["queue"]), nil
-			}},
+			Query:       func(window) string { return rabbitGauge("messages_ready") },
+			SampleTimes: []string{rabbitTime("messages_ready")}, Subject: rabbitSubject},
+		{Cause: model.CauseBacklog, What: "unacknowledged messages", Subject: rabbitSubject,
+			Missing: "per-queue messages_unacked requires queue_coarse_metrics or per-object scraping; absent is not zero unacknowledged messages",
+			Query:   func(window) string { return rabbitGauge("messages_unacked") }, SampleTimes: []string{rabbitTime("messages_unacked")}},
+		{Cause: model.CauseLag, What: "head-message timestamp age (publisher clock)", Unit: model.UnitSeconds, Subject: rabbitSubject,
+			Missing: "a valid queue_head_message_timestamp is required; empty queues, unsupported queue types, missing publisher timestamps or future clocks do not establish oldest-message age",
+			Query:   func(window) string { return "(time() - ((" + rabbitGauge("head_message_timestamp") + ") > 0)) >= 0" }, SampleTimes: []string{rabbitTime("head_message_timestamp")}},
 	},
 }
 
@@ -217,6 +224,15 @@ var postgresExporterProbe = &Probe{
 			Max: func(window) string {
 				return fmt.Sprintf("max by (%s) (pg_settings_max_connections)", exporterBy)
 			}, Subject: exporterSubject},
+		{Cause: model.CauseLag, What: "oldest open transaction age", Unit: model.UnitSeconds, Subject: exporterSubject,
+			Missing: "pg_stat_activity_max_tx_duration and pg_read_all_stats are required to see other sessions; absent is not zero transaction age",
+			Query:   func(window) string { return fmt.Sprintf("max by (%s) (pg_stat_activity_max_tx_duration)", exporterBy) }, SampleTimes: []string{gaugeTime(exporterBy, "pg_stat_activity_max_tx_duration", "")}},
+		{Cause: model.CauseLag, What: "replica replay delay (exporter estimate)", Unit: model.UnitSeconds, Subject: exporterSubject,
+			Missing: "replication collector metrics pg_replication_lag_seconds and pg_replication_is_replica=1 are required; primary/not configured/absent is not measured zero replica delay",
+			Query: func(window) string {
+				return fmt.Sprintf("max by (%[1]s) (pg_replication_lag_seconds) and max by (%[1]s) (pg_replication_is_replica == 1)", exporterBy)
+			},
+			SampleTimes: []string{gaugeTime(exporterBy, "pg_replication_lag_seconds", ""), gaugeTime(exporterBy, "pg_replication_is_replica", "pg_replication_is_replica == 1")}},
 	},
 }
 
