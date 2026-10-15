@@ -397,7 +397,7 @@ them from their details.
 
 Limits: two discrete captures, not a time series. "Only before" is absence from the second capture, not proof
 that traffic stopped. The page lists 500 differences; the download keeps all of them. Captures of different
-scopes (a slice against the whole map, or two slices) are not compared.
+scopes (a slice against the whole map, two slices, or two clusters) are not compared.
 
 ### T19: Guide source and query-field onboarding
 

@@ -1695,11 +1695,12 @@ button.label { cursor: pointer; }
       });
     };
     const count = rows => Object.fromEntries(['added', 'removed', 'changed', 'unchanged'].map(status => [status, rows.filter(row => row.status === status).length]));
-    // A slice holds only the calls that carried its dimensions. Against the
-    // whole map or another slice it differs in scope, not by change.
-    const scopeOf = snap => snap.slice ? sliceText(snap.slice.selector) : '';
+    // A slice holds only the calls that carried its dimensions, and a cluster
+    // only its own components: against another scope a capture differs in
+    // scope, not by change.
+    const scopeOf = snap => ({ cluster: snap.cluster || '', slice: snap.slice ? sliceText(snap.slice.selector) : '' });
     const scope = { before: scopeOf(before), after: scopeOf(after) };
-    if (scope.before !== scope.after) return { comparable: false, scope, nodes: [], edges: [], counts: count([]) };
+    if (scope.before.cluster !== scope.after.cluster || scope.before.slice !== scope.after.slice) return { comparable: false, scope, nodes: [], edges: [], counts: count([]) };
     const nodes = compare('node', before.nodes, after.nodes, ['kind', 'tech', 'health', 'visibility', 'labels', 'addresses', 'errorsUnknown', 'identity'], n => n.id,
       n => ({ ...n, identity: decisions(n.identity) }));
     const edges = compare('edge', before.edges, after.edges, ['state', 'health', 'declared', 'observed', 'protocol', 'port', 'errorsUnknown', 'identity'], e => e.from + '->' + e.to,
@@ -3601,13 +3602,13 @@ button.label { cursor: pointer; }
       for (const side of ['before','after']) {
         const snap = comparison[side];
         $('#compare-label-' + side).textContent = snap ? `${snap.generatedAt || 'Capture time unknown'} · ${snap.history?.id || 'uploaded/captured observation'} · ${snap.nodes.length} components` +
-          (snap.slice ? ` · only calls with ${sliceLabel(sliceText(snap.slice.selector))}` : '') : 'No observation selected';
+          (snap.cluster ? ` · cluster ${snap.cluster}` : '') + (snap.slice ? ` · only calls with ${sliceLabel(sliceText(snap.slice.selector))}` : '') : 'No observation selected';
       }
       clearComparisonMaps(); const result = $('#comparisonResult'); result.replaceChildren();
       if (!comparison.before || !comparison.after) return;
       const diff = compareSnapshots(comparison.before, comparison.after);
       if (!diff.comparable) {
-        const holds = scope => scope ? 'only calls with ' + sliceLabel(scope) : 'every call';
+        const holds = scope => (scope.slice ? 'only calls with ' + sliceLabel(scope.slice) : 'every call') + (scope.cluster ? ` of cluster ${scope.cluster}` : '');
         result.append(el('p', { role: 'status' }, `Not compared: “before” holds ${holds(diff.scope.before)} and “after” holds ${holds(diff.scope.after)}. Their differences would be the scope, not changes. Choose two captures of the same scope.`));
         return;
       }

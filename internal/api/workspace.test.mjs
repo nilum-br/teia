@@ -47,12 +47,16 @@ test('comparison reports identity decisions, not their collection times or absen
 });
 
 test('comparison refuses captures that hold different calls', () => {
-  const capture = (journey, nodes) => sanitize({ nodes: nodes.map(id => ({ id })), edges: nodes.slice(1).map(id => ({ from: 'web', to: id })),
+  const capture = (journey, nodes, cluster) => sanitize({ nodes: nodes.map(id => ({ id })), edges: nodes.slice(1).map(id => ({ from: 'web', to: id })), cluster,
     slice: journey ? { selector: { journey }, matched: true, metrics: 'scoped', sources: ['tempo'] } : undefined });
   const whole = capture('', ['web', 'orders', 'catalog']), checkout = capture('checkout', ['web', 'orders']), browse = capture('browse', ['web', 'catalog']);
   const mixed = compareSnapshots(whole, checkout);
   assert.equal(mixed.comparable, false, 'a slice is not the whole map minus what changed');
-  assert.deepEqual(mixed.scope, { before: '', after: 'journey:checkout' });
+  assert.deepEqual(mixed.scope, { before: { cluster: '', slice: '' }, after: { cluster: '', slice: 'journey:checkout' } });
+  // Two clusters running the same apps are two maps, not one map that changed.
+  const east = capture('', ['web', 'orders'], 'east'), west = capture('', ['web', 'orders'], 'west');
+  assert.equal(compareSnapshots(east, west).comparable, false);
+  assert.equal(compareSnapshots(east, capture('', ['web', 'orders', 'catalog'], 'east')).comparable, true);
   assert.deepEqual([mixed.nodes, mixed.edges, mixed.counts], [[], [], { added: 0, removed: 0, changed: 0, unchanged: 0 }]);
   assert.equal(compareSnapshots(checkout, browse).comparable, false);
   const same = compareSnapshots(checkout, capture('checkout', ['web', 'orders', 'db']));

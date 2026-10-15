@@ -46,7 +46,8 @@ declaration should be removed: each capture is a discrete observation, not conti
 
 Captures are compared only within the same scope. With a slice on the map, "the snapshot currently shown" holds
 only the selected calls, while stored observations hold every call; a slice against the whole map, or against
-another slice, is not compared, because everything outside the slice would read as a difference.
+another slice, is not compared, because everything outside the slice would read as a difference. Captures of two
+clusters are not compared either: the same apps in two clusters are two maps, not one map that changed.
 
 ## Connect data
 
