@@ -448,15 +448,18 @@ carried it and, in them, the calls that did. See [sampled operations](operations
 Limits: the namespace is still not part of a node ID; owners behind NAT or poolers are not inferred. See
 [identity resolution and provenance](identity-resolution.md).
 
-Validation on 15 October 2026, in an isolated lab with checkout/browse routes and a database shared by two
-operations, repeated after merging dimension slices: Go vet, race tests and golangci-lint; 89 shared-core
-tests; 81 panel tests and 2 dependency regressions; TypeScript, lint and build; 67 browser/API cases, with the
-five opt-in candidate, comparison and scale cases skipped; and the end-to-end lab scenario. The browser cases
-include every T17–T22 tool in both themes at 600 and 1600 pixels, the installed Grafana panel, comparison of
-real stored captures, a proposal and a conflict against stored history, a real checkout operation from Tempo
-(`TEIA_OPERATION_LAB=1`), and slices next to operations and comparisons. A lab run with a Tempo span
-attribute as a slice dimension confirmed that a real slice carries no operations and that the workspace says
-so. People have not yet used these tools: their task-based evaluation belongs to the T12 pilot.
+Validation on 15 October 2026, in an isolated lab with checkout/browse routes, a journey dimension and a
+database shared by two operations, repeated after merging clusters: Go vet, race tests and golangci-lint; 91
+shared-core tests; 85 panel tests and 2 dependency regressions; TypeScript, lint and build; 69 browser/API
+cases, with the five opt-in candidate, comparison and scale cases skipped; and the end-to-end lab scenario,
+which checks that each journey's slice holds its own calls and operations. The browser cases include every
+T17–T22 tool in both themes at 600 and 1600 pixels, the installed Grafana panel picking a slice through the
+dashboard variable, comparison of real stored captures, a proposal and a conflict against stored history, and
+a real checkout operation from Tempo (`TEIA_OPERATION_LAB=1`). On Kubernetes (k3s 1.37 in a container), the
+chart installed teia built from this checkout with its inventory and an in-cluster Tempo carrying the journey
+dimension: `helm test` passed, identities showed each source's decision, slices split calls and operations,
+and stored captures compared, at desktop and phone widths. People have not yet used these tools: their
+task-based evaluation belongs to the T12 pilot.
 
 ## Suggested execution order
 
