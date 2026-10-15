@@ -52,7 +52,7 @@ func Parse(raw string) (Selector, error) {
 		return nil, fmt.Errorf("slice must be at most 2048 bytes")
 	}
 	sel := Selector{}
-	for _, part := range strings.Split(raw, ",") {
+	for part := range strings.SplitSeq(raw, ",") {
 		part = strings.TrimSpace(part)
 		i := strings.IndexAny(part, ":=")
 		if i <= 0 {
@@ -217,19 +217,19 @@ func aggregate(matched []source.Slice) source.Slice {
 	return out
 }
 
-// Prune keeps only what the selected calls touch: nodes at either end of an
-// observed edge, and declared edges between two of them.
+// Prune keeps only what the selected calls touch: their observed edges (with
+// the declaration they matched) and the nodes at either end. Declared flows
+// the calls never made are left out, even between two kept nodes:
+// declarations are not per journey, so one there would read as a stale
+// dependency of the selection.
 func Prune(g *graph.Graph) {
 	touched := map[string]bool{}
-	for _, e := range g.Edges {
-		if e.Observed {
-			touched[e.From], touched[e.To] = true, true
-		}
-	}
 	for key, e := range g.Edges {
-		if !e.Observed && (!touched[e.From] || !touched[e.To]) {
+		if !e.Observed {
 			delete(g.Edges, key)
+			continue
 		}
+		touched[e.From], touched[e.To] = true, true
 	}
 	for id := range g.Nodes {
 		if !touched[id] {

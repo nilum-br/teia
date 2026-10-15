@@ -229,3 +229,11 @@ observadas para o time revisar. Veja a [especificação](docs/flows-spec.md) e
 
 Issues e PRs são bem-vindos; veja o [CONTRIBUTING.md](CONTRIBUTING.md). Vulnerabilidades devem ser reportadas em
 privado, como descrito no [SECURITY.md](SECURITY.md). Apache-2.0. Feito pela [Nilum](https://nilum.com.br) e contribuidores.
+
+### Contribuidores
+
+<a href="https://github.com/nilum-br/teia/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=nilum-br/teia" alt="Fotos de perfil de quem contribuiu com o teia">
+</a>
+
+Gerado a partir da lista de contribuidores do GitHub pelo [contrib.rocks](https://contrib.rocks); atualiza sozinho.
