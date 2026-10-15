@@ -391,6 +391,18 @@ func (m *Memory) Retain(g *Graph, now time.Time) {
 		for i := range e.Evidence {
 			e.Evidence[i].Retained = true
 		}
+		if r.edge.Identity != nil {
+			kept := &model.ConnectionIdentity{From: retainIdentity(r.edge.Identity.From), To: retainIdentity(r.edge.Identity.To)}
+			if ok && e.Identity != nil {
+				for _, entry := range e.Identity.From {
+					kept.From = appendIdentity(kept.From, entry)
+				}
+				for _, entry := range e.Identity.To {
+					kept.To = appendIdentity(kept.To, entry)
+				}
+			}
+			e.Identity = kept
+		}
 		e.RequestRate, e.ErrorRate, e.ErrorsUnknown = 0, 0, true
 		e.LatencyP50Ms, e.LatencyP95Ms = 0, 0
 		e.LatencyApproximate = false
@@ -398,6 +410,14 @@ func (m *Memory) Retain(g *Graph, now time.Time) {
 		for _, id := range []string{e.From, e.To} {
 			if _, ok := g.Nodes[id]; !ok {
 				g.Nodes[id] = &model.Node{ID: id, Kind: model.KindUnknown, Sources: e.Sources}
+			}
+		}
+		if e.Identity != nil {
+			for _, entry := range e.Identity.From {
+				g.Nodes[e.From].Identity = appendIdentity(g.Nodes[e.From].Identity, entry)
+			}
+			for _, entry := range e.Identity.To {
+				g.Nodes[e.To].Identity = appendIdentity(g.Nodes[e.To].Identity, entry)
 			}
 		}
 	}

@@ -1,5 +1,5 @@
 {
-  "status": "acceptance-specification-only-not-runtime-input",
+  "status": "runtime-acceptance-specification",
   "mode": "operation",
   "queryPeriod": {"from":"2026-10-15T12:00:00Z","to":"2026-10-15T12:05:00Z"},
   "sampling": {"policy":"unknown","totalRequests":null,"coverage":null},

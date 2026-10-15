@@ -55,6 +55,7 @@ O mapa, no Grafana (`nilum-teia-panel`) ou na interface da própria teia, é o m
 - **Drift e visibilidade:** tracejado é não declarado, pontilhado é declarado e não visto; a borda do card diz o quanto a teia vê em primeira mão.
 - **[Biblioteca de ícones](docs/icons.md) padronizada:** microsserviço, banco relacional, banco de documentos (NoSQL), cache, stream (Kafka), fila, gateway, job, SaaS externo. A tecnologia é detectada pelos spans, pela imagem ou por label.
 - **Jornadas e filtros:** mostre uma jornada sozinha, num quadro, com portas por onde ela entra e por onde sai, e por que está vermelha. O teia acha a label de jornada que seus serviços já têm (`journey`, `app.kubernetes.io/part-of` ou `system`). O mesmo Filtro recorta o mapa por qualquer label, saúde, tipo de componente ou tecnologia. Veja [docs/journeys.md](docs/journeys.md).
+- **Área de investigação:** foque numa vizinhança limitada ou num caminho dirigido e leia o recorte como tabela, compare duas capturas com as diferenças marcadas nos dois mapas, siga uma operação amostrada dos traces, veja como cada nome foi resolvido e transforme uma comunicação não declarada numa proposta de contrato revisável. Veja [docs/investigation.md](docs/investigation.md).
 - **Valores nas linhas:** cada linha diz o tráfego e o p95 (`1.8/s · 9.5 ms`); uma linha amarela ou vermelha diz o porquê no lugar. `V` liga e desliga.
 - **Labels:** agrupe por `team`, `system`, `k8s.namespace` ou qualquer label; busque com `team:checkout`, `tech:kafka`, `journey=checkout`.
 - **Próximos passos, feed ao vivo e exportação** (PNG, SVG, matriz de fluxos em CSV para pedido de firewall).
@@ -220,8 +221,9 @@ observadas para o time revisar. Veja a [especificação](docs/flows-spec.md) e
 ## Documentação
 
 [Sinais e fontes](docs/sources.md) · [Configuração](docs/configuration.md) · [Kubernetes / Helm](docs/kubernetes.md) · [Arquitetura](docs/architecture.md) ·
-[Jornadas](docs/journeys.md) · [Regras do advisor](docs/advisor.md) · [Ícones](docs/icons.md) · [Especificação dos flows](docs/flows-spec.md) ·
-[Roadmap](docs/roadmap.md) · [Panorama](docs/landscape.md)
+[Jornadas](docs/journeys.md) · [Investigação](docs/investigation.md) · [Operações amostradas](docs/operations.md) ·
+[Resolução de identidade](docs/identity-resolution.md) · [Propostas de contrato](docs/review-proposals.md) · [Regras do advisor](docs/advisor.md) ·
+[Ícones](docs/icons.md) · [Especificação dos flows](docs/flows-spec.md) · [Roadmap](docs/roadmap.md) · [Panorama](docs/landscape.md)
 
 ## Contribuir e licença
 

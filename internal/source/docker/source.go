@@ -132,6 +132,14 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 			Ignore: c.Labels["teia.ignore"] == "true",
 			Labels: userLabels(c.Labels),
 		}
+		switch {
+		case c.Labels["teia.node"] != "":
+			n.IdentityMethod, n.IdentityBasis = model.IdentityExplicit, "Docker label teia.node"
+		case c.Labels["com.docker.compose.service"] != "":
+			n.IdentityMethod, n.IdentityBasis = model.IdentityName, "Docker Compose service name"
+		default:
+			n.IdentityMethod, n.IdentityBasis = model.IdentityName, "Docker container name"
+		}
 		n.Labels["docker.container"] = strings.TrimPrefix(first(c.Names), "/")
 		n.Labels["image"] = c.Image
 		if t := c.Labels["teia.tech"]; t != "" {

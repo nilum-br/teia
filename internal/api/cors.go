@@ -53,8 +53,16 @@ func allowOrigins(next http.Handler, origins []string, withAuth bool) http.Handl
 		h.Add("Vary", "Access-Control-Request-Method")
 		h.Add("Vary", "Access-Control-Request-Headers")
 		h.Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		if r.URL.Path == "/api/v1/review/proposals" {
+			h.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+			h.Set("Access-Control-Allow-Headers", "Content-Type")
+		}
 		if withAuth {
-			h.Set("Access-Control-Allow-Headers", "Authorization")
+			if r.URL.Path == "/api/v1/review/proposals" {
+				h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			} else {
+				h.Set("Access-Control-Allow-Headers", "Authorization")
+			}
 		}
 		h.Set("Access-Control-Max-Age", "600")
 		w.WriteHeader(http.StatusNoContent)
