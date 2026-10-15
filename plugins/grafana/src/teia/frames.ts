@@ -1,6 +1,6 @@
 import { DataFrame } from '@grafana/data';
 import { journeyContract } from './journeys';
-import type { TeiaChange, TeiaEdge, TeiaEvidence, TeiaEvidenceLink, TeiaFinding, TeiaHealthRule, TeiaHistory, TeiaMeasure, TeiaNode, TeiaReason, TeiaSnapshot, TeiaSource } from './teia-ui';
+import type { TeiaChange, TeiaConnectionIdentity, TeiaEdge, TeiaEvidence, TeiaEvidenceLink, TeiaFinding, TeiaHealthRule, TeiaHistory, TeiaIdentityResolution, TeiaMeasure, TeiaNode, TeiaReason, TeiaSnapshot, TeiaSource } from './teia-ui';
 
 type Row = Record<string, unknown>;
 type Role = 'nodes' | 'edges' | 'findings' | 'sources' | 'changes' | 'coverage';
@@ -153,6 +153,7 @@ function toNode(r: Row): TeiaNode {
   // Plain Node Graph frames (e.g. Tempo) carry a rate in secondarystat and
   // the failed share in arc__failed.
   return {
+    identity: jsonList<TeiaIdentityResolution>(r.identity),
     id: str(r.id),
     kind: str(r.kind) || 'service',
     tech: str(r.tech) || undefined,
@@ -180,6 +181,7 @@ function toEdge(r: Row, drift: boolean): TeiaEdge {
   const observed = has(r, 'observed') ? bool(r.observed) : true;
   const derived: TeiaEdge['state'] = !drift ? 'ok' : declared ? (observed ? 'ok' : 'stale') : 'ghost';
   return {
+    identity: jsonObject<TeiaConnectionIdentity>(r.identity),
     expectedFrequencySeconds: has(r, 'expectedFrequencySeconds') ? num(r.expectedFrequencySeconds) : undefined,
     frequency: jsonObject<TeiaEdge['frequency']>(r.frequency),
     from: str(r.source),
@@ -331,6 +333,7 @@ export function framesToSnapshot(series: DataFrame[], round: number): { snapshot
       nodes,
       edges,
       journeys: journeyContract((byRole.nodes ?? []).find((r) => has(r, 'journeyContract'))?.journeyContract, nodes, edges),
+      operations: jsonObject<TeiaSnapshot['operations']>(allMetadata.find(r => has(r, 'operations'))?.operations),
       findings: (byRole.findings ?? []).map(toFinding).filter((f) => f.title),
       sources: (byRole.sources ?? []).map(toSource).filter((s) => s.name),
       coverage,

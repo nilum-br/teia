@@ -70,6 +70,7 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 	}
 	mux := http.NewServeMux()
 	registerHistory(mux, opts)
+	registerReview(mux, eng, opts)
 	snap := func() model.Snapshot { return eng.Snapshot() }
 	send := func(w http.ResponseWriter, v any) { writeJSON(w, opts.Log, v) }
 
@@ -86,7 +87,14 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 	})
 	mux.HandleFunc("GET /api/v1/graph", func(w http.ResponseWriter, _ *http.Request) {
 		s := snap()
-		send(w, map[string]any{"generatedAt": s.GeneratedAt, "timeMode": s.TimeMode, "nodes": s.Nodes, "edges": s.Edges, "journeys": s.Journeys})
+		send(w, map[string]any{"generatedAt": s.GeneratedAt, "timeMode": s.TimeMode, "nodes": s.Nodes, "edges": s.Edges, "journeys": s.Journeys, "operations": s.Operations})
+	})
+	mux.HandleFunc("GET /api/v1/operations", func(w http.ResponseWriter, _ *http.Request) {
+		contract := snap().Operations
+		if contract == nil {
+			contract = model.EmptyOperations()
+		}
+		send(w, contract)
 	})
 	mux.HandleFunc("GET /api/v1/journeys", func(w http.ResponseWriter, r *http.Request) {
 		s := snap()
@@ -101,7 +109,7 @@ func Handler(eng Snapshotter, opts Options) http.Handler {
 		send(w, snap().Findings)
 	})
 	mux.HandleFunc("GET /api/v1/coverage", func(w http.ResponseWriter, _ *http.Request) {
-		send(w, snap().Coverage)
+		send(w, grafanaCoverageOf(snap()))
 	})
 	mux.HandleFunc("GET /api/v1/sources", func(w http.ResponseWriter, _ *http.Request) {
 		send(w, snap().Sources)

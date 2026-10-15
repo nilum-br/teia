@@ -39,6 +39,12 @@ export const plugin = new PanelPlugin<TeiaOptions>(TeiaPanel)
         defaultValue: true,
       })
       .addTextInput({
+        path: 'frameMapping',
+        name: 'Column mapping (JSON)',
+        description: 'Optional nodes/edges column aliases, also configurable in the panel setup. Rates must be requests/s, errors fractions 0–1 and latency milliseconds; convert units in the query.',
+        defaultValue: '',
+      })
+      .addTextInput({
         path: 'teiaUrl',
         name: 'teia API URL (optional)',
         description:

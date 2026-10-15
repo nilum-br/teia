@@ -82,6 +82,49 @@ describe('portable investigation contracts', () => {
   });
 });
 
+describe('identity provenance', () => {
+  it('retains source decisions and candidate times without fabricating observations or confidence', () => {
+    const resolution = { input: 'ip:10.0.0.1', resolvedId: 'orders', method: 'inferred', source: 'network', sourceType: 'prometheus',
+      detail: 'Retained inventory', timeBasis: 'unknown', confidence: 99, retained: true,
+      candidates: [{ id: 'orders', source: 'inventory', sourceType: 'kubernetes', since: '2026-10-15T10:00:00Z', collectedAt: '2026-10-15T11:00:00Z', retained: true }],
+      alternatives: ['orders', 'ip:10.0.0.1'] };
+    const s = snap([node('orders', { identity: [resolution] }), node('db')], [edge('orders', 'db', { identity: { from: [resolution], to: [] } })]);
+    const normalized = s.nodes[0].identity[0];
+    assert.equal(normalized.collectedAt, '');
+    assert.equal(normalized.observedAt, '');
+    assert.equal(normalized.candidates[0].collectedAt, '2026-10-15T11:00:00.000Z');
+    assert.equal(normalized.retained, true);
+    assert.equal(Object.hasOwn(normalized, 'confidence'), false);
+    assert.deepEqual(s.edges[0].identity.from, s.nodes[0].identity);
+    assert.notEqual(signature(s), signature(sanitize({ ...s, nodes: s.nodes.map(n => ({ ...n, identity: [] })) })));
+  });
+
+  it('drops malformed records and treats absent legacy metadata as unavailable', () => {
+    const valid = { input: 'orders', resolvedId: 'orders', method: 'name', source: 'tempo', candidates: [null, {}, { id: 'candidate', source: 'inventory', since: 'not a time', retained: 'true' }], observedAt: 'not a time', timeBasis: 'guessed', retained: 'true', windowSeconds: Infinity };
+    const s = snap([node('orders', { identity: [null, 9, 'oops', {}, { ...valid, method: '99%-certain' }, valid] }), node('db')],
+      [edge('orders', 'db', { identity: [] })]);
+    assert.equal(s.nodes[0].identity.length, 1);
+    assert.equal(s.nodes[0].identity[0].retained, false);
+    assert.equal(s.nodes[0].identity[0].observedAt, '');
+    assert.equal(s.nodes[0].identity[0].timeBasis, 'unknown');
+    assert.equal(s.nodes[0].identity[0].windowSeconds, 0);
+    assert.equal(s.nodes[0].identity[0].candidates[0].since, '');
+    assert.equal(s.nodes[0].identity[0].candidates[0].retained, false);
+    assert.deepEqual(s.nodes[1].identity, []);
+    assert.equal(s.edges[0].identity, undefined);
+  });
+
+  it('preserves per-member and caller/callee decisions while grouping', () => {
+    const decision = id => ({ input: id, resolvedId: id, method: 'name', source: 'tempo' });
+    const s = snap([node('a', { labels: { team: 'shop' }, identity: [decision('a')] }), node('b', { labels: { team: 'shop' }, identity: [decision('b')] }), node('db')],
+      [edge('a', 'db', { identity: { from: [decision('a')], to: [decision('db')] } }), edge('b', 'db', { identity: { from: [decision('b')], to: [decision('db')] } })]);
+    const grouped = view(s, { groupBy: 'team' });
+    assert.deepEqual(grouped.nodes.get('group:shop').members.map(n => n.identity[0].resolvedId), ['a', 'b']);
+    assert.deepEqual(grouped.edges.get('group:shop->db').members.map(e => e.identity.from[0].resolvedId), ['a', 'b']);
+    assert.deepEqual(grouped.edges.get('group:shop->db').members.map(e => e.identity.to[0].resolvedId), ['db', 'db']);
+  });
+});
+
 describe('sanitize', () => {
   it('survives anything that is not a snapshot', () => {
     for (const raw of [null, undefined, 42, 'oops', [], { nodes: 'x', edges: {} }]) {

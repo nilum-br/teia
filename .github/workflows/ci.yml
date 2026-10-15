@@ -169,7 +169,7 @@ jobs:
           cache-dependency-path: plugins/grafana/package-lock.json
       - name: map component tests (teia-ui.js, shared with teia's own UI)
         working-directory: .
-        run: node --test internal/api/teia-ui.test.mjs internal/api/ui-integration-audit.test.mjs
+        run: node --test internal/api/*.test.mjs
       - run: npm install --global npm@12.2.0
       - run: npm ci --no-audit --no-fund
       - run: npm run deps:audit

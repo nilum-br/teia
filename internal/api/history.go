@@ -15,7 +15,7 @@ func registerHistory(mux *http.ServeMux, opts Options) {
 		"edges":    func(s model.Snapshot) any { return grafanaEdges(s) },
 		"findings": func(s model.Snapshot) any { return grafanaFindings(s) },
 		"sources":  func(s model.Snapshot) any { return grafanaSources(s) },
-		"coverage": func(s model.Snapshot) any { return historicalCoverage(s) },
+		"coverage": func(s model.Snapshot) any { return grafanaCoverageOf(s) },
 		"changes":  func(s model.Snapshot) any { return historicalChanges(s) },
 	} {
 		mux.HandleFunc("GET /api/v1/history/{id}/grafana/"+name, func(w http.ResponseWriter, r *http.Request) {

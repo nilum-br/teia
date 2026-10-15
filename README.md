@@ -73,6 +73,7 @@ The map, in Grafana (`nilum-teia-panel`) or in teia's own UI, is the same compon
 - **Drift and visibility:** dashed means undeclared, dotted means declared but not seen; card borders say how first-hand teia's view is.
 - **One [icon library](docs/icons.md):** microservices, relational and document databases, caches, Kafka streams, queues, gateways, jobs, external SaaS. The technology is detected from spans, images or labels.
 - **Journeys and filters:** show one journey on its own, in a frame, with ports where it is entered and where it leaves, and why it is red. teia finds the journey label your services already carry (`journey`, `app.kubernetes.io/part-of` or `system`). The same Filter narrows the map by any label, health, kind of component or technology. See [docs/journeys.md](docs/journeys.md).
+- **Investigation workspace:** focus on a bounded neighbourhood or a directed path and read it as a table, compare two captures with the differences marked on both maps, follow one sampled operation from traces, see how each name was resolved, and turn an undeclared communication into a reviewable contract proposal. See [docs/investigation.md](docs/investigation.md).
 - **Values on the lines:** each line says its traffic and p95 (`1.8/s · 9.5 ms`); an amber or red line says why instead. `V` toggles them.
 - **Labels:** group by `team`, `system`, `k8s.namespace` or any label; search with `team:checkout`, `tech:kafka`, `journey=checkout`.
 - **Next steps, live feed, export** (PNG, SVG, flow matrix CSV for firewall requests).
@@ -256,8 +257,9 @@ traffic. See [docs/flows-spec.md](docs/flows-spec.md).
 ## Docs
 
 [Signals and sources](docs/sources.md) · [Configuration](docs/configuration.md) · [Kubernetes / Helm](docs/kubernetes.md) · [Architecture](docs/architecture.md) ·
-[Journeys](docs/journeys.md) · [Advisor rules](docs/advisor.md) · [Icon library](docs/icons.md) · [Flows spec](docs/flows-spec.md) · [Roadmap](docs/roadmap.md) ·
-[Landscape](docs/landscape.md)
+[Journeys](docs/journeys.md) · [Investigation](docs/investigation.md) · [Sampled operations](docs/operations.md) ·
+[Identity resolution](docs/identity-resolution.md) · [Contract proposals](docs/review-proposals.md) · [Advisor rules](docs/advisor.md) ·
+[Icon library](docs/icons.md) · [Flows spec](docs/flows-spec.md) · [Roadmap](docs/roadmap.md) · [Landscape](docs/landscape.md)
 
 ## Status
 

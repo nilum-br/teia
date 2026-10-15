@@ -199,26 +199,19 @@ It covers a shared frontend, two journeys, a shared database, unlabelled upstrea
 cycles, the expansion boundary and missing telemetry. A closed cycle with no entry and the 200-node cap have
 additional Go tests.
 
-## Separate operation mode: design contract
+## Separate operation mode
 
 A label journey follows **ownership**, not single requests: a service shared by two journeys brings all of its calls.
 The rules above keep that in check, and the ports show where the journey touches the rest.
 
-Transaction-level journeys are a separate, **not yet implemented** mode. Before that mode can be enabled, its
-API and implementation must satisfy these requirements:
+The separate [sampled operation mode](operations.md) uses explicit normalized entry attributes and parent/span
+relationships from Tempo. Its `mode: "operation"` contract preserves trace IDs, individual calls, sample root
+durations, outcomes, original timestamps and detected gaps. Checkout and browse can share `web` and a database
+without merging their intermediate calls. Labels, global health and global traffic measurements do not supply
+operation attribution or operation measurements.
 
-1. Use `mode: "operation"`, an explicit entry service and normalized route/operation, an actual query interval,
-   trace IDs and parent/span relationships. Do not derive a route from labels or a raw high-cardinality URL.
-2. Include only calls linked to the matched entry span in the same trace. Missing parents, asynchronous links
-   and retries need explicit attribution rules; a shared service or database never joins by topology alone.
-3. Report sampled root counts, incomplete traces, orphan spans and the known sampling policy separately.
-   Without a reliable total denominator, sampling coverage, total request rate and end-to-end coverage remain
-   unknown. An observed root duration is sample latency; it is not an aggregate traffic percentile.
-4. Keep entry operation errors separate from dependency health. Missing spans cannot establish a healthy
-   downstream or a zero error rate. Preserve original evidence timestamps and the actual requested period.
-5. Pass the [operation acceptance fixture](../internal/journey/testdata/operation-contract.json): checkout and
-   browse traverse the same `web` and `db` services but retain different calls; the incomplete checkout trace
-   stays incomplete and the orphan span is not assigned by an ownership label.
-
-Operation scopes, declared journey documents, journey-specific notifications and metrics remain separate
-extensions; the ownership contract does not advertise them as implemented features.
+The mode reports sampled roots and incomplete traces; sampling coverage and total traffic remain unknown.
+The shared [operation acceptance fixture](../internal/journey/testdata/operation-contract.json) verifies
+separate checkout/browse calls, an incomplete checkout trace and an orphan that ownership cannot attribute.
+Declared journey documents, journey-specific notifications and operation metric aggregation remain separate
+extensions.

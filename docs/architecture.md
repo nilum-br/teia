@@ -89,8 +89,10 @@ kept as they are.
 Unresolved addresses stay as `ip:...` nodes and trigger the `unresolved-address` finding. This is the
 riskiest part of the design: poolers (PgBouncer), SNAT, sidecars and recycled pod IPs all blur
 identity. Inventories report since when each address is held, per pod and per Service ClusterIP, so a
-rollout only makes the new pods' addresses ambiguous for a while. The plan is to add confidence and
-provenance per resolution.
+rollout only makes the new pods' addresses ambiguous for a while. Nodes and connection endpoints expose
+the resolution method, source, candidates, original timestamps and retained status, without assigning a
+confidence percentage. Conflicting inventory owners remain unresolved; recycled-IP windows are withheld
+and explained on their candidate nodes. See [identity resolution and provenance](identity-resolution.md).
 
 **Known limitation: the namespace is not part of the ID.** `redis` running in ten namespaces (or a
 `redis` compose service in two projects) becomes one node, with every caller and address of all ten.

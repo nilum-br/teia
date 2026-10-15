@@ -17,6 +17,7 @@
 //	ERROR_RATE     share of requests answered with HTTP 500
 //	SLOW_RATE      share of requests held for SLOW_FOR (e.g. 0.1 and 900ms)
 //	TARGET         URL the loadgen calls
+//	OPERATION_ROUTES true: loadgen alternates checkout and browse on the same frontend
 //	INTERVAL       loadgen and legacy tick, e.g. 500ms
 //	ACCESS_LOG     on (default) | off: one JSON line per request on stdout
 //	MESH           istio: simulate an Istio sidecar (see sidecar.go)
@@ -170,7 +171,8 @@ func serve(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		for _, d := range calls {
+		trace.SpanFromContext(ctx).SetAttributes(attribute.String("http.route", operationRoute(r.URL.Path)))
+		for _, d := range operationCalls(calls, os.Getenv("SERVICE_NAME"), r.URL.Path) {
 			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, d.url, nil)
 			resp, err := mesh.outbound(req, d.name, d.client.Do)
 			if err != nil {
@@ -264,13 +266,20 @@ func loadgen(ctx context.Context) error {
 	client := &http.Client{Timeout: 5 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	operations := os.Getenv("OPERATION_ROUTES") == "true"
+	iteration := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
 		}
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+		method, destination := operationTarget(target, iteration, operations)
+		iteration++
+		req, err := http.NewRequestWithContext(ctx, method, destination, nil)
+		if err != nil {
+			continue
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			continue

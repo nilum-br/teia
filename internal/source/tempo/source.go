@@ -89,6 +89,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		return obs, err
 	}
 	if len(services) == 0 {
+		obs.Operations = operationSamples(s.name, window, nil, 0, 0, 0, 0, false)
 		obs.Degraded = true
 		obs.Message = "no services with traces in the window"
 		return obs, nil
@@ -97,7 +98,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	s.mu.Lock()
 	start := s.next % len(services)
 	s.mu.Unlock()
-	ids, searched, err := s.traceIDs(ctx, services, start, window)
+	ids, searched, limited, err := s.traceIDs(ctx, services, start, window)
 	if err != nil {
 		return obs, err
 	}
@@ -118,8 +119,9 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	targets := map[string]model.NodeKind{}
 	durations := map[string][]float64{}
 	for _, t := range traces {
-		pairTrace(t, edges, self, targets, durations)
+		pairTrace(t.spans, edges, self, targets, durations)
 	}
+	obs.Operations = operationSamples(s.name, window, traces, len(ids), failed, searched, len(services), limited || searched < len(services))
 	for key, ms := range durations {
 		edges[key].LatencyP50Ms, edges[key].LatencyP95Ms = quantile(ms, 0.5), quantile(ms, 0.95)
 	}
@@ -165,6 +167,8 @@ func (s *Source) denied(err *deniedError) source.Observation {
 // span is the part of an OTLP span teia needs.
 type span struct {
 	id, parent, service, kind string
+	name, status              string
+	links                     []model.OperationSpanLink
 	attrs                     map[string]string
 	dur                       time.Duration // zero when the span has no valid times
 	startedAt, endedAt        time.Time
@@ -396,11 +400,12 @@ func (s *Source) services(ctx context.Context, window url.Values) ([]string, err
 // cap is reached, so a round stays within budget and the next one carries
 // on from the first service left out. It returns how many services it
 // searched.
-func (s *Source) traceIDs(ctx context.Context, services []string, start int, window url.Values) ([]string, int, error) {
+func (s *Source) traceIDs(ctx context.Context, services []string, start int, window url.Values) ([]string, int, bool, error) {
 	per := max(1, min(s.cfg.MaxTraces/len(services), s.cfg.TracesPerService))
 	seen := map[string]bool{}
 	var ids []string
 	searched := 0
+	limited := false
 	for searched < len(services) && len(ids) < s.cfg.MaxTraces {
 		svc := services[(start+searched)%len(services)]
 		searched++
@@ -414,8 +419,9 @@ func (s *Source) traceIDs(ctx context.Context, services []string, start int, win
 			} `json:"traces"`
 		}
 		if err := s.get(ctx, "/api/search", params, &resp); err != nil {
-			return nil, searched, fmt.Errorf("searching traces of %s: %w", svc, err)
+			return nil, searched, limited, fmt.Errorf("searching traces of %s: %w", svc, err)
 		}
+		limited = limited || len(resp.Traces) >= limit
 		taken := 0
 		for _, t := range resp.Traces {
 			if taken == limit {
@@ -428,12 +434,12 @@ func (s *Source) traceIDs(ctx context.Context, services []string, start int, win
 			}
 		}
 	}
-	return ids, searched, nil
+	return ids, searched, limited, nil
 }
 
 // fetch downloads the traces. It returns the ones it got, how many failed
 // and the first failure.
-func (s *Source) fetch(ctx context.Context, ids []string) ([][]span, int, error) {
+func (s *Source) fetch(ctx context.Context, ids []string) ([]sampledTrace, int, error) {
 	out := make([][]span, len(ids))
 	errs := make([]error, len(ids))
 	sem := make(chan struct{}, 8)
@@ -453,7 +459,7 @@ func (s *Source) fetch(ctx context.Context, ids []string) ([][]span, int, error)
 		}()
 	}
 	wg.Wait()
-	var traces [][]span
+	var traces []sampledTrace
 	failed := 0
 	var first error
 	for i, err := range errs {
@@ -464,7 +470,7 @@ func (s *Source) fetch(ctx context.Context, ids []string) ([][]span, int, error)
 			}
 			continue
 		}
-		traces = append(traces, out[i])
+		traces = append(traces, sampledTrace{id: ids[i], spans: out[i]})
 	}
 	return traces, failed, first
 }
@@ -493,8 +499,13 @@ type resourceSpans struct {
 type otlpSpan struct {
 	SpanID       string          `json:"spanId"`
 	ParentSpanID string          `json:"parentSpanId"`
+	Name         string          `json:"name"`
 	Kind         json.RawMessage `json:"kind"`
 	Attributes   []attribute     `json:"attributes"`
+	Status       struct {
+		Code json.RawMessage `json:"code"`
+	} `json:"status"`
+	Links []model.OperationSpanLink `json:"links"`
 	// Nanoseconds since the epoch, as a string or a number depending on the
 	// encoder.
 	StartTimeUnixNano json.RawMessage `json:"startTimeUnixNano"`
@@ -570,6 +581,7 @@ func (t otlpTrace) spans() []span {
 				start, end := sp.times()
 				out = append(out, span{
 					id: sp.SpanID, parent: sp.ParentSpanID, service: service,
+					name: sp.Name, status: strings.Trim(string(sp.Status.Code), `"`), links: sp.Links,
 					kind: spanKind(sp.Kind), attrs: attrs(sp.Attributes), dur: end.Sub(start),
 					startedAt: start, endedAt: end,
 				})

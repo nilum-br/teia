@@ -407,6 +407,7 @@ button.label { cursor: pointer; }
     <button type="button" class="btn" id="flowBtn" title="Animate traffic (space)"></button>
     <button type="button" class="btn" id="liveBtn" title="Follow live updates"></button>
     <button type="button" class="btn" id="historyBtn" title="Replay a stored discovery snapshot">History</button>
+    <button type="button" class="btn" id="exploreBtn" aria-haspopup="dialog">Investigate</button>
     <button type="button" class="btn stepsBtn" id="stepsBtn" title="Next steps">Next steps <span class="count" id="stepsBadge">0</span></button>
     <div class="menu" id="exportMenu">
       <button type="button" class="btn" id="exportBtn" title="Export" aria-haspopup="true" aria-expanded="false">Export ▾</button>
@@ -425,9 +426,16 @@ button.label { cursor: pointer; }
 <nav class="scope" id="scope" aria-label="Filters"></nav>
 <div class="filter-panel" id="filterPanel" role="dialog" aria-label="Filter the map" hidden></div>
 <dialog class="share-dialog" id="shareDialog" aria-label="Share this view"><h2>Share this view</h2><p id="shareContext"></p><label>View link<input id="shareURL" readonly></label><p id="shareStatus" role="status"></p><div class="detail-actions"><button type="button" class="btn" id="copyViewBtn">Copy link</button><button type="button" class="btn" id="closeShareBtn">Close sharing</button></div></dialog>
+<dialog class="share-dialog workspace-dialog" id="investigateDialog" aria-label="Investigation workspace">
+  <h2>Investigation workspace</h2><p>Focus the topology, compare observations or connect your data.</p>
+  <nav class="detail-actions" aria-label="Investigation tools"><button class="btn" type="button" data-workspace="scope">Focus and list</button><button class="btn" type="button" data-workspace="compare">Compare snapshots</button><button class="btn" type="button" data-workspace="setup">Connect data</button><button class="btn" type="button" data-workspace="operations">Operations and traces</button></nav>
+  <section id="workspaceContent"></section><div class="detail-actions workspace-footer"><button class="btn" type="button" id="closeInvestigateBtn">Close investigation</button></div>
+</dialog>
 <dialog class="share-dialog" id="historyDialog" aria-label="Observation history"><h2>Observation history</h2><p>Replay stored discovery snapshots. Gaps between snapshots are unmeasured; unavailable history does not mean no traffic.</p><form id="historyForm"><label>From (UTC)<input id="historyFrom" type="datetime-local" required></label><label>To (UTC)<input id="historyTo" type="datetime-local" required></label><button class="btn" type="submit">Find snapshots</button></form><p id="historyStatus" role="status"></p><div id="historyList"></div><div class="detail-actions"><button type="button" class="btn" id="currentBtn">Return to current state</button><button type="button" class="btn" id="closeHistoryBtn">Close history</button></div></dialog>
 <main>
   <div id="stage">
+    <div id="investigationSummary" class="investigation-summary" hidden></div>
+    <div id="entityTable" class="entity-table" hidden></div>
     <svg id="map" role="group" aria-label="Communication map. Drag to pan, F to fit, slash to search."></svg>
     <div class="map-help" id="mapHelp" hidden><span>Overview · select a component for its evidence.</span><button type="button" id="readableBtn">Read names</button></div>
     <div class="empty-state" id="empty"><p>Waiting for the first discovery round…</p></div>
@@ -551,6 +559,9 @@ button.label { cursor: pointer; }
   const healthText = x => x.health === 'unknown' && x.errorsUnknown && x.requestRate > 0 ? 'failures not measured' : HEALTH_LABEL[x.health];
   const HEALTH_LABEL = { healthy: 'healthy', degraded: 'degraded', failing: 'failing', unknown: 'health unknown' };
   const HEALTH_RANK = { failing: 3, degraded: 2, healthy: 1, unknown: 0 };
+  // Comparison marks are text as well as colour, like health.
+  const DIFF_MARK = { added: '+ ', removed: '− ', changed: '~ ' };
+  const DIFF_TEXT = { added: 'only in the after capture', removed: 'only in the before capture', changed: 'changed between the captures' };
   const STATE_LABEL = { ok: 'declared and observed', ghost: 'observed, not declared', stale: 'declared, not observed' };
   const VIS_EXPLAIN = {
     full: 'teia sees it first-hand: its own SDK, sidecar, eBPF probe or database explorer reports it.',
@@ -568,6 +579,24 @@ button.label { cursor: pointer; }
   const strings = v => Array.isArray(v) ? v.filter(s => typeof s === 'string') : [];
   const text = v => typeof v === 'string' ? v : '';
   const timestamp = v => typeof v === 'string' && !v.startsWith('0001') && Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : '';
+  const IDENTITY_METHODS = ['explicit', 'name', 'alias', 'ip-temporal', 'inferred', 'ambiguous', 'unresolved'];
+  const IDENTITY_TIME = ['not-applicable', 'unknown', 'evaluation-window', 'collection-window', 'sample-envelope', 'sample-point'];
+  // Identity metadata explains source decisions; it never assigns a numeric
+  // confidence or substitutes collection time for original observation time.
+  const identity = value => (Array.isArray(value) ? value : [])
+    .filter(r => r && !Array.isArray(r) && text(r.input) && text(r.resolvedId) && text(r.source) && IDENTITY_METHODS.includes(r.method))
+    .map(r => ({
+      input: r.input, resolvedId: r.resolvedId, method: r.method, source: r.source, sourceType: text(r.sourceType),
+      basis: text(r.basis), detail: text(r.detail), timeBasis: oneOf(r.timeBasis, IDENTITY_TIME, 'unknown'),
+      collectedAt: timestamp(r.collectedAt), evaluatedAt: timestamp(r.evaluatedAt), observedFrom: timestamp(r.observedFrom), observedAt: timestamp(r.observedAt),
+      windowSeconds: Math.max(0, finite(r.windowSeconds)), retained: r.retained === true, alternatives: strings(r.alternatives),
+      candidates: (Array.isArray(r.candidates) ? r.candidates : []).filter(c => c && !Array.isArray(c) && text(c.id) && text(c.source)).map(c => ({
+        id: c.id, source: c.source, sourceType: text(c.sourceType), basis: text(c.basis),
+        since: timestamp(c.since), collectedAt: timestamp(c.collectedAt), retained: c.retained === true,
+      })),
+    }));
+  const connectionIdentity = value => value && typeof value === 'object' && !Array.isArray(value)
+    ? { from: identity(value.from), to: identity(value.to) } : undefined;
   const evidence = v => (Array.isArray(v) ? v : []).filter(e => e && typeof e.source === 'string').map(e => {
     const sampleCount = Number.isSafeInteger(e.sampleCount) && e.sampleCount > 0 ? e.sampleCount : 0;
     let observedAt = timestamp(e.observedAt), observedFrom = timestamp(e.observedFrom);
@@ -598,6 +627,8 @@ button.label { cursor: pointer; }
   }
   function temporalText(snap, opts = {}, now = Date.now()) {
     if (!snap) return 'Waiting for time information';
+    if (snap.operationContext) return `Sampled operation · ${snap.operationContext.operation} · ${snap.operationContext.traceId || 'all returned traces'} · total traffic and sampling coverage unknown · global health excluded`;
+    if (opts.comparison) return `Frozen capture · ${snap.generatedAt || 'time unknown'} · ${snap.history?.id || snap.timeMode || 'query'} · discrete observation, not continuous coverage`;
     const mode = snap.timeMode || (opts.api ? 'current' : 'query');
     const age = at => ageText(at, now);
     const collected = timestamp(snap.generatedAt);
@@ -670,6 +701,7 @@ button.label { cursor: pointer; }
       seen.add(n.id);
       nodes.push({
         ...n,
+        identity: identity(n.identity),
         journeys: strings(n.journeys),
         kind: typeof n.kind === 'string' && n.kind ? n.kind : 'unknown',
         health: oneOf(n.health, ['healthy', 'degraded', 'failing', 'unknown'], 'unknown'),
@@ -689,6 +721,7 @@ button.label { cursor: pointer; }
       }
       edges.push({
         ...e,
+        identity: connectionIdentity(e.identity),
         state: oneOf(String(e.state || '').toLowerCase(), ['ok', 'ghost', 'stale'], e.declared === false ? 'ghost' : 'ok'),
         health: oneOf(e.health, ['healthy', 'degraded', 'failing', 'unknown'], 'unknown'),
         requestRate: finite(e.requestRate), errorRate: finite(e.errorRate), errorsUnknown: e.errorsUnknown === true,
@@ -705,7 +738,7 @@ button.label { cursor: pointer; }
       timeMode: oneOf(s.timeMode, ['current', 'query', 'mixed', 'historical'], ''),
       history: s.history?.availability === 'stored-snapshot' && typeof s.history.id === 'string' ? s.history : undefined,
       period: timestamp(s.period?.from) && timestamp(s.period?.to) && s.period.from <= s.period.to ? { from: timestamp(s.period.from), to: timestamp(s.period.to) } : undefined,
-      nodes, edges, journeys: journeyContractOf(s.journeys, nodes, edges),
+      nodes, edges, journeys: journeyContractOf(s.journeys, nodes, edges), operations: operationsOf(s.operations),
       findings: (Array.isArray(s.findings) ? s.findings : []).filter(f => f && typeof f.title === 'string').map(f => ({
         ...f, severity: oneOf(f.severity, ['critical', 'warning', 'info'], 'info'), subject: String(f.subject || ''),
       })).sort((a, b) => ['critical', 'warning', 'info'].indexOf(a.severity) - ['critical', 'warning', 'info'].indexOf(b.severity) || a.subject.localeCompare(b.subject)),
@@ -719,7 +752,7 @@ button.label { cursor: pointer; }
 
   // signature identifies what is drawn, so refreshes with the same data are no-ops.
   function signature(snap) {
-    return JSON.stringify([snap.nodes, snap.edges, snap.findings, snap.sources, snap.coverage, snap.journeys, snap.timeMode, snap.history, snap.drift]);
+    return JSON.stringify([snap.nodes, snap.edges, snap.findings, snap.sources, snap.coverage, snap.journeys, snap.operations, snap.operationContext, snap.timeMode, snap.history, snap.drift]);
   }
 
   function indexSnapshot(snap) {
@@ -1519,7 +1552,116 @@ button.label { cursor: pointer; }
   }
 
   const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, scopeSnapshot, scopePins, journeyWhy, journeyNames, scopeOf, facetsOf, facetValues, journeyKeyOf, JOURNEY_KEYS, filtersFromParams, filtersToParams, filterLabel, filtersActive, emptyFilters, journeyPorts, packColumn, frameLayout, scopeStats, TECH, CATEGORY, SIGNAL, REASON };
-  Object.assign(core, { groupingPath, neighbourOrder, mapReasons, safeLinks });
+  function operationsOf(value) {
+    if (!value || value.version !== 1 || value.mode !== 'operation' || !Array.isArray(value.scopes) || !Array.isArray(value.sources)) return undefined;
+    const scopes = value.scopes.filter(s => s && typeof s.id === 'string' && typeof s.operation === 'string' && typeof s.entryService === 'string' &&
+      Array.isArray(s.nodes) && s.nodes.every(n => n && typeof n.id === 'string') &&
+      Array.isArray(s.edges) && s.edges.every(e => e && typeof e.from === 'string' && typeof e.to === 'string' && Array.isArray(e.calls) && e.calls.every(c => c && typeof c.traceId === 'string')) &&
+      Array.isArray(s.traces) && s.traces.every(t => t && typeof t.traceId === 'string' && Array.isArray(t.spans) && t.spans.every(p => p && typeof p.spanId === 'string' && typeof p.nodeId === 'string')));
+    return { ...value, scopes, sources: value.sources.filter(s => s && typeof s.source === 'string'), unattributed: Array.isArray(value.unattributed) ? value.unattributed.filter(Boolean) : [] };
+  }
+  function operationSnapshot(base, id, traceId = '') {
+    const scope = base.operations?.scopes.find(s => s.id === id);
+    const traces = traceId ? (scope?.traces || []).filter(t => t.traceId === traceId) : [];
+    // A vanished operation must not silently fall back to the platform graph.
+    const edges = (scope?.edges || []).flatMap(e => {
+      const calls = traceId ? e.calls.filter(c => c.traceId === traceId) : e.calls;
+      if (!calls.length || (traceId && !traces.length)) return [];
+      const starts = calls.map(c => timestamp(c.startedAt)).filter(Boolean).sort();
+      const ends = calls.map(c => timestamp(c.endedAt)).filter(Boolean).sort();
+      return [{ from: e.from, to: e.to, declared: false, observed: true, state: 'ok', health: 'unknown', errorsUnknown: true,
+        signals: ['traces'], sources: [scope.source], evidence: [{ source: scope.source, signal: 'traces', sampleCount: calls.length,
+          observedFrom: starts.length === calls.length ? starts[0] : '', observedAt: ends.length === calls.length ? ends.at(-1) : '', windowSeconds: 0, metrics: [] }] }];
+    });
+    const ids = new Set(traceId ? traces.flatMap(t => t.spans.map(p => p.nodeId)) : (scope?.nodes || []).map(n => n.id));
+    edges.forEach(e => { ids.add(e.from); ids.add(e.to); });
+    const original = new Map(base.nodes.map(n => [n.id, n]));
+    const nodes = [...ids].filter(Boolean).map(nodeId => {
+      const n = original.get(nodeId);
+      return { id: nodeId, kind: n?.kind || scope?.nodes.find(n => n.id === nodeId)?.kind || 'unknown', tech: n?.tech,
+        labels: { ...Object.fromEntries(Object.entries(n?.labels || {}).filter(([key]) => !key.startsWith('teia.signal.'))), 'teia.signal.traces': 'true' }, identity: n?.identity || [], sources: scope ? [scope.source] : [], health: 'unknown', visibility: 'partial', errorsUnknown: true };
+    });
+    const projected = sanitize({ ...base, nodes, edges, findings: [], changes: [], journeys: undefined, drift: false,
+      coverage: { visibility: 0, declared: 0, observed: 0 } });
+    projected.operationContext = { id, traceId, operation: scope?.operation || 'unavailable in this capture', unavailable: !scope || (!!traceId && !traces.length) };
+    return projected;
+  }
+  Object.assign(core, { groupingPath, neighbourOrder, mapReasons, safeLinks, investigateSnapshot, compareSnapshots, operationsOf, operationSnapshot });
+
+  // A bounded view of observed topology, never a claim that a path is one request.
+  function investigateSnapshot(snap, options = {}) {
+    const mode = oneOf(options.mode, ['all', 'neighbors', 'path'], 'all');
+    const limit = Math.max(1, Math.min(1000, options.limit || 200));
+    const depth = Math.max(1, Math.min(3, options.depth || 1));
+    const direction = oneOf(options.direction, ['both', 'in', 'out'], 'both');
+    const ids = new Set(snap.nodes.map(n => n.id)), selected = new Set(), pathEdges = new Set();
+    let limited = false, found = mode !== 'path';
+    if (mode === 'all') return { snapshot: snap, mode, hiddenNodes: 0, boundaryEdges: 0, limited: false, found: true };
+    const adjacent = new Map(snap.nodes.map(n => [n.id, []]));
+    for (const e of snap.edges) {
+      if (!ids.has(e.from) || !ids.has(e.to)) continue;
+      if (mode === 'path' || direction !== 'in') adjacent.get(e.from).push({ id: e.to, edge: e.from + '->' + e.to });
+      if (mode !== 'path' && direction !== 'out') adjacent.get(e.to).push({ id: e.from, edge: e.from + '->' + e.to });
+    }
+    for (const neighbors of adjacent.values()) neighbors.sort((a, b) => a.id.localeCompare(b.id));
+    if (ids.has(options.focus)) {
+      if (mode === 'neighbors') {
+        selected.add(options.focus);
+        const queue = [[options.focus, 0]];
+        for (let i = 0; i < queue.length; i++) {
+          const [id, distance] = queue[i];
+          if (distance === depth) continue;
+          for (const next of adjacent.get(id)) if (!selected.has(next.id)) {
+            if (selected.size === limit) { limited = true; continue; }
+            selected.add(next.id); queue.push([next.id, distance + 1]);
+          }
+        }
+      } else if (ids.has(options.target)) {
+        const queue = [options.focus], previous = new Map([[options.focus, null]]);
+        for (let i = 0; i < queue.length && !previous.has(options.target); i++) {
+          for (const next of adjacent.get(queue[i])) if (!previous.has(next.id)) {
+            previous.set(next.id, { id: queue[i], edge: next.edge }); queue.push(next.id);
+          }
+        }
+        found = previous.has(options.target);
+        if (found) {
+          let id = options.target;
+          while (id != null) { selected.add(id); const p = previous.get(id); if (p) pathEdges.add(p.edge); id = p?.id; }
+          // A path is never silently shortened: a long route must be narrowed by the operator.
+          if (selected.size > limit) { limited = true; selected.clear(); pathEdges.clear(); }
+        }
+      }
+    }
+    const nodes = snap.nodes.filter(n => selected.has(n.id));
+    const edges = snap.edges.filter(e => selected.has(e.from) && selected.has(e.to) && (mode !== 'path' || pathEdges.has(e.from + '->' + e.to)));
+    return { snapshot: { ...snap, nodes, edges }, mode, found, limited, hiddenNodes: snap.nodes.length - nodes.length,
+      boundaryEdges: snap.edges.filter(e => selected.has(e.from) !== selected.has(e.to)).length };
+  }
+
+  // Stable structural/state differences. Collection timestamps and rate jitter
+  // are not changes in declared architecture; both original records remain available.
+  function compareSnapshots(before, after) {
+    const canonical = value => JSON.stringify(value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]])) : value ?? null);
+    // Identity records carry collection times that move every round; only the
+    // decision itself (input, result, method) is a change between captures.
+    // A capture without identity metadata (older stores, plain frames) is not comparable on it.
+    const decisions = (records, role = '') => [...new Set((records || []).map(r => `${role}${r.input} → ${r.resolvedId} (${r.method})`))].sort();
+    const differs = (field, a, b) => field === 'identity' && (!a.identity.length || !b.identity.length) ? false : canonical(a[field]) !== canonical(b[field]);
+    const compare = (type, oldItems, newItems, fields, keyOf, project) => {
+      const old = new Map(oldItems.map(n => [keyOf(n), n])), next = new Map(newItems.map(n => [keyOf(n), n]));
+      return [...new Set([...old.keys(), ...next.keys()])].sort().map(id => {
+        const a = old.get(id), b = next.get(id), pa = a && project(a), pb = b && project(b);
+        const changes = a && b ? fields.filter(field => differs(field, pa, pb)).map(field => ({ field, before: pa[field] ?? null, after: pb[field] ?? null })) : [];
+        return { type, id, status: !a ? 'added' : !b ? 'removed' : changes.length ? 'changed' : 'unchanged', before: a, after: b, changes };
+      });
+    };
+    const nodes = compare('node', before.nodes, after.nodes, ['kind', 'tech', 'health', 'visibility', 'labels', 'addresses', 'errorsUnknown', 'identity'], n => n.id,
+      n => ({ ...n, identity: decisions(n.identity) }));
+    const edges = compare('edge', before.edges, after.edges, ['state', 'health', 'declared', 'observed', 'protocol', 'port', 'errorsUnknown', 'identity'], e => e.from + '->' + e.to,
+      e => ({ ...e, identity: [...decisions(e.identity?.from, 'caller '), ...decisions(e.identity?.to, 'callee ')] }));
+    return { nodes, edges, counts: Object.fromEntries(['added', 'removed', 'changed', 'unchanged'].map(status => [status, [...nodes, ...edges].filter(row => row.status === status).length])) };
+  }
 
   // ============================================================== mount
   function mount(host, opts = {}) {
@@ -1535,10 +1677,42 @@ button.label { cursor: pointer; }
     // can only touch its own, detached elements.
     const root = host.shadowRoot || host.attachShadow({ mode: 'open' });
     const app = document.createElement('div');
-    app.className = `teia ${opts.mode}`;
+    app.className = `teia ${opts.mode}${opts.comparison ? ' comparison' : ''}`;
     app.innerHTML = MARKUP;
     const style = document.createElement('style');
-    style.textContent = STYLE;
+    style.textContent = STYLE + `
+      .workspace-dialog { width:min(1180px,94vw); max-height:90vh; overflow:auto; color:var(--ink); }
+      .comparison #liveBtn,.comparison #flowBtn,.comparison #stepsBtn,.comparison #exportMenu { display:none; }
+      .workspace-dialog p { color:var(--ink-2); line-height:1.5; }
+      .workspace-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr)); gap:14px; margin:12px 0; }
+      .workspace-dialog select,.workspace-dialog textarea { box-sizing:border-box; width:100%; border:1px solid var(--line-2); border-radius:8px; padding:8px; background:var(--panel); color:var(--ink); font:inherit; }
+      .workspace-dialog input[type=file] { max-width:100%; }
+      .workspace-dialog textarea { min-height:90px; }
+      .workspace-dialog label { display:block; margin:10px 0; }
+      .workspace-dialog pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:300px; overflow:auto; }
+      .workspace-card { min-width:0; }
+      .workspace-footer { position:sticky; bottom:-20px; background:var(--panel); padding:12px 0; border-top:1px solid var(--line); z-index:6; }
+      .workspace-status { padding:10px; border:1px solid var(--line-2); border-radius:8px; overflow-wrap:anywhere; }
+      .workspace-status:empty { display:none; }
+      .investigation-summary { position:absolute; top:8px; left:12px; right:60px; z-index:4; background:var(--panel); padding:8px; border:1px solid var(--line-2); border-radius:8px; font-size:12px;
+        display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; }
+      .investigation-summary[hidden] { display:none; }
+      .entity-table select { margin-left:6px; border:1px solid var(--line-2); border-radius:8px; padding:4px 8px; background:var(--panel); color:var(--ink); font:inherit; }
+      #stage.has-investigation #mapHelp { top:64px; }
+      #stage.list-view :is(#map, .zoom, #legend, #mapHelp) { visibility:hidden; }
+      .entity-table { position:absolute; inset:64px 8px 8px; z-index:3; background:var(--panel); border-radius:8px; overflow:auto; padding:8px; }
+      .entity-table table,.workspace-table { border-collapse:collapse; width:100%; text-align:left; font-size:12px; }
+      .entity-table th,.entity-table td,.workspace-table th,.workspace-table td { padding:8px; border-bottom:1px solid var(--line); vertical-align:top; overflow-wrap:anywhere; }
+      .entity-table th { position:sticky; top:0; background:var(--panel); }
+      .comparison-map { height:clamp(330px, 55vh, 520px); min-width:0; border:1px solid var(--line-2); border-radius:10px; overflow:hidden; }
+      .workspace-card { border:1px solid var(--line-2); padding:12px; border-radius:10px; min-width:0; }
+      .workspace-card pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:300px; overflow:auto; }
+      .change-added { border-left:4px solid var(--healthy); }
+      .change-removed { border-left:4px solid var(--failing); }
+      .change-changed { border-left:4px solid var(--degraded); }
+      .workspace-dialog button:focus-visible,.entity-table button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+      @media(max-width:700px) { .workspace-grid { grid-template-columns:1fr; } .comparison-map { height:330px; } }
+    `;
     root.replaceChildren(style, app);
     const $ = s => app.querySelector(s);
 
@@ -1583,6 +1757,7 @@ button.label { cursor: pointer; }
     const state = {
       snap: null, sig: '', pending: null, connected: false, error: '', lastData: 0,
       historyId: '', historyLoading: false,
+      investigation: { mode: 'all', focus: '', target: '', depth: 1, direction: 'both' }, display: 'graph', tablePage: 0, tableSort: 'health', operation: { id: '', traceId: '' },
       view: { x: 0, y: 0, k: 1 }, fitted: false, userMoved: false,
       positions: stored('positions', {}),
       selected: null, hover: null, hoverEdge: null,
@@ -1616,6 +1791,8 @@ button.label { cursor: pointer; }
     const SVG_CSS = `
       .card { fill: var(--card); stroke: var(--line-2); stroke-width: 1.2; transition: fill .3s, stroke .3s; }
       .node { cursor: pointer; outline: none; }
+      .node.nodiff .title { fill: var(--muted); }
+      .node.nodiff :is(.tile, .icon) { opacity: .55; }
       .node:hover .card, .node.sel .card, .node:focus-visible .card { fill: var(--card-hi); stroke: var(--accent); }
       .node:focus-visible .card { stroke-width: 2.4; }
       .node.vis-partial .card { stroke-dasharray: 6 4; }
@@ -1682,6 +1859,10 @@ button.label { cursor: pointer; }
       .edge path.line { stroke-opacity: .75; }
       .edge.s-ghost path.line { stroke-dasharray: 8 6; }
       .edge.s-stale path.line { stroke-dasharray: 2 6; stroke: var(--stale); stroke-opacity: .85; }
+      .edge.diff-added path.line { stroke: var(--healthy); stroke-width: 4; stroke-opacity: 1; }
+      .edge.diff-removed path.line { stroke: var(--failing); stroke-width: 4; stroke-opacity: 1; stroke-dasharray: 7 5; }
+      .edge.diff-changed path.line { stroke: var(--degraded); stroke-width: 4; stroke-opacity: 1; }
+      .edge.nodiff path.line { stroke-opacity: .3; }
       .edge.sel path.line, .edge:hover path.line { stroke-opacity: 1; }
       .edge:focus-visible path.line { stroke: var(--accent); stroke-width: 4; stroke-opacity: 1; }
       .arrow.healthy { fill: var(--healthy); } .arrow.degraded { fill: var(--degraded); } .arrow.failing { fill: var(--failing); }
@@ -1700,6 +1881,10 @@ button.label { cursor: pointer; }
       .node.dim { opacity: 1; }
       .node.dim .title { fill: var(--muted); }
       .node.dim :is(.tile, .icon) { opacity: .5; }
+      /* Comparison marks outrank the compact health stroke; selection and focus outrank them. */
+      .node.diff-added:not(.sel):not(:focus-visible) .card { stroke: var(--healthy); stroke-width: 3; }
+      .node.diff-removed:not(.sel):not(:focus-visible) .card { stroke: var(--failing); stroke-width: 3; stroke-dasharray: 7 5; }
+      .node.diff-changed:not(.sel):not(:focus-visible) .card { stroke: var(--degraded); stroke-width: 3; }
       @media (prefers-reduced-motion: reduce) { .node.enter, .flowing .h-failing .halo { animation: none; } .dim, .card, .tile { transition: none; } }
     `;
 
@@ -1745,11 +1930,14 @@ button.label { cursor: pointer; }
     let ports = [];
     function renderMap() {
       const scope = state.scope;
-      const view = buildView(scope ? scopeSnapshot(state.snap, scope) : state.snap, index, state);
+      const scoped = scope ? scopeSnapshot(state.snap, scope) : state.snap;
+      state.investigated = investigateSnapshot(scoped, state.investigation);
+      const view = buildView(state.investigated.snapshot, index, state);
       currentView = view;
       ports = scope ? journeyPorts(state.snap, scope, { journeyKey: state.jkey, maxPerSide: page ? 8 : 5 }) : [];
       // in a grouped view, a port anchors on the group card
       for (const p of ports) p.anchors = [...new Set(p.anchors.map(id => view.nodes.has(id) ? id : view.groupOf(id)).filter(Boolean))];
+      ports = ports.filter(p => p.anchors.length);
       const pin = scope ? scopePins(view, ports) : new Map();
       const key = [...view.nodes.keys()].sort().join('|') + '#' + [...view.edges.keys()].sort().join('|') + '#' + [...pin].sort().join(';');
       if (key !== topologyKey) { layoutPos = layered(view, { pin }); topologyKey = key; }
@@ -1774,9 +1962,9 @@ button.label { cursor: pointer; }
         let g = edgeEls.get(e.id);
         if (!g) { g = createEdge(); edgeEls.set(e.id, g); layerEdges.append(g); }
         g._edge = e;
-        g.setAttribute('aria-label', `${e.from} to ${e.to}, ${healthText(e)}, ${errorText(e)}`);
+        g.setAttribute('aria-label', `${e.from} to ${e.to}, ${healthText(e)}, ${errorText(e)}${diffOf(e) ? ', ' + DIFF_TEXT[diffOf(e)] : ''}`);
         g.style.display = edgeVisible(e) ? '' : 'none';
-        g.setAttribute('class', `edge s-${e.state} h-${e.health}${state.selected?.id === e.id ? ' sel' : ''}`);
+        g.setAttribute('class', `edge s-${e.state} h-${e.health}${state.selected?.id === e.id ? ' sel' : ''}${diffClass(e)}`);
         routeEdge(g, posOf(e.from), posOf(e.to), view.edges.has(e.to + '->' + e.from) ? 7 : 0);
       }
       for (const [id, g] of edgeEls) if (!eSeen.has(id)) { g.remove(); edgeEls.delete(id); }
@@ -1796,6 +1984,7 @@ button.label { cursor: pointer; }
       renderEdgeLabel();
       if (!state.fitted && view.nodes.size) state.fitted = fit();
       else applyView();
+      renderInvestigation();
     }
 
     // renderFrame draws a scope: the frame with its name, health and what
@@ -1926,10 +2115,26 @@ button.label { cursor: pointer; }
       return g;
     }
 
+    // diffOf: a comparison map's mark for a drawn item (opts.diff from
+    // compareSnapshots). A group or aggregate takes its members' common mark,
+    // or "changed" when they differ.
+    function diffOf(item) {
+      if (!opts.diff || !item) return '';
+      const marks = (item.from ? opts.diff.edges : opts.diff.nodes) || {};
+      const keys = item.from ? (item.members || [item]).map(e => e.from + '->' + e.to) : item.group ? item.members.map(m => m.id) : [item.id];
+      const found = [...new Set(keys.map(k => marks[k]).filter(Boolean))];
+      return !found.length ? '' : found.length === 1 && keys.every(k => marks[k] === found[0]) ? found[0] : 'changed';
+    }
+    function diffClass(item) {
+      if (!opts.diff) return '';
+      const mark = diffOf(item);
+      return mark ? ' diff-' + mark : ' nodiff';
+    }
+
     function updateNode(g, n) {
       const p = g._parts;
       const sel = state.selected?.id === n.id;
-      g.setAttribute('class', `node kind-${n.kind} h-${n.health} vis-${n.visibility}${sel ? ' sel' : ''}${g.classList.contains('enter') ? ' enter' : ''}`);
+      g.setAttribute('class', `node kind-${n.kind} h-${n.health} vis-${n.visibility}${sel ? ' sel' : ''}${g.classList.contains('enter') ? ' enter' : ''}${diffClass(n)}`);
       const cat = categoryOf(n);
       if (p.cat !== cat) {
         p.icon.replaceChildren(iconSVG(iconOf(n)));
@@ -1957,7 +2162,7 @@ button.label { cursor: pointer; }
       const traffic = n.requestRate > 0 ? `, ${fmtRate(n.requestRate)} requests per second${n.latencyP95Ms > 0 ? `, ${latencyText(n)}` : ''}, ${errorText(n)}` : '';
       drawWhy(p.why, currentView.nodes.size > 200 ? [] : mapReasons(n, currentView.nodes));
       const because = n.reasons.length ? `, because of ${n.reasons.map(r => r.summary || reasonTag(r)).join('; ')}` : '';
-      const label = `${n.title}, ${n.group ? 'group' : CATEGORY[cat]?.label || n.kind}${n.tech ? ' (' + techLabel(n) + ')' : ''}, ${healthText(n)}${because}${traffic}, ${n.visibility} visibility${fs.length ? `, ${fs.length} next step${fs.length > 1 ? 's' : ''}` : ''}`;
+      const label = `${n.title}, ${n.group ? 'group' : CATEGORY[cat]?.label || n.kind}${n.tech ? ' (' + techLabel(n) + ')' : ''}, ${healthText(n)}${because}${traffic}, ${n.visibility} visibility${fs.length ? `, ${fs.length} next step${fs.length > 1 ? 's' : ''}` : ''}${diffOf(n) ? ', ' + DIFF_TEXT[diffOf(n)] : ''}`;
       p.tip.textContent = label;
       g.setAttribute('aria-label', label);
     }
@@ -2211,10 +2416,11 @@ button.label { cursor: pointer; }
       $('#mapHelp span').textContent = denseView ? `${nodeEls.size} components · ${edgeEls.size} connections. Group, search or focus to read names.` : 'Overview · select a component for its evidence.';
       for (const [id, g] of nodeEls) {
         const n = currentView.nodes.get(id), title = g._parts.title;
-        const prefix = n.health === 'failing' ? '× ' : n.health === 'degraded' ? '▲ ' : '';
-        const max = compactView ? Math.max(3, Math.floor((NODE_W * k - 12) / 7) - prefix.length) : 17;
+        const mark = DIFF_MARK[diffOf(n)] || '';
+        const prefix = mark + (!compactView ? '' : n.health === 'failing' ? '× ' : n.health === 'degraded' ? '▲ ' : '');
+        const max = compactView ? Math.max(3, Math.floor((NODE_W * k - 12) / 7) - prefix.length) : 17 - mark.length;
         const name = denseView ? n.title : n.title.length > max ? n.title.slice(0, max - 1) + '…' : n.title;
-        title.textContent = (compactView ? prefix : '') + name;
+        title.textContent = prefix + name;
         title.setAttribute('x', compactView ? 0 : -NODE_W / 2 + 60);
         title.setAttribute('y', compactView ? 4 / k : -3);
         title.setAttribute('text-anchor', compactView ? 'middle' : 'start');
@@ -2442,6 +2648,7 @@ button.label { cursor: pointer; }
 
     // --------------------------------------------------------------- top bar
     function renderRings() {
+      if (state.operation.id) { $('#rings').replaceChildren(el('span', { class: 'pill' }, 'Sample coverage unknown')); return; }
       const c = state.snap.coverage;
       const internal = state.snap.nodes.filter(n => n.kind !== 'external');
       const observed = state.snap.edges.filter(e => e.observed), declared = state.snap.edges.filter(e => e.declared);
@@ -2465,6 +2672,7 @@ button.label { cursor: pointer; }
       $('#timeContext').textContent = temporalText(state.snap, opts);
       $('#timeContext').title = opts.requestedRange ? `Dashboard requests ${opts.requestedRange.from} – ${opts.requestedRange.to}. Collection time is not the age of the original measurement.` : 'Collection time is not the age of the original measurement. A source lookback is its query window.';
       const l = $('#live');
+      if (opts.comparison) { l.className = 'live paused'; l.querySelector('span').textContent = 'frozen capture'; return; }
       if (state.error) { l.className = 'live error'; l.querySelector('span').textContent = state.error; return; }
       if (state.snap?.timeMode === 'historical') { l.className = 'live paused'; l.querySelector('span').textContent = 'historical · stored snapshot'; return; }
       l.className = 'live ' + (!state.live ? 'paused' : state.connected ? 'on' : '');
@@ -2690,9 +2898,10 @@ button.label { cursor: pointer; }
       live.replaceChildren(iconSVG('<circle cx="12" cy="12" r="3"/><path d="M5.6 5.6a9 9 0 000 12.8M18.4 5.6a9 9 0 010 12.8M8.5 8.5a5 5 0 000 7M15.5 8.5a5 5 0 010 7"/>'), 'Live');
       live.classList.toggle('on', state.live);
       live.setAttribute('aria-pressed', String(state.live));
-      live.disabled = !!state.historyId || state.snap?.timeMode === 'historical';
+      live.disabled = !!opts.comparison || !!state.historyId || state.snap?.timeMode === 'historical';
       live.title = live.disabled ? 'Historical snapshot: return to current state to follow updates' : 'Follow live data updates; Flow only animates traffic';
       $('#historyBtn').hidden = !opts.api;
+      $('#exploreBtn').hidden = !!opts.comparison;
       const values = $('#valuesBtn');
       values.replaceChildren(iconSVG('<path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/>'), 'Values');
       values.classList.toggle('on', state.values);
@@ -2812,9 +3021,74 @@ button.label { cursor: pointer; }
         : [el('p', { class: 'explain' }, 'Source timing was not supplied; the age of these measurements is unknown.')])];
     }
 
+    function renderIdentity(item) {
+      const entries = item.from
+        ? (item.members || [item]).flatMap(member => ['from', 'to'].flatMap(endpoint => (member.identity?.[endpoint] || []).map(entry => ({
+          entry, subject: `${member.from} → ${member.to} · ${endpoint === 'from' ? 'caller' : 'callee'}`,
+        }))))
+        : (item.group ? item.members : [item]).flatMap(member => (member.identity || []).map(entry => ({ entry, subject: member.id })));
+      // One card per decision: the same input resolved the same way by several
+      // sources is one finding. Consequential methods first, plain names last.
+      const ORDER = ['ambiguous', 'unresolved', 'inferred', 'ip-temporal', 'alias', 'explicit', 'name'];
+      const groups = new Map();
+      for (const { entry, subject } of entries) {
+        const key = JSON.stringify([subject, entry.method, entry.input, entry.resolvedId, entry.basis, entry.detail]);
+        if (!groups.has(key)) groups.set(key, { subject, entry, records: new Map() });
+        groups.get(key).records.set(JSON.stringify(entry), entry);
+      }
+      const decisions = [...groups.values()].map(d => ({ ...d, records: [...d.records.values()] }))
+        .sort((a, b) => ORDER.indexOf(a.entry.method) - ORDER.indexOf(b.entry.method));
+      const count = m => decisions.filter(({ entry }) => entry.method === m).length;
+      const retained = decisions.filter(({ records }) => records.some(r => r.retained || r.candidates.some(candidate => candidate.retained))).length;
+      const method = { explicit: 'Explicit name', name: 'Reported name', alias: 'Configured alias', 'ip-temporal': 'IP temporal match', inferred: 'Inferred identity', ambiguous: 'Ambiguous identity', unresolved: 'Unresolved address' };
+      const times = { unknown: 'unknown', 'evaluation-window': 'query evaluation window', 'collection-window': 'collection window; not a call timestamp', 'sample-envelope': 'original sample envelope', 'sample-point': 'original observation point' };
+      const summary = `Identity and provenance (${decisions.length}${['ambiguous', 'unresolved', 'inferred'].map(m => count(m) ? ` · ${count(m)} ${m}` : '').join('')}${retained ? ` · ${retained} retained` : ''})`;
+      return el('details', { 'data-disclosure-key': 'identity-provenance' }, el('summary', {}, summary),
+        !decisions.length ? el('p', { class: 'explain' }, 'Identity provenance was not supplied for this snapshot; a matching name alone does not establish ownership.') : null,
+        ...decisions.map(({ entry, subject, records }) => {
+          const sources = [...new Set(records.map(r => r.source + (r.sourceType && r.sourceType !== r.source ? ` (${r.sourceType})` : '')))];
+          const timed = records.filter(r => r.timeBasis !== 'not-applicable');
+          const collected = records.map(r => r.collectedAt).filter(Boolean).sort().at(-1);
+          const candidates = [...new Map(records.flatMap(r => r.candidates).map(c => [JSON.stringify(c), c])).values()];
+          const alternatives = [...new Set(records.flatMap(r => r.alternatives))];
+          const isRetained = records.some(r => r.retained);
+          return el('article', { class: 'evidence-card' },
+            el('strong', {}, `${method[entry.method]}${isRetained ? ' · retained decision' : ''}`),
+            el('p', { class: 'explain' }, subject),
+            el('p', {}, el('code', {}, entry.input), ' → ', el('code', {}, entry.resolvedId)),
+            el('p', {}, `${sources.length > 1 ? 'Sources' : 'Source'}: ${sources.join(', ')}${entry.basis ? ` · ${entry.basis}` : ''}`),
+            entry.method === 'ambiguous' ? el('p', { class: 'explain' }, 'No workload owner was selected for this decision. Inspect the candidates and observation period.') : null,
+            entry.method === 'inferred' ? el('p', { class: 'explain' }, 'This decision includes an inference; inspect its basis and source limits.') : null,
+            entry.detail ? el('p', { class: 'explain' }, entry.detail) : null,
+            !timed.length ? el('p', { class: 'explain' }, `No time anchor is required for this match. Last collected: ${collected || 'unknown'}.`) : null,
+            ...timed.map(r => el('p', { class: 'explain' }, `${sources.length > 1 ? r.source + ' · ' : ''}Time basis: ${times[r.timeBasis]}. Collected: ${r.collectedAt || 'unknown'}. Query evaluated: ${r.evaluatedAt || 'unknown'}. ` +
+              `Original observation: ${r.observedFrom || 'unknown'} → ${r.observedAt || 'unknown'}. ${r.windowSeconds > 0 ? `Lookback: ${fmtSec(r.windowSeconds)}.` : 'No lookback supplied.'}`)),
+            isRetained ? el('p', { class: 'explain' }, 'This is the original retained decision; its timestamps do not establish current ownership.') : null,
+            alternatives.length ? el('p', { class: 'explain' }, `Reading candidates, in source order: ${alternatives.join(', ')}.`) : null,
+            candidates.length ? el('div', {}, el('strong', {}, `Inventory candidates (${candidates.length})`), el('ul', {}, ...candidates.map(candidate => el('li', {},
+              el('code', {}, candidate.id), ` · ${candidate.source}${candidate.sourceType ? ` (${candidate.sourceType})` : ''}${candidate.retained ? ' · retained inventory; current ownership not refreshed' : ''}`,
+              candidate.basis ? el('p', { class: 'explain' }, candidate.basis) : null,
+              el('p', { class: 'explain' }, `Reported start: ${candidate.since || 'unknown'}. Collected: ${candidate.collectedAt || 'unknown'}. The reported start is not independently verified IP lease history.`))))) : null);
+        }));
+    }
+
+    // One-step entries into the bounded investigation of a component.
+    function investigationActions(item) {
+      if (item.from || item.group || opts.comparison || state.operation.id) return [];
+      return [
+        el('button', { type: 'button', class: 'btn', onclick: () => {
+          state.investigation = { mode: 'neighbors', focus: item.id, target: '', depth: 1, direction: 'both' };
+          state.display = 'graph'; state.tablePage = 0; state.fitted = false;
+          renderAll(); syncSharedURL();
+        } }, 'Show neighborhood'),
+        el('button', { type: 'button', class: 'btn', 'aria-haspopup': 'dialog', onclick: () => openWorkspace('scope', { mode: 'path', focus: item.id, target: '' }) }, 'Find path…'),
+      ];
+    }
+
     function detailActions(item) {
       return el('div', { class: 'detail-actions' },
         el('button', { type: 'button', class: 'btn', onclick: focusSelection }, 'Focus on map'),
+        ...investigationActions(item),
         ...[...new Map((item.links || []).map(l => [l.url, l])).values()].map(l => el('span', {}, el('a', {
           class: 'btn', href: l.url, target: '_blank', rel: 'noopener noreferrer', title: l.description,
         }, l.label), l.description ? el('small', { class: 'explain' }, l.description) : null)));
@@ -2862,6 +3136,7 @@ button.label { cursor: pointer; }
         const parts = [el('div', { class: 'hero' }, tile, el('div', {}, el('h2', {}, n.title),
           el('span', { class: 'pill' }, el('i', { class: 'dot', style: `background:${css('--' + n.health)}` }), healthText(n)), ' ',
           el('span', { class: 'pill' }, n.kind), ' ', el('span', { class: 'pill' }, n.visibility + ' visibility'))), detailActions(n), ...whyBlock(n.reasons), ...evidenceBlock(n), effectiveRules(n)];
+        parts.push(renderIdentity(n));
         const fs = state.snap.findings.filter(f => n.group ? n.members.some(m => m.id === f.subject) : f.subject === n.id || f.subject.startsWith(n.id + '->'));
         if (fs.length) { parts.push(el('h3', {}, 'Next steps')); parts.push(...fs.map(f => findingCard(f))); }
         if (n.group) {
@@ -2928,6 +3203,8 @@ button.label { cursor: pointer; }
         el('div', {}, el('h2', {}, `${e.from} → ${e.to}`), ...pills)), detailActions(e), ...whyBlock(e.reasons)];
       for (const member of e.members.filter(m => m.frequency)) parts.push(el('p', { class: 'explain' }, `${e.members.length > 1 ? `${member.from} → ${member.to}: ` : ''}Expected every ${fmtSec(member.expectedFrequencySeconds)} · ${member.frequency.status}. ${text(member.frequency.detail)} Last observed: ${timestamp(member.frequency.lastObservedAt) || 'unknown'}. Next expected: ${timestamp(member.frequency.nextExpectedAt) || 'unknown'}.`));
       parts.push(...presenceBlock('edges', e.members.map(m => m.from + '->' + m.to)));
+      // Plain query frames carry no declared intent: "not declared" there is not a contract gap.
+      if (state.snap.drift && !state.operation.id && e.members.length === 1 && e.members[0].observed && !e.members[0].declared) parts.push(el('button', { type: 'button', class: 'btn', onclick: () => { state.reviewEdge = e.members[0]; openWorkspace('review'); } }, 'Review contract proposal'));
       if (state.snap.drift) {
         parts.push(el('p', { class: 'explain' }, {
           ok: 'Declared in a flows file and observed in traffic: intent and reality agree.',
@@ -2948,7 +3225,7 @@ button.label { cursor: pointer; }
       row('seen by', e.signals.map(s => has(SIGNAL, s) ? SIGNAL[s].label : s).join(', ') || (e.observed ? '—' : 'nobody yet'));
       if (e.sources.length) row('sources', e.sources.join(', '));
       if (e.members.length > 1) row('aggregates', `${e.members.length} communications`);
-      parts.push(kv, ...evidenceBlock(e), effectiveRules(e));
+      parts.push(kv, ...evidenceBlock(e), renderIdentity(e), effectiveRules(e));
       const fs = state.snap.findings.filter(f => e.members.some(m => f.subject === m.from + '->' + m.to) || (e.state === 'ghost' && f.subject === e.from && f.rule === 'undeclared-flow'));
       if (fs.length) { parts.push(el('h3', {}, 'Next steps')); parts.push(...fs.map(f => findingCard(f))); }
       pane.replaceChildren(...parts.filter(Boolean));
@@ -3078,6 +3355,312 @@ button.label { cursor: pointer; }
       later(() => URL.revokeObjectURL(a.href), 2000);
     }
 
+    // ------------------------------------------------ investigation workspace
+    let comparisonMaps = [], workspaceEpoch = 0;
+    const comparison = { before: null, after: null };
+    function clearComparisonMaps() { comparisonMaps.forEach(controller => controller.destroy()); comparisonMaps = []; }
+    function choice(label, id, values, selected) {
+      const control = el('select', { id });
+      for (const [value, title] of values) control.append(el('option', { value }, title));
+      control.value = String(selected ?? '');
+      return el('label', {}, label, control);
+    }
+    function workspaceStatus(message) { const target = $('#workspaceStatus'); if (target) target.textContent = message; }
+    function openWorkspace(tab, preset) {
+      if (opts.comparison) return;
+      ++workspaceEpoch; clearComparisonMaps();
+      state.workspace = tab;
+      const pane = $('#workspaceContent'); pane.replaceChildren();
+      if (!$('#investigateDialog').open) $('#investigateDialog').showModal();
+      app.querySelectorAll('[data-workspace]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.workspace === tab)));
+      if (tab === 'compare') renderComparisonSetup(pane);
+      else if (tab === 'setup') renderSetup(pane);
+      else if (tab === 'operations') renderOperations(pane);
+      else if (tab === 'review') renderReview(pane);
+      else renderFocusSetup(pane, preset);
+    }
+    function renderFocusSetup(pane, preset) {
+      const current = { ...state.investigation, ...preset }, selected = state.selected?.type === 'node' ? state.selected.id : '';
+      const names = el('datalist', { id: 'investigationNames' }, ...(state.snap?.nodes || []).map(n => el('option', { value: n.id })));
+      pane.append(el('p', {}, 'A topology path shows directed relationships, not proof that one request traversed them. Existing journey and facet filters still apply.'),
+        el('div', { class: 'workspace-grid' },
+          choice('Scope', 'investigationMode', [['all','Whole filtered map'],['neighbors','Limited neighborhood'],['path','Shortest directed path']], current.mode),
+          el('label', {}, 'Start component', el('input', { id: 'investigationFocus', list: 'investigationNames', value: current.focus || selected, autocomplete: 'off' })),
+          el('label', {}, 'Destination (path)', el('input', { id: 'investigationTarget', list: 'investigationNames', value: current.target, autocomplete: 'off' })),
+          choice('Neighborhood depth', 'investigationDepth', [[1,'1 hop'],[2,'2 hops'],[3,'3 hops']], current.depth),
+          choice('Neighborhood direction', 'investigationDirection', [['both','Callers and dependencies'],['in','Callers only'],['out','Dependencies only']], current.direction),
+          choice('Presentation', 'investigationDisplay', [['graph','Graph'],['list','Components and connections table']], state.display)), names,
+        el('p', {}, 'Focused views show at most 200 components and disclose omitted context. A path longer than that is rejected rather than cut.'),
+        el('p', { id: 'workspaceStatus', class: 'workspace-status', role: 'status' }),
+        el('button', { type: 'button', class: 'btn', onclick: () => {
+          const mode = $('#investigationMode').value, focus = $('#investigationFocus').value.trim(), target = $('#investigationTarget').value.trim();
+          if (mode !== 'all' && !state.snap?.nodes.some(n => n.id === focus)) return workspaceStatus('Choose an existing start component.');
+          if (mode === 'path' && !state.snap?.nodes.some(n => n.id === target)) return workspaceStatus('Choose an existing destination.');
+          state.investigation = { mode, focus, target, depth: Number($('#investigationDepth').value), direction: $('#investigationDirection').value };
+          state.display = $('#investigationDisplay').value; state.tablePage = 0; state.fitted = false; state.selected = null; setDrawer(false);
+          if (state.snap) renderAll(); syncSharedURL(); $('#investigateDialog').close();
+        } }, 'Apply investigation'));
+      if (preset?.mode === 'path') $('#investigationTarget').focus();
+    }
+    function renderInvestigation() {
+      const info = state.investigated, summary = $('#investigationSummary'), table = $('#entityTable');
+      const active = state.investigation.mode !== 'all' || state.display === 'list' || !!state.operation.id;
+      summary.hidden = !active; stage.classList.toggle('has-investigation', active);
+      if (active && info) {
+        const message = (state.operation.id ? `Sampled operation: ${state.snap.operationContext?.operation} · ` : '') + `${info.snapshot.nodes.length} components · ${info.snapshot.edges.length} connections · ${info.hiddenNodes} components outside view · ${info.boundaryEdges} crossing connections`;
+        summary.replaceChildren(el('span', {}, message + (info.limited ? ' · 200-component limit reached; narrow the scope.' : '') + (!info.found ? ' · No directed path in the available topology.' : '')),
+          el('button', { class: 'btn', type: 'button', onclick: () => { state.display = state.display === 'list' ? 'graph' : 'list'; renderInvestigation(); syncSharedURL(); } }, state.display === 'list' ? 'Show graph' : 'Show table'),
+          el('button', { class: 'btn', type: 'button', onclick: () => { state.investigation.mode = 'all'; state.display = 'graph'; state.operation = { id: '', traceId: '' }; state.fitted = false; apply(state.rawSnapshot, false, true); renderAll(); syncSharedURL(); } }, 'Reset investigation'));
+      }
+      table.hidden = state.display !== 'list';
+      // The table replaces the map: its zoom, legend and help would only cover rows.
+      stage.classList.toggle('list-view', state.display === 'list');
+      if (table.hidden || !info) return;
+      const matches = matcher(state.query) || (() => true);
+      const rows = [...currentView.nodes.values()].filter(n => matches(n)).map(n => ({ type: 'Component', id: n.id, name: n.title, item: n }));
+      for (const e of currentView.edges.values()) if (edgeVisible(e) && (!state.query || matches(currentView.nodes.get(e.from)) || matches(currentView.nodes.get(e.to)))) rows.push({ type: 'Connection', id: e.id, name: `${e.from} → ${e.to}`, item: e });
+      rows.sort((a, b) => state.tableSort === 'name' ? a.name.localeCompare(b.name) : state.tableSort === 'traffic'
+        ? (b.item.requestRate || 0) - (a.item.requestRate || 0) || a.name.localeCompare(b.name)
+        : HEALTH_RANK[b.item.health] - HEALTH_RANK[a.item.health] || a.name.localeCompare(b.name));
+      const pages = Math.max(1, Math.ceil(rows.length / 50)); state.tablePage = Math.min(state.tablePage, pages - 1);
+      const sorting = choice('Sort table', 'investigationSort', [['health','Health'],['name','Name'],['traffic','Traffic']], state.tableSort);
+      sorting.querySelector('select').addEventListener('change', event => { state.tableSort = event.target.value; state.tablePage = 0; renderInvestigation(); table.scrollTop = 0; $('#investigationSort').focus(); });
+      const body = el('tbody');
+      for (const row of rows.slice(state.tablePage * 50, state.tablePage * 50 + 50)) body.append(el('tr', {},
+        el('td', {}, row.type), el('td', {}, el('button', { type: 'button', class: 'btn', onclick: () => { select({ type: row.type === 'Component' ? 'node' : 'edge', id: row.id }); } }, row.name)),
+        el('td', {}, healthText(row.item)), el('td', {}, row.item.requestRate > 0 ? `${fmtRate(row.item.requestRate)}/s` : 'No positive measured rate'),
+        el('td', {}, errorText(row.item))));
+      // A new page starts at its first row; focus moves to the top pager, which
+      // is in view there, whichever pager was used.
+      const turn = step => {
+        state.tablePage += step; renderInvestigation(); table.scrollTop = 0;
+        (step > 0 ? ['#tableNext', '#tablePrevious'] : ['#tablePrevious', '#tableNext']).map(s => $(s)).find(b => b && !b.disabled)?.focus({ preventScroll: true });
+      };
+      const pager = suffix => pages < 2 ? null : el('div', { class: 'detail-actions' },
+        el('button', { id: 'tablePrevious' + suffix, class: 'btn', type: 'button', disabled: state.tablePage === 0 ? '' : null, onclick: () => turn(-1) }, 'Previous rows'),
+        el('button', { id: 'tableNext' + suffix, class: 'btn', type: 'button', disabled: state.tablePage + 1 >= pages ? '' : null, onclick: () => turn(1) }, 'Next rows'));
+      table.replaceChildren(...[sorting, el('p', {}, `${rows.length} matching rows · page ${state.tablePage + 1} of ${pages}. Groups can be expanded from their details.`), pager(''),
+        el('table', {}, el('caption', { class: 'sr-only' }, 'Investigation components and connections'), el('thead', {}, el('tr', {}, ...['Type','Identity','Health','Traffic','Errors'].map(label => el('th', { scope: 'col' }, label)))), body),
+        pager('End')].filter(Boolean));
+      table.style.top = Math.ceil(summary.offsetHeight + 16) + 'px';
+    }
+    function validSnapshot(raw) {
+      if (!raw || !Array.isArray(raw.nodes) || !Array.isArray(raw.edges)) throw new Error('Expected a Teia snapshot with nodes and edges arrays.');
+      if (raw.nodes.length > 10000 || raw.edges.length > 50000) throw new Error('Comparison input exceeds 10,000 components or 50,000 connections. Narrow the capture first.');
+      return sanitize(raw);
+    }
+    function renderComparisonSetup(pane) {
+      pane.append(el('p', {}, 'Compare exact observations. “Only before” is absence from the second capture, not proof that traffic stopped or that a declaration should be deleted. Rate jitter is excluded from structural changes.'));
+      const inputs = el('div', { class: 'workspace-grid' });
+      for (const side of ['before','after']) {
+        const upload = el('input', { type: 'file', accept: '.json,application/json', 'aria-label': `Upload ${side} snapshot` });
+        upload.addEventListener('change', async () => {
+          const file = upload.files[0]; if (!file) return;
+          const epoch = workspaceEpoch;
+          try {
+            if (file.size > 16 * 1024 * 1024) throw new Error('Snapshot files must be at most 16 MiB.');
+            const raw = JSON.parse(await file.text()); if (epoch !== workspaceEpoch || destroyed) return;
+            comparison[side] = validSnapshot(raw); updateComparison();
+          } catch (error) { if (epoch === workspaceEpoch) workspaceStatus(error.message); }
+        });
+        inputs.append(el('div', { class: 'workspace-card' }, el('h3', {}, side === 'before' ? 'Before' : 'After'), upload,
+          el('button', { type: 'button', class: 'btn', disabled: state.snap ? null : '', onclick: () => { comparison[side] = sanitize(JSON.parse(JSON.stringify(state.baseSnapshot || state.snap))); updateComparison(); } }, `Capture current snapshot as ${side}`),
+          // Stored history exists only on a reachable Teia server.
+          opts.api ? choice('Stored observation', 'compare-' + side, [['','Choose a stored snapshot']], '') : null, el('p', { id: 'compare-label-' + side })));
+      }
+      pane.append(inputs, el('p', { id: 'workspaceStatus', class: 'workspace-status', role: 'status' }), el('div', { id: 'comparisonResult' }));
+      updateComparison();
+      if (!opts.api) { workspaceStatus('Query mode: upload two exported snapshots or capture two received observations. Server history is available in direct API mode.'); return; }
+      const epoch = workspaceEpoch;
+      fetch(opts.api + 'history', { signal: aborter.signal }).then(async response => {
+        if (!response.ok) throw new Error('Stored history could not be loaded. You can still compare uploaded snapshots.');
+        return response.json();
+      }).then(listing => {
+        if (destroyed || workspaceEpoch !== epoch) return;
+        if (!listing.enabled) workspaceStatus('History is disabled on this server. Uploaded/captured snapshots remain available.');
+        const entries = [...(listing.snapshots || [])].sort((a,b) => b.generatedAt.localeCompare(a.generatedAt)).slice(0,200);
+        for (const side of ['before','after']) {
+          const select = $('#compare-' + side);
+          for (const entry of entries) select.append(el('option', { value: entry.id }, `${entry.generatedAt} · ${entry.nodes} components`));
+          select.addEventListener('change', async () => {
+            const id = select.value; if (!id) return;
+            try {
+              const response = await fetch(opts.api + 'history/' + encodeURIComponent(id), { signal: aborter.signal });
+              if (!response.ok) throw new Error('This stored observation is unavailable or expired. No traffic conclusion can be drawn.');
+              const raw = await response.json(); if (destroyed || epoch !== workspaceEpoch || select.value !== id) return;
+              if (raw.history?.id !== id) throw new Error('The response does not match the selected observation.');
+              comparison[side] = validSnapshot(raw); updateComparison();
+            } catch (error) { if (epoch === workspaceEpoch && select.value === id) workspaceStatus(error.message); }
+          });
+        }
+        if ((listing.snapshots || []).length > 200) workspaceStatus('Showing the newest 200 stored observations. Export an older capture by its ID to compare it here.');
+      }).catch(error => { if (!destroyed && epoch === workspaceEpoch) workspaceStatus(error.message); });
+    }
+    function updateComparison() {
+      for (const side of ['before','after']) {
+        const snap = comparison[side];
+        $('#compare-label-' + side).textContent = snap ? `${snap.generatedAt || 'Capture time unknown'} · ${snap.history?.id || 'uploaded/captured observation'} · ${snap.nodes.length} components` : 'No observation selected';
+      }
+      clearComparisonMaps(); const result = $('#comparisonResult'); result.replaceChildren();
+      if (!comparison.before || !comparison.after) return;
+      const diff = compareSnapshots(comparison.before, comparison.after);
+      result.append(el('p', { role: 'status' }, `${diff.counts.added} only after · ${diff.counts.removed} only before · ${diff.counts.changed} changed · ${diff.counts.unchanged} unchanged`));
+      if (Date.parse(comparison.before.generatedAt) > Date.parse(comparison.after.generatedAt)) result.append(el('p', {}, 'The selected “before” capture is newer than “after”. The comparison preserves your selected order.'));
+      result.append(el('p', {}, 'Map marks: + only after (green outline) · − only before (red dashed outline) · ~ changed health, state, kind, labels, addresses or identity resolution (amber outline). Unmarked items are unchanged and muted.'));
+      const maps = el('div', { class: 'workspace-grid' });
+      // Each map marks only what it can show: absences belong to "before", arrivals to "after".
+      const marks = (rows, side) => Object.fromEntries(rows.filter(row => row.status === 'changed' || row.status === (side === 'before' ? 'removed' : 'added')).map(row => [row.id, row.status]));
+      for (const side of ['before','after']) {
+        const host = el('div', { class: 'comparison-map', 'aria-label': `${side} communication map` });
+        maps.append(el('div', {}, el('h3', {}, side === 'before' ? 'Before' : 'After'), host));
+        result.append(maps);
+        const controller = mount(host, { mode: 'panel', flow: false, theme: hostTheme(), comparison: true, storageKey: prefix + 'compare-' + side,
+          diff: { nodes: marks(diff.nodes, side), edges: marks(diff.edges, side) } });
+        controller.update(comparison[side]); comparisonMaps.push(controller);
+      }
+      const rows = [...diff.nodes, ...diff.edges].filter(row => row.status !== 'unchanged');
+      const body = el('tbody');
+      for (const row of rows.slice(0,500)) body.append(el('tr', { class: 'change-' + row.status },
+        el('td', {}, row.status === 'removed' ? '− Only before' : row.status === 'added' ? '+ Only after' : '~ Changed'),
+        el('td', {}, row.type, ' ', el('button', { type: 'button', class: 'btn', onclick: () => comparisonMaps.forEach(controller => controller.focus(row.id)) }, row.id)),
+        el('td', {}, row.changes.map(change => `${change.field}: ${JSON.stringify(change.before)} → ${JSON.stringify(change.after)}`).join('; ') || 'Presence in these two captures')));
+      result.append(el('table', { class: 'workspace-table' }, el('caption', {}, 'Structural and health differences'), el('thead', {}, el('tr', {}, ...['Change','Identity — locate on both maps','Before → after'].map(label => el('th', { scope: 'col' }, label)))), body),
+        el('button', { class: 'btn', type: 'button', onclick: () => download(new Blob([JSON.stringify({ before: comparison.before, after: comparison.after, differences: diff }, null, 2)], { type: 'application/json' }), 'teia-comparison.json') }, 'Download comparison'));
+      if (rows.length > 500) result.append(el('p', {}, `${rows.length - 500} additional differences are available in the comparison download.`));
+    }
+    function renderSetup(pane) {
+      pane.append(el('h3', {}, 'Connect data and check coverage'), el('p', {}, '1. Connect a source. 2. Check identities and field units. 3. Confirm what is measured before interpreting health.'));
+      const sources = state.baseSnapshot?.sources || state.snap?.sources || [];
+      pane.append(el('div', { class: 'workspace-grid' }, ...sources.map(source => el('section', { class: 'workspace-card' }, el('h4', {}, source.name),
+        el('p', {}, `${source.type} · ${source.state} · ${source.nodes || 0} components · ${source.edges || 0} connections`), el('p', {}, source.message || 'No source error reported.'),
+        source.retained ? el('p', {}, 'Retained topology: this round did not renew its observation time.') : null))));
+      if (!sources.length) pane.append(el('p', {}, 'No source diagnostics supplied. A query returning topology does not prove complete instrumentation.'));
+      const items = [...(state.snap?.nodes || []), ...(state.snap?.edges || [])];
+      pane.append(el('p', {}, `${items.filter(x => x.errorsUnknown).length} entities have unknown errors. Metrics require requestRate in requests/second, errorRate as a 0–1 fraction, and latencyP95Ms in milliseconds. Missing fields stay unknown.`));
+      if (typeof opts.onMappingChange === 'function') {
+        pane.append(el('h3', {}, 'Map Grafana query fields'), el('p', {}, 'Choose query frames and their identity columns. Convert units in the query before mapping. Saving persists in panel options; save the dashboard to retain it.'));
+        const frames = Array.isArray(opts.inputFrames) ? opts.inputFrames : [];
+        const mapping = opts.fieldMapping || {}, cards = el('div', { class: 'workspace-grid' });
+        const roles = [['nodes', ['id', 'kind', 'health', 'requestRate', 'errorRate', 'latencyP95Ms']], ['edges', ['source', 'target', 'requestRate', 'errorRate', 'latencyP95Ms']]];
+        for (const [role, fields] of roles) {
+          const card = el('section', { class: 'workspace-card' }, el('h4', {}, role === 'nodes' ? 'Components' : 'Connections'));
+          const select = choice('Query frame', 'mapping-' + role, [['', 'Automatic / unmapped'], ...frames.map(f => [f.key, f.key])], mapping[role]?.frame || '');
+          const columns = el('div');
+          const refresh = () => {
+            const selected = select.querySelector('select').value, frame = frames.find(f => f.key === selected);
+            columns.replaceChildren(...(frame ? fields.map(field => choice(field + (['id','source','target'].includes(field) ? ' (required)' : ' (optional)'), `mapping-${role}-${field}`,
+              [['','Choose field'], ...frame.fields.map(name => [name, name])], mapping[role]?.[field] || (frame.fields.includes(field) ? field : ''))) : []));
+          };
+          select.querySelector('select').addEventListener('change', refresh); refresh(); card.append(select, columns); cards.append(card);
+        }
+        pane.append(cards, el('button', { type: 'button', class: 'btn', onclick: () => {
+          const next = {};
+          for (const [role, fields] of roles) {
+            const frame = $('#mapping-' + role).value;
+            if (!frame) continue;
+            next[role] = { frame };
+            for (const field of fields) { const val = $(`#mapping-${role}-${field}`)?.value; if (val) next[role][field] = val; }
+            if ((role === 'nodes' && !next[role].id) || (role === 'edges' && (!next[role].source || !next[role].target))) { workspaceStatus('Select all required identity columns.'); return; }
+          }
+          try { opts.onMappingChange(next); workspaceStatus('Mapping sent to panel options. Check the returned map and query diagnostics, then save the dashboard.'); }
+          catch (error) { workspaceStatus(error.message); }
+        } }, 'Save field mapping'));
+      } else {
+        pane.append(el('h3', {}, 'Prepare a server source'), el('p', {}, 'The endpoint must be reachable from the Teia server. This downloads a configuration fragment for review; it does not change the running server. Configure credentials through server environment variables.'));
+        const type = choice('Source type', 'setupSource', [['prometheus','Prometheus metrics'],['tempo','Tempo sampled traces']], 'prometheus');
+        const url = el('input', { id: 'setupURL', type: 'url', placeholder: 'http://prometheus:9090' });
+        const preview = el('pre', { id: 'setupPreview' });
+        pane.append(type, el('label', {}, 'Server endpoint', url), el('button', { type: 'button', class: 'btn', onclick: () => {
+          try {
+            const endpoint = new URL(url.value);
+            if (!['http:','https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) throw new Error('Use an HTTP(S) endpoint without credentials, query parameters or fragment.');
+            const kind = $('#setupSource').value;
+            const config = `sources:\n  ${kind}:\n    - url: ${JSON.stringify(endpoint.href)}\n      window: ${kind === 'tempo' ? '10m' : '2m'}\n${kind === 'prometheus' ? '      presets: [auto]\n' : ''}`;
+            preview.textContent = config; workspaceStatus('Merge this sources entry into teia.yaml, restart Teia, and check source status and coverage here.');
+            download(new Blob([config], { type: 'application/yaml' }), 'teia-source.yaml');
+          } catch (error) { workspaceStatus(error.message || 'Enter a valid endpoint.'); }
+        } }, 'Prepare configuration'), preview);
+      }
+      pane.append(el('p', { id: 'workspaceStatus', role: 'status' }), el('p', {}, 'If identities appear as IPs, review inventory and temporal ownership. If errors are unknown, add an error measurement; zero is only meaningful when measured. Operation views require route or RPC attributes and parent-span linkage.'));
+    }
+    function renderOperations(pane) {
+      const operations = state.baseSnapshot?.operations;
+      pane.append(el('h3', {}, 'Investigate a sampled operation'), el('p', {}, 'Operations use span ancestry and normalized route/RPC attributes. Ownership journeys remain a separate topological view. Sample outcomes and durations do not establish service health, request rates or total traffic coverage.'));
+      if (!operations?.scopes.length) {
+        pane.append(el('p', {}, 'No attributed operations in this capture. Connect Tempo and instrument http.route + method, RPC service/method, or teia.operation. Missing metadata is not evidence that no requests occurred.'));
+      }
+      if (operations) pane.append(...operations.sources.map(source => el('p', {}, `${source.source}: ${source.status} · ${source.fetchedTraces}/${source.requestedTraces} requested traces returned · ${source.failedTraces} failures${source.truncated ? ' · truncated' : ''} · ${source.queryPeriod?.from || '?'} – ${source.queryPeriod?.to || '?'}`)),
+        el('p', {}, `${operations.unattributed.length} spans without an attributed operation. Sampling policy and traffic denominator are unknown.`));
+      const scopes = operations?.scopes || [];
+      const select = choice('Operation', 'operationSelect', [['','Choose an operation'], ...scopes.map(s => [s.id, `${s.entryService} · ${s.operation} · ${s.source}`])], state.operation.id);
+      const details = el('section', { id: 'operationDetails' });
+      const refresh = () => {
+        const scope = scopes.find(s => s.id === $('#operationSelect').value); details.replaceChildren();
+        if (!scope) return;
+        const outcomes = scope.rootOutcomes || {};
+        details.append(el('p', {}, `${scope.sampledRootCount} sampled roots · ${scope.incompleteTraceCount} traces with gaps · root outcomes: ${outcomes.ok || 0} OK / ${outcomes.error || 0} error / ${outcomes.unknown || 0} unknown${scope.truncated ? ' · truncated' : ''}`),
+          el('p', {}, `Query period: ${scope.queryPeriod?.from || '?'} – ${scope.queryPeriod?.to || '?'}. ${(() => {
+            // A range of individual samples; no percentile or rate is derived from them.
+            const ms = (Array.isArray(scope.sampleRootDurationsMs) ? scope.sampleRootDurationsMs : []).filter(Number.isFinite);
+            return ms.length ? `Sampled root durations range from ${fmtMs(Math.min(...ms))} to ${fmtMs(Math.max(...ms))} across ${ms.length} roots; these are individual samples, not a traffic percentile.`
+              : 'No valid root durations were sampled.';
+          })()}`));
+        const traceIds = [...new Set(scope.traces.map(t => t.traceId))];
+        const traces = choice('Trace', 'operationTrace', [['','All returned traces'], ...traceIds.map(id => [id, `${id} · ${scope.traces.filter(t => t.traceId === id).length} sampled roots`])], state.operation.id === scope.id ? state.operation.traceId : '');
+        const spans = el('div', { id: 'operationSpans' });
+        const showTrace = () => {
+          const selected = scope.traces.filter(t => t.traceId === traces.querySelector('select').value); spans.replaceChildren();
+          if (!selected.length) return;
+          for (const trace of selected) spans.append(el('p', {}, `Root span ${trace.rootSpanId} · ${trace.rootOutcome} · ${trace.structuralStatus}${trace.rootDurationMs != null ? ' · ' + fmtMs(trace.rootDurationMs) : ''}. Missing parents: ${strings(trace.missingParentSpanIds).join(', ') || 'none reported'}. Unattributed spans: ${strings(trace.unattributedSpanIds).join(', ') || 'none reported'}.${trace.truncated ? ' Truncated sample.' : ''} Linked sample does not mean a complete trace.`));
+          const uniqueSpans = [...new Map(selected.flatMap(t => t.spans).map(p => [p.spanId,p])).values()];
+          for (const span of uniqueSpans.slice(0, 200)) spans.append(el('p', {}, `${span.nodeId} · ${span.kind} · span ${span.spanId} ← ${span.parentSpanId || 'root'} · ${span.startedAt || '?'} – ${span.endedAt || '?'}${Array.isArray(span.links) && span.links.length ? ' · asynchronous links (not traversed): ' + span.links.filter(Boolean).map(l => `${l.traceId}/${l.spanId}`).join(', ') : ''}`));
+          if (uniqueSpans.length > 200) spans.append(el('p', {}, `${uniqueSpans.length - 200} more spans in the snapshot JSON export.`));
+        };
+        traces.querySelector('select').addEventListener('change', showTrace); details.append(traces, spans); showTrace();
+      };
+      pane.append(select, details); select.querySelector('select').addEventListener('change', refresh); refresh();
+      pane.append(el('button', { type: 'button', class: 'btn', onclick: () => {
+        const id = $('#operationSelect').value; if (!id) { workspaceStatus('Choose an available operation.'); return; }
+        state.operation = { id, traceId: $('#operationTrace')?.value || '' }; state.investigation.mode = 'all'; state.filters = emptyFilters(); state.groupBy = ''; state.selected = null; state.fitted = false;
+        apply(state.rawSnapshot, false, true); fit(); syncSharedURL(); $('#investigateDialog').close();
+      } }, 'Show sampled operation'), el('button', { type: 'button', class: 'btn', onclick: () => {
+        state.operation = { id: '', traceId: '' }; state.fitted = false; apply(state.rawSnapshot, false, true); fit(); syncSharedURL(); $('#investigateDialog').close();
+      } }, 'Return to topology'), el('p', { id: 'workspaceStatus', role: 'status' }));
+    }
+    function renderReview(pane) {
+      const edge = state.reviewEdge;
+      if (!edge || state.operation.id) { pane.append(el('p', {}, 'Select one observed, undeclared connection in the topology to prepare a proposal.')); return; }
+      // Freeze both the displayed evidence and its exact timestamp at review time.
+      const snapshot = JSON.parse(JSON.stringify(state.rawSnapshot)), epoch = workspaceEpoch;
+      pane.append(el('h3', {}, `Review ${edge.from} → ${edge.to}`), el('p', {}, `Capture: ${snapshot.generatedAt || 'unknown'}${snapshot.history?.id ? ' · ' + snapshot.history.id : ''}. Review ownership, protocol and identity before proposing a contract change.`));
+      const rationale = el('textarea', { id: 'reviewRationale', rows: '3', maxlength: '4000', placeholder: 'Why should this communication be part of the declared contract?' });
+      const output = el('div', { id: 'reviewOutput' });
+      pane.append(el('label', {}, 'Review rationale', rationale), el('button', { type: 'button', class: 'btn', onclick: async event => {
+        const request = { from: edge.from, to: edge.to, rationale: rationale.value.trim(), generatedAt: snapshot.generatedAt, ...(snapshot.history?.id ? { historyId: snapshot.history.id } : {}) };
+        if (!request.rationale) { workspaceStatus('Explain the reason for this proposed communication.'); rationale.focus(); return; }
+        output.replaceChildren();
+        if (!opts.api) {
+          output.append(el('p', {}, 'This panel uses query data. Export the input and run local validation to produce the review bundle; it is not a server-authenticated capture.'),
+            el('button', { type: 'button', class: 'btn', onclick: () => download(new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' }), 'snapshot.json') }, 'Download snapshot.json'),
+            el('button', { type: 'button', class: 'btn', onclick: () => download(new Blob([JSON.stringify(request, null, 2)], { type: 'application/json' }), 'request.json') }, 'Download request.json'),
+            el('pre', {}, 'teia review propose --snapshot snapshot.json --request request.json --format bundle --output proposal.zip'));
+          workspaceStatus('The CLI validates identities and evidence before generating flows.yaml, proposal.md and proposal.json.'); return;
+        }
+        const button = event.currentTarget; button.disabled = true; workspaceStatus('Validating the reviewed capture…');
+        try {
+          const response = await fetch(opts.api + 'review/proposals', { method: 'POST', signal: aborter.signal, headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(request) });
+          if (!response.ok) { const message = await response.text(); throw new Error(response.status === 409 ? 'The capture changed. Close this review, inspect the latest evidence and start a new proposal.' : `Proposal rejected (${response.status}): ${message.slice(0, 500)}`); }
+          const proposal = await response.json(); if (epoch !== workspaceEpoch || destroyed) return;
+          output.append(el('h4', {}, proposal.title), el('p', {}, `Proposal ${proposal.id} · input ${proposal.source?.inputKind} · snapshot ${proposal.source?.snapshotId}`));
+          for (const file of proposal.files || []) output.append(el('details', {}, el('summary', {}, file.name), el('pre', {}, file.content),
+            el('button', { type: 'button', class: 'btn', onclick: () => download(new Blob([file.content], { type: file.mediaType }), file.name) }, 'Download ' + file.name)));
+          workspaceStatus('Proposal prepared for review. No repository or running contract has been changed.');
+        } catch (error) { if (epoch === workspaceEpoch && !destroyed) workspaceStatus(error.message); }
+        finally { if (button.isConnected) button.disabled = false; }
+      } }, 'Prepare review proposal'), el('p', { id: 'workspaceStatus', role: 'status' }), output);
+    }
+    function hostTheme() { return host.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); }
+
     // ----------------------------------------------------------------- data
     function renderAll() {
       const active = root.activeElement, focusId = active?.id;
@@ -3095,18 +3678,21 @@ button.label { cursor: pointer; }
 
     function apply(raw, fresh, force = false) {
       if (destroyed) return;
-      const snap = sanitize(raw);
+      const base = sanitize(raw);
+      const snap = state.operation.id ? operationSnapshot(base, state.operation.id, state.operation.traceId) : base;
       state.connected = true;
       state.error = '';
       if (!force && (state.historyLoading || state.historyId)) return;
       const hostReplayChanged = !opts.api && (snap.timeMode === 'historical' || state.snap?.timeMode === 'historical') &&
         (snap.history?.id !== state.snap?.history?.id || snap.timeMode !== state.snap?.timeMode);
-      if (!force && !hostReplayChanged && !state.live && state.snap) { state.pending = snap; renderLive(); return; }
+      if (!force && !hostReplayChanged && !state.live && state.snap) { state.pending = raw; renderLive(); return; }
       if (hostReplayChanged) { state.activity = []; renderActivity(); }
       const sig = signature(snap);
       const changed = sig !== state.sig;
       const isNew = !state.snap || snap.round !== state.snap.round;
       state.snap = snap;
+      state.baseSnapshot = base;
+      state.rawSnapshot = raw;
       state.lastData = Date.now();
       if (changed) { state.sig = sig; renderAll(); } else renderLive();
       if (opts.select && !state.restoredSelect) { state.restoredSelect = true; locate(opts.select, { move: false }); }
@@ -3196,7 +3782,7 @@ button.label { cursor: pointer; }
 
     // ------------------------------------------------------------------ wiring
     function onKey(ev) {
-      if ($('#shareDialog').open || $('#historyDialog').open) return;
+      if ($('#shareDialog').open || $('#historyDialog').open || $('#investigateDialog').open) return;
       const t = ev.composedPath()[0];
       if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
       if (ev.key === 'Escape' && filterPanelOpen()) { ev.preventDefault(); ev.stopPropagation(); setFilterPanel(false); return; }
@@ -3226,14 +3812,15 @@ button.label { cursor: pointer; }
     });
     showTab(state.tab);
     $('#search').addEventListener('input', ev => {
-      $('#isolateBtn').hidden = !ev.target.value.trim();
+      const query = ev.target.value;
+      $('#isolateBtn').hidden = !query.trim();
       clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => { state.query = ev.target.value; syncSharedURL(); applyHighlight(); }, 120);
+      searchTimer = setTimeout(() => { state.query = query; state.tablePage = 0; syncSharedURL(); applyHighlight(); renderInvestigation(); }, 120);
     });
     $('#search').addEventListener('keydown', ev => {
       if (ev.key !== 'Enter') return;
       if (ev.shiftKey) { ev.preventDefault(); isolate(); return; }
-      state.query = ev.target.value; syncSharedURL(); applyHighlight();
+      state.query = ev.target.value; syncSharedURL(); applyHighlight(); renderInvestigation();
       const m = matcher(state.query);
       const hit = m && currentView && [...currentView.nodes.values()].find(m);
       if (hit) focusNode(hit.id);
@@ -3287,7 +3874,7 @@ button.label { cursor: pointer; }
     app.querySelectorAll('[data-export]').forEach(b => b.addEventListener('click', () => exportMap(b.dataset.export)));
     function viewState() {
       return { version: 1, ...filtersToParams(state.filters), group: state.groupBy, query: state.query, select: state.selected?.id || (!state.restoredSelect && opts.select) || '',
-        flow: state.flow, values: state.values, live: state.live, journeyKey: state.journeyKey, states: state.states, signals: [...state.signals], history: state.historyId, expanded: [...state.expanded] };
+        flow: state.flow, values: state.values, live: state.live, journeyKey: state.journeyKey, states: state.states, signals: [...state.signals], history: state.historyId, expanded: [...state.expanded], investigation: state.investigation, display: state.display, operation: state.operation };
     }
     function syncSharedURL() {
       if (typeof location === 'undefined' || typeof history === 'undefined') return;
@@ -3310,6 +3897,10 @@ button.label { cursor: pointer; }
       catch { $('#shareURL').focus(); $('#shareURL').select(); $('#shareStatus').textContent = 'Copy the selected link with Ctrl+C or Command+C.'; }
     });
     $('#closeShareBtn').addEventListener('click', () => $('#shareDialog').close());
+    $('#exploreBtn').addEventListener('click', () => openWorkspace('scope'));
+    app.querySelectorAll('[data-workspace]').forEach(button => button.addEventListener('click', () => openWorkspace(button.dataset.workspace)));
+    $('#closeInvestigateBtn').addEventListener('click', () => $('#investigateDialog').close());
+    $('#investigateDialog').addEventListener('close', () => { ++workspaceEpoch; clearComparisonMaps(); $('#exploreBtn').focus(); });
     $('#shareDialog').addEventListener('close', () => $('#exportBtn').focus());
     $('#historyBtn').addEventListener('click', () => { $('#historyDialog').showModal(); listHistory(); });
     $('#historyForm').addEventListener('submit', event => { event.preventDefault(); listHistory(); });
@@ -3370,6 +3961,9 @@ button.label { cursor: pointer; }
         state.journeyKey = text(view.journeyKey); opts.select = text(view.select);
         if (opts.api) state.historyId = text(view.history);
         state.expanded = new Set(strings(view.expanded));
+        state.investigation = { mode: oneOf(view.investigation?.mode, ['all','neighbors','path'], 'all'), focus: text(view.investigation?.focus), target: text(view.investigation?.target), depth: Math.max(1, Math.min(3, finite(view.investigation?.depth) || 1)), direction: oneOf(view.investigation?.direction, ['both','in','out'], 'both') };
+        state.display = oneOf(view.display, ['graph','list'], 'graph');
+        state.operation = { id: text(view.operation?.id), traceId: text(view.operation?.traceId) };
         for (const key of ['flow', 'values', 'live']) if (typeof view[key] === 'boolean') state[key] = view[key];
         for (const key of ['ok', 'ghost', 'stale']) if (typeof view.states?.[key] === 'boolean') state.states[key] = view.states[key];
         state.signals = new Set(strings(view.signals).filter(s => has(SIGNAL, s)));
@@ -3400,9 +3994,11 @@ button.label { cursor: pointer; }
     return {
       // update feeds a snapshot from outside (the Grafana panel).
       update(snap, changes) { if (apply(snap, true) && changes) pushActivity(changes, state.snap.timeMode !== 'historical' && state.activity.length > 0); },
+      focus(subject) { if (state.snap) locate(subject); },
       // setStatus reports the host's own query state (the panel's data.state).
       setStatus(error) { state.error = error || ''; renderLive(); },
       setOptions(options = {}) {
+        for (const key of ['inputFrames', 'fieldMapping', 'onMappingChange']) if (has(options, key)) opts[key] = options[key];
         const { groupBy, flow, journey, journeyKey, values } = options;
         if (has(options, 'requestedRange')) { opts.requestedRange = options.requestedRange; renderLive(); }
         // A journey from the host (a dashboard variable) is the viewer's
@@ -3418,6 +4014,7 @@ button.label { cursor: pointer; }
       destroy() {
         if (destroyed) return;
         destroyed = true;
+        clearComparisonMaps();
         aborter.abort();
         cancelAnimationFrame(raf);
         clearInterval(ticker);

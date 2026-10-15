@@ -98,6 +98,27 @@ source (from a secret, not in the dashboard JSON).
 
 ### Numeric frame contract
 
+For queries with different column names, use the panel's setup form or the optional **Column mapping (JSON)**
+option. The stored `frameMapping` maps canonical fields to source columns:
+
+```json
+{
+  "nodes": {"frame": "ref:A", "id": "service_name", "kind": "component_kind"},
+  "edges": {"frame": "ref:B", "source": "caller", "target": "callee", "requestRate": "calls_per_second", "errorRate": "failed_share", "latencyP95Ms": "p95_ms"}
+}
+```
+
+Frame keys come from the setup's input descriptors: `ref:A`, `name:services`, or `ref:A/name:services` when both
+exist. Each part is URI-encoded; frame order never determines identity. Duplicate identities, unnamed selected
+frames, duplicate columns and missing selected columns produce an actionable error. Give queries unique refIds
+or frame names. Mapping adds aliases while preserving existing canonical fields, source values and metadata;
+it refuses to overwrite an existing canonical field with another column. Other frames remain available.
+
+Convert units in the query before mapping. Declared units incompatible with the target (for example seconds
+for `latencyP95Ms` or 0–100 percent for `errorRate`) are rejected. Unitless columns still require the contracts
+below; choosing a column asserts its meaning and does not infer that meaning from its name. Formatted values
+and missing errors retain their invalid/unknown states. Empty mapping restores ordinary canonical imports.
+
 `requestRate` is a nonnegative requests/second number; `errorRate` is a share in `[0, 1]`, and
 `latencyP50Ms`/`latencyP95Ms` are nonnegative milliseconds. Numeric strings are accepted, but formatted strings
 such as `10 req/s` are invalid. Canonical columns take precedence over aliases, including invalid/null cells.
@@ -193,6 +214,11 @@ The map's **Share / export** dialog encodes filters, grouping, expanded hierarch
 options in a panel-specific `teiaView-<storageKey>` URL parameter. Dashboard variables remain separate.
 Opening the link in a clean session restores that view; edits update an existing shared parameter so reload
 does not bring stale filters back. Share links contain identities and filters, so treat them like dashboard URLs.
+
+**Investigate** opens the [investigation workspace](../../docs/investigation.md): bounded neighbourhood, directed
+path and table; comparison of two captures; source and column setup; and sampled operations. With query data,
+compare uploaded or captured snapshots, map columns, and export a proposal's input for `teia review propose`.
+Stored-history comparison and server-validated proposals need a teia API the browser reaches (direct mode).
 
 Where labels exist, ordered grouping supports cluster → namespace → service, with stable identities through
 expand/collapse. Neighbours can be ranked by traffic, measured errors or latency. Large overviews suppress

@@ -227,6 +227,7 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 		Coverage:    graph.ComputeCoverage(g),
 	}
 	snap.Journeys = journey.Build(snap, "")
+	snap.Operations = operationContract(results, g)
 	snap.Changes = e.differ.Diff(prev, snap, now)
 	evidencelinks.Apply(&snap, e.opts.EvidenceLinks)
 	if _, err := e.opts.History.Save(snap); err != nil {
@@ -284,6 +285,7 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 // old traffic and readings cannot establish the current health of a service.
 // Clone the slices we change: a source may reuse its observation on recovery.
 func topologyOnly(obs source.Observation) source.Observation {
+	obs.Operations = nil
 	obs.Nodes = slices.Clone(obs.Nodes)
 	for i := range obs.Nodes {
 		obs.Nodes[i].Measures = nil

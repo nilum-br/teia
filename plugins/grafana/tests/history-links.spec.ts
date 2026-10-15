@@ -1,7 +1,21 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type BrowserContext } from '@playwright/test';
 import type { TeiaEdge, TeiaSnapshot } from '../src/teia/teia-ui';
 
 const base = process.env.TEIA_URL || 'http://localhost:8480';
+
+// Evidence links carry the Grafana URL a viewer's browser uses (the Teia
+// server's GRAFANA_PUBLIC_URL). Inside Docker, forward that same URL to the
+// reachable service without changing its query or UI.
+async function reachPublicGrafana(context: BrowserContext) {
+  const publicURL = process.env.GRAFANA_PUBLIC_URL || 'http://localhost:3480';
+  const grafana = process.env.GRAFANA_URL || publicURL;
+  if (grafana.startsWith(publicURL)) {
+    return;
+  }
+  await context.route(publicURL + '/**', async route => {
+    await route.fulfill({ response: await route.fetch({ url: route.request().url().replace(publicURL, grafana) }) });
+  });
+}
 
 test('stored history replays and a clean shared view restores the same snapshot', async ({ page, browser, request }) => {
   const response = await request.get(base + '/api/v1/history');
@@ -9,7 +23,8 @@ test('stored history replays and a clean shared view restores the same snapshot'
   const listing = await response.json();
   expect(listing.enabled).toBe(true);
   expect(listing.snapshots.length).toBeGreaterThan(0);
-  const original = listing.snapshots[0];
+  // The picker lists the newest 200 captures; a long-running lab has older ones too.
+  const original = [...listing.snapshots].sort((a: { generatedAt: string }, b: { generatedAt: string }) => b.generatedAt.localeCompare(a.generatedAt))[0];
   await page.goto(base + '/?flow=0');
   const root = page.locator('#teia');
   await expect(root.locator('.node').first()).toBeVisible();
@@ -59,12 +74,7 @@ test('saved Grafana history dashboard restores a snapshot independently of the d
 for (const surface of ['standalone', 'grafana'] as const) {
   test(`${surface}: a service opens real Loki logs and a dashboard with preserved context`, async ({ page, context }, info) => {
     test.setTimeout(60_000);
-    const grafana = process.env.GRAFANA_URL || 'http://localhost:3480';
-    if (!grafana.startsWith('http://localhost:3480')) {
-      await context.route('http://localhost:3480/**', async route => {
-        await route.fulfill({ response: await route.fetch({ url: route.request().url().replace('http://localhost:3480', grafana) }) });
-      });
-    }
+    await reachPublicGrafana(context);
     await page.goto(surface === 'standalone' ? base + '/?flow=0&live=0' : '/d-solo/teia-overview/teia?panelId=1&theme=light&refresh=');
     const root = surface === 'standalone' ? page.locator('#teia') : page.getByTestId('teia-panel');
     const node = root.locator('.node[data-id="catalog"]');
@@ -97,15 +107,7 @@ for (const surface of ['standalone', 'grafana'] as const) {
 
   test(`${surface}: a connection opens real Tempo evidence with its original endpoints and time`, async ({ page, context, request }, info) => {
     test.setTimeout(60_000);
-    // The public lab link uses localhost on the user's machine. Inside Docker,
-    // forward that same URL to the lab service without changing its query or UI.
-    const grafana = process.env.GRAFANA_URL || 'http://localhost:3480';
-    if (!grafana.startsWith('http://localhost:3480')) {
-      await context.route('http://localhost:3480/**', async route => {
-        const url = route.request().url().replace('http://localhost:3480', grafana);
-        await route.fulfill({ response: await route.fetch({ url }) });
-      });
-    }
+    await reachPublicGrafana(context);
     const response = await request.get(base + '/api/v1/snapshot');
     const snapshot: TeiaSnapshot = await response.json();
     const edge = snapshot.edges.find(e => e.from === 'catalog' && e.to === 'catalog-db' && e.links?.some(l => l.kind === 'traces')) as TeiaEdge;

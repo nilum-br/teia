@@ -26,6 +26,11 @@ this delivery except overlapping capabilities already implemented under a T-ID.
 The tested unsigned candidate is available for evaluation. Human usability validation and public signing
 are separate release gates and must not be represented as already passed.
 
+**Investigation experience (T17–T22), 15 October 2026:** the follow-up to the market review makes the
+differentiator easier to use. Bounded focus with a table, visual comparison of captures, guided onboarding,
+contract proposals, sampled operations and identity provenance have implemented deliverables and automated
+validation; see the [investigation guide](investigation.md). Their human-pilot evaluation joins T12.
+
 P0 protects the interpretation of data; P1 completes the primary investigation and adoption experience; P2
 extends the product after those foundations. Size is relative scope (S small, M medium, L large), not a delivery
 date or an estimate backed by an implementation spike. Areas identify where work belongs, not assigned people.
@@ -48,6 +53,12 @@ date or an estimate backed by an implementation spike. Areas identify where work
 | T14 | P2 / L | Reviewable Git changes and expected-frequency drift | T13 for historical comparisons |
 | T15 | P2 / L | Deeper resource signals and clearly scoped explorers | T03, T09 |
 | T16 | P1 / M | Latest stable dependencies and a repeatable update policy | Independent; validate with the current implementation |
+| T17 | P1 / M | Bounded neighbourhood, directed path and a table beside the map | T04, T06, T11 |
+| T18 | P1 / M | Visual comparison of two captures | T13 |
+| T19 | P1 / M | Guided source and query-field onboarding | T10 |
+| T20 | P1 / M | Reviewable contract proposals from observed communication | T14 |
+| T21 | P2 / L | Sampled operation journeys from trace ancestry | T08 |
+| T22 | P1 / M | Identity resolution method and provenance | T03 |
 
 ### T01: Preserve unknown data throughout aggregation and frame import
 
@@ -355,6 +366,92 @@ This is API/DOM validation, not a new interactive visual/accessibility audit.
       Both official OTLP protocols still use backoff5; removing SMD6 also means replacing kubeconfig/exec auth.
       Keep these version constraints distinct from the now-resolved npm advisories; no incomplete SDK forks.
 
+### T17: Focus a dense map without losing what it leaves out
+
+**Areas:** shared UI core, map, details, shared views.
+
+- [x] Show a limited neighbourhood (one to three hops; callers, dependencies or both) and the shortest
+      directed path between two components, capped at 200 components. Report the components outside the view
+      and the connections crossing its border; reject a longer path instead of shortening it.
+- [x] Offer the same scope as a paginated table sorted by health, name or traffic, with search and row
+      selection. Hide map controls while the table replaces the map; paging returns to the first row and keeps
+      keyboard focus on a visible control.
+- [x] Open the neighbourhood or a prefilled path from a component's details; keep scope and presentation in
+      shared links; apply after journey and facet filters.
+
+Limits: an unweighted shortest path, not every route or a request trace. Groups appear as group rows; expand
+them from their details.
+
+### T18: Compare two captures visually
+
+**Areas:** shared UI core, history API consumers, comparison maps.
+
+- [x] Compare uploaded, currently shown or stored captures. Report presence, health, state, kind, labels,
+      addresses, error-measurement availability and identity decisions; exclude rates, latency values,
+      collection times and rounds, which move every collection.
+- [x] Draw both captures as frozen maps marked in text and colour (+ only after, − only before, ~ changed),
+      muting unchanged items; list every difference with a locate action and a JSON download.
+- [x] Compare identity only when both captures carry it; bound input size and listed differences.
+
+Limits: two discrete captures, not a time series. "Only before" is absence from the second capture, not proof
+that traffic stopped. The page lists 500 differences; the download keeps all of them.
+
+### T19: Guide source and query-field onboarding
+
+**Areas:** investigation workspace, Grafana panel options, configuration.
+
+- [x] Show each source's state, contribution, message and retained topology, and count unmeasured errors.
+- [x] Prepare a validated Prometheus or Tempo entry for `teia.yaml` (HTTP(S), no credentials, query or
+      fragment) as a download for review; never change the running server.
+- [x] Map Grafana query frames and columns in the panel, stored in `frameMapping`. Reject ambiguous frames,
+      duplicate or missing columns, overwrites of canonical fields and declared units that disagree.
+
+Limits: the browser cannot verify that the server reaches an endpoint; the source cards after a restart are
+that check. Mapping covers component and connection frames.
+
+### T20: Turn an observed communication into a reviewable proposal
+
+**Areas:** API, CLI, review package, details.
+
+- [x] Validate one observed, undeclared connection against the exact reviewed capture (current or stored),
+      returning a Flows fragment, a PR body and metadata, or a conflict when the capture changed.
+- [x] Offer it only where the data carries declared intent; in query mode, export the snapshot and request
+      for `teia review propose`. Never commit, publish, allow traffic or alter a running contract.
+
+Limits: publishing the PR remains with the operator and the repository's own review process.
+
+### T21: Follow one sampled operation through its traces
+
+**Areas:** Tempo source, operation contract, Grafana frames, history, workspace.
+
+- [x] Attribute calls to normalized entry operations by span ancestry, recording gaps, links, unattributed
+      spans, query periods and source status; preserve the contract in history and Grafana frames.
+- [x] Project one operation or trace on the map without platform health, rates or error shares, and report
+      root outcomes and the range of sampled durations without a percentile.
+
+Limits: Tempo only. The sampling policy is unknown, so no rate, coverage or population error share is
+inferred. Asynchronous links are kept but not followed. See [sampled operations](operations.md).
+
+### T22: Explain how each identity was resolved
+
+**Areas:** graph resolution, sources, history, Grafana frames, details.
+
+- [x] Record the method (explicit, name, alias, IP temporal match, inferred, ambiguous, unresolved), the
+      source, original times, inventory candidates and retained status for nodes and connection endpoints.
+- [x] Show one card per decision with every source that reported it, consequential methods first; omit time
+      lines a name does not need; assign no confidence percentage.
+
+Limits: the namespace is still not part of a node ID; owners behind NAT or poolers are not inferred. See
+[identity resolution and provenance](identity-resolution.md).
+
+Validation on 15 October 2026, in an isolated lab with checkout/browse routes and a database shared by two
+operations: Go vet, race tests and golangci-lint; 86 shared-core tests; 81 panel tests and 2 dependency
+regressions; TypeScript, lint and build; and 62 browser/API cases, with the five opt-in candidate, comparison
+and scale cases skipped. The browser cases include every T17–T22 tool in both themes at 600 and 1600 pixels,
+the installed Grafana panel, comparison of real stored captures, a proposal and a conflict against stored
+history, and a real checkout operation from Tempo (`TEIA_OPERATION_LAB=1`). People have not yet used these
+tools: their task-based evaluation belongs to the T12 pilot.
+
 ## Suggested execution order
 
 1. **Trust the data:** T01–T03. Close the reproduced bugs and temporal/percentile ambiguity first. T04 design
@@ -364,6 +461,7 @@ This is API/DOM validation, not a new interactive visual/accessibility audit.
 3. **Prepare broader adoption:** T08–T11 and T12 release validation. Release signing/catalog availability and
    human pilot participation are explicit dependencies; they are not completed by preparing files alone.
 4. **Extend the differentiator:** T13–T15, then Backstage and policy-generation milestones below as demand warrants.
+5. **Make the differentiator easy to use:** T17–T22, evaluated with people in the T12 pilot.
 
 The version sections below preserve the longer-term scope. Their overlapping items are tracked by the T-IDs
 above rather than treated as separate duplicate work.
@@ -395,7 +493,8 @@ above rather than treated as separate duplicate work.
 - [ ] **Backstage backend module**: emits `teia-talksTo` / `teia-talkedToBy` relations, so the existing
       catalog graph shows observed communication without new UI
 - [ ] **Backstage entity card**: neighbours, ghost and stale edges, visibility (new and legacy frontend systems)
-- [ ] "Accept as declared" opens a PR with the generated flows entry
+- [x] "Accept as declared" prepares a validated Flows entry and PR body for review (T20)
+- [ ] Publish that PR from teia itself; today the operator publishes it with their own Git tooling
 - [x] `expectedFrequency` in flows, for rare flows (delivered under T14)
 - [ ] Findings in Portuguese (`pt-BR`)
 

@@ -221,8 +221,9 @@ type Evidence struct {
 
 // Node is a workload, datastore or external endpoint.
 type Node struct {
-	ID   string   `json:"id"`
-	Kind NodeKind `json:"kind"`
+	ID       string               `json:"id"`
+	Kind     NodeKind             `json:"kind"`
+	Identity []IdentityResolution `json:"identity,omitempty"`
 	// Journeys are additional explicit ownership memberships from inventory.
 	Journeys []string `json:"journeys,omitempty"`
 	// Tech is the recognised technology (postgresql, redis, kafka...).
@@ -276,15 +277,16 @@ const (
 
 // Edge is a directed communication from a caller to a callee.
 type Edge struct {
-	From     string    `json:"from"`
-	To       string    `json:"to"`
-	Protocol string    `json:"protocol,omitempty"`
-	Port     int       `json:"port,omitempty"`
-	Declared bool      `json:"declared"`
-	Observed bool      `json:"observed"`
-	State    EdgeState `json:"state"`
-	Health   Health    `json:"health"`
-	Sources  []string  `json:"sources"`
+	Identity *ConnectionIdentity `json:"identity,omitempty"`
+	From     string              `json:"from"`
+	To       string              `json:"to"`
+	Protocol string              `json:"protocol,omitempty"`
+	Port     int                 `json:"port,omitempty"`
+	Declared bool                `json:"declared"`
+	Observed bool                `json:"observed"`
+	State    EdgeState           `json:"state"`
+	Health   Health              `json:"health"`
+	Sources  []string            `json:"sources"`
 	// Signals are the kinds of telemetry that observed the edge: traces,
 	// mesh, network, logs, metrics, database.
 	Signals                  []string       `json:"signals,omitempty"`
@@ -434,16 +436,17 @@ type Change struct {
 
 // Snapshot is the result of one discovery round.
 type Snapshot struct {
-	History     *HistoryContext  `json:"history,omitempty"`
-	Journeys    *JourneyContract `json:"journeys,omitempty"`
-	Round       int64            `json:"round"`
-	GeneratedAt time.Time        `json:"generatedAt"`
-	TimeMode    string           `json:"timeMode"` // current discovery, or historical replay of a stored snapshot
-	Nodes       []Node           `json:"nodes"`
-	Edges       []Edge           `json:"edges"`
-	Findings    []Finding        `json:"findings"`
-	Sources     []SourceStatus   `json:"sources"`
-	Coverage    Coverage         `json:"coverage"`
+	Operations  *OperationContract `json:"operations,omitempty"`
+	History     *HistoryContext    `json:"history,omitempty"`
+	Journeys    *JourneyContract   `json:"journeys,omitempty"`
+	Round       int64              `json:"round"`
+	GeneratedAt time.Time          `json:"generatedAt"`
+	TimeMode    string             `json:"timeMode"` // current discovery, or historical replay of a stored snapshot
+	Nodes       []Node             `json:"nodes"`
+	Edges       []Edge             `json:"edges"`
+	Findings    []Finding          `json:"findings"`
+	Sources     []SourceStatus     `json:"sources"`
+	Coverage    Coverage           `json:"coverage"`
 	// Changes since the previous round.
 	Changes []Change `json:"changes,omitempty"`
 }

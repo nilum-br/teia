@@ -48,6 +48,40 @@ export interface TeiaEvidence {
 
 export interface TeiaTimeRange { from: string; to: string; }
 
+export interface TeiaIdentityCandidate {
+  id: string;
+  source: string;
+  sourceType: string;
+  basis?: string;
+  since?: string;
+  collectedAt?: string;
+  retained?: boolean;
+}
+
+export interface TeiaIdentityResolution {
+  input: string;
+  resolvedId: string;
+  method: 'explicit' | 'name' | 'alias' | 'ip-temporal' | 'inferred' | 'ambiguous' | 'unresolved';
+  source: string;
+  sourceType: string;
+  basis?: string;
+  detail: string;
+  candidates?: TeiaIdentityCandidate[];
+  alternatives?: string[];
+  timeBasis: 'not-applicable' | 'unknown' | 'evaluation-window' | 'collection-window' | 'sample-envelope' | 'sample-point';
+  collectedAt?: string;
+  evaluatedAt?: string;
+  observedFrom?: string;
+  observedAt?: string;
+  windowSeconds?: number;
+  retained?: boolean;
+}
+
+export interface TeiaConnectionIdentity {
+  from: TeiaIdentityResolution[];
+  to: TeiaIdentityResolution[];
+}
+
 export interface TeiaEvidenceLink {
   label: string;
   url: string;
@@ -68,6 +102,7 @@ export interface TeiaHealthRule {
 }
 
 export interface TeiaNode {
+  identity?: TeiaIdentityResolution[];
   links?: TeiaEvidenceLink[];
   healthRules?: TeiaHealthRule[];
   journeys?: string[];
@@ -98,6 +133,7 @@ export interface TeiaNode {
 }
 
 export interface TeiaEdge {
+  identity?: TeiaConnectionIdentity;
   expectedFrequencySeconds?: number;
   frequency?: { status: 'unknown' | 'not-due' | 'overdue'; lastObservedAt?: string; nextExpectedAt?: string; detail: string };
   links?: TeiaEvidenceLink[];
@@ -160,6 +196,7 @@ export interface TeiaChange {
 }
 
 export interface TeiaSnapshot {
+  operations?: TeiaOperationContract;
   journeys?: TeiaJourneyContract;
   timeMode?: 'current' | 'query' | 'mixed' | 'historical';
   history?: TeiaHistory;
@@ -216,6 +253,9 @@ export interface TeiaJourneyScope {
 }
 
 export interface TeiaMountOptions {
+  inputFrames?: Array<{ key: string; fields: string[] }>;
+  fieldMapping?: TeiaFieldMapping;
+  onMappingChange?: (mapping: TeiaFieldMapping) => void;
   requestedRange?: TeiaTimeRange;
   mode?: 'page' | 'panel';
   api?: string;
@@ -239,10 +279,28 @@ export interface TeiaController {
   /** Reports the host's own query state; an empty message clears it. */
   setStatus(error?: string): void;
   /** Applies panel options, unless the viewer already chose otherwise on the map. */
-  setOptions(options: { groupBy?: string; flow?: boolean; journey?: string; journeyKey?: string; values?: boolean; requestedRange?: TeiaTimeRange }): void;
+  setOptions(options: { groupBy?: string; flow?: boolean; journey?: string; journeyKey?: string; values?: boolean; requestedRange?: TeiaTimeRange; inputFrames?: Array<{ key: string; fields: string[] }>; fieldMapping?: TeiaFieldMapping; onMappingChange?: (mapping: TeiaFieldMapping) => void }): void;
+  focus(subject: string): void;
   setTheme(theme: 'dark' | 'light'): void;
   destroy(): void;
 }
 
+export type TeiaFieldMapping = { nodes?: Record<string, string>; edges?: Record<string, string> };
+export interface TeiaOperationContract {
+  version: 1;
+  mode: 'operation';
+  sampling: { policy: string; totalRequests: number | null; coverage: number | null };
+  sources: Array<{ source: string; queryPeriod?: TeiaTimeRange; requestedTraces: number; fetchedTraces: number; failedTraces: number; queriedServices: number; availableServices: number; truncated: boolean; status: string }>;
+  scopes: Array<{
+    id: string; source: string; entryService: string; operation: string; queryPeriod: TeiaTimeRange;
+    sampledRootCount: number; incompleteTraceCount: number; sampleRootDurationsMs: number[];
+    rootOutcomes: { ok: number; error: number; unknown: number }; truncated: boolean;
+    nodes: Array<{ id: string; kind: string }>;
+    edges: Array<{ from: string; to: string; traceIds: string[]; calls: Array<{ traceId: string; spanId: string; parentSpanId?: string; attribution: string; startedAt?: string; endedAt?: string; durationMs?: number }> }>;
+    traces: Array<{ traceId: string; rootSpanId: string; rootDurationMs?: number; rootOutcome: string; spanIds: string[]; missingParentSpanIds: string[]; unattributedSpanIds: string[]; structuralStatus: string; truncated: boolean;
+      spans: Array<{ spanId: string; parentSpanId?: string; nodeId: string; kind: string; startedAt?: string; endedAt?: string; links: Array<{ traceId: string; spanId: string }> }> }>;
+  }>;
+  unattributed: Array<{ source: string; traceId: string; spanId: string; nodeId: string; reason: string }>;
+}
 declare const TeiaUI: { mount(host: HTMLElement, options?: TeiaMountOptions): TeiaController; core: Record<string, unknown> };
 export default TeiaUI;

@@ -148,45 +148,21 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 		return id
 	}
 
-	// Inventory first: addresses and explicit ignores.
-	type owner struct {
-		id    string
-		since time.Time
-	}
-	byAddress := map[string]owner{}
+	// Inventory first: explicit ignores and address claims with provenance.
 	for _, r := range results {
+		if r.Err != nil {
+			continue
+		}
 		for _, n := range r.Observation.Nodes {
 			id := canonical(n.ID)
 			if n.Ignore {
 				ignored[id] = true
 			}
-			for _, addr := range n.Addresses {
-				byAddress[addr] = owner{id: id, since: n.Since}
-			}
 		}
 	}
-	resolve := func(id string) string {
-		id = canonical(id)
-		if source.IsAddressID(id) {
-			if o, ok := byAddress[strings.TrimPrefix(id, source.AddressPrefix)]; ok {
-				return o.id
-			}
-		}
-		return id
-	}
-	// A full trace can contain calls older than the search lookback. Check
-	// the sample's earliest start too before attributing an IP to its owner.
-	ambiguous := func(id string, window time.Duration, at, observedFrom time.Time) bool {
-		if !source.IsAddressID(canonical(id)) || (window <= 0 && observedFrom.IsZero()) {
-			return false
-		}
-		start := at.Add(-max(window, 0))
-		if !observedFrom.IsZero() && observedFrom.Before(start) {
-			start = observedFrom
-		}
-		o, ok := byAddress[strings.TrimPrefix(canonical(id), source.AddressPrefix)]
-		return ok && !o.since.IsZero() && o.since.After(start)
-	}
+	identities := newIdentityResolver(results, canonical, now)
+	resolve := identities.resolve
+	var unassigned []model.IdentityResolution
 
 	g := &Graph{Nodes: map[string]*model.Node{}, Edges: map[string]*model.Edge{}, Ignored: ignored, UnknownCallers: map[string]map[string]UnknownCallers{}, canonical: canonical}
 	kindRank := map[string]int{}
@@ -223,21 +199,14 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 			continue
 		}
 		srcName, srcType := r.Source.Name(), r.Source.Type()
-		// Address ownership must cover the evaluated window, not a newer
-		// window shifted by collection latency or snapshot assembly.
-		at := r.Observation.EvaluatedAt
-		if at.IsZero() {
-			at = r.CollectedAt
-		}
-		if at.IsZero() {
-			at = now
-		}
 		for _, n := range r.Observation.Nodes {
 			id := resolve(n.ID)
 			if ignored[id] {
 				continue
 			}
 			node := addNode(id, n.Kind, srcName, srcType, n.Labels)
+			identity, _ := identities.explain(n.ID, r, nil, n.IdentityMethod, n.IdentityBasis)
+			node.Identity = appendIdentity(node.Identity, identity)
 			for _, name := range n.Journeys {
 				node.Journeys = appendUnique(node.Journeys, name)
 			}
@@ -255,7 +224,9 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 			if ignored[id] {
 				continue
 			}
-			addNode(id, "", srcName, srcType, nil)
+			node := addNode(id, "", srcName, srcType, nil)
+			identity, _ := identities.explain(uc.Callee, r, nil, "", "")
+			node.Identity = appendIdentity(node.Identity, identity)
 			if g.UnknownCallers[id] == nil {
 				g.UnknownCallers[id] = map[string]UnknownCallers{}
 			}
@@ -267,16 +238,31 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 			g.UnknownCallers[id][uc.Signal] = u
 		}
 		for _, o := range r.Observation.Edges {
-			if ambiguous(o.From, o.Window, at, o.ObservedFrom) || ambiguous(o.To, o.Window, at, o.ObservedFrom) {
+			fromIdentity, fromWithheld := identities.explain(o.From, r, &o, "", "")
+			toIdentity, toWithheld := identities.explain(o.To, r, &o, "", "")
+			if fromIdentity.Method == model.IdentityAmbiguous {
+				unassigned = append(unassigned, fromIdentity)
+			}
+			if toIdentity.Method == model.IdentityAmbiguous {
+				unassigned = append(unassigned, toIdentity)
+			}
+			if fromWithheld || toWithheld {
 				continue // attribute it once the window no longer straddles the change
 			}
-			from, to := resolve(o.From), resolve(o.To)
+			from, to := fromIdentity.ResolvedID, toIdentity.ResolvedID
 			if from == to || ignored[from] || ignored[to] {
 				continue
 			}
-			addNode(from, "", srcName, srcType, nil)
-			addNode(to, "", srcName, srcType, nil)
+			fromNode := addNode(from, "", srcName, srcType, nil)
+			toNode := addNode(to, "", srcName, srcType, nil)
+			fromNode.Identity = appendIdentity(fromNode.Identity, fromIdentity)
+			toNode.Identity = appendIdentity(toNode.Identity, toIdentity)
 			e := mergeEdge(g, from, to)
+			if e.Identity == nil {
+				e.Identity = &model.ConnectionIdentity{}
+			}
+			e.Identity.From = appendIdentity(e.Identity.From, fromIdentity)
+			e.Identity.To = appendIdentity(e.Identity.To, toIdentity)
 			e.Sources = appendUnique(e.Sources, srcName)
 			if e.Protocol == "" {
 				e.Protocol = o.Protocol
@@ -332,12 +318,21 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 			}
 		}
 	}
+	// Withheld recycled-IP connections do not create topology. Their current
+	// candidates still explain why those calls could not be assigned to them.
+	for _, identity := range unassigned {
+		for _, candidate := range identity.Candidates {
+			if node := g.Nodes[candidate.ID]; node != nil {
+				node.Identity = appendIdentity(node.Identity, identity)
+			}
+		}
+	}
 
 	for key, e := range g.Edges {
 		e.ErrorsUnknown = errorsRate[key] == 0
 	}
 	markOutside(g, results, canonical, selfReported)
-	attachReadings(g, results, resolve)
+	attachReadings(g, results, identities)
 
 	seen := map[string]bool{}
 	for _, e := range g.Edges {
@@ -481,7 +476,7 @@ func mergeMeasures(have, add []model.Measure, resolve func(string) string) []mod
 // attachReadings gives each reading's measures to the first candidate the
 // graph knows (or to its edge towards the first known To), and records the
 // readings nobody took, so the advisor can ask for an alias.
-func attachReadings(g *Graph, results []Result, resolve func(string) string) {
+func attachReadings(g *Graph, results []Result, identities identityResolver) {
 	for _, r := range results {
 		if r.Err != nil {
 			continue
@@ -489,7 +484,7 @@ func attachReadings(g *Graph, results []Result, resolve func(string) string) {
 		for _, rd := range r.Observation.Readings {
 			ev := evidence(r, r.Source.Type(), rd.Window, time.Time{}, measureNames(rd.Measures))
 			ev.OldestSampleAt, ev.Origin = rd.OldestSampleAt, rd.Origin
-			if !attach(g, rd, resolve, ev) {
+			if !attach(g, rd, identities, r, ev) {
 				g.Unmatched = append(g.Unmatched, Unmatched{Source: r.Source.Name(), Origin: rd.Origin, Candidates: rd.Candidates, To: rd.To})
 			}
 		}
@@ -511,11 +506,17 @@ func measureNames(measures []model.Measure) []string {
 
 // attach gives one reading's measures to its node or edge, and says whether
 // one took them.
-func attach(g *Graph, rd source.Reading, resolve func(string) string, ev model.Evidence) bool {
+func attach(g *Graph, rd source.Reading, identities identityResolver, result Result, ev model.Evidence) bool {
+	resolve := identities.resolve
 	from := ""
+	var matched model.IdentityResolution
 	for _, c := range rd.Candidates {
 		if id := resolve(c); g.Nodes[id] != nil && !g.Ignored[id] {
 			from = id
+			matched, _ = identities.explain(c, result, nil, "", "")
+			matched.Basis = "reading-candidate"
+			matched.Alternatives = slices.Clone(rd.Candidates)
+			matched.Detail += " This is the first known candidate in the source's ordered reading candidates."
 			break
 		}
 	}
@@ -526,12 +527,21 @@ func attach(g *Graph, rd source.Reading, resolve func(string) string, ev model.E
 		n := g.Nodes[from]
 		n.Measures = mergeMeasures(n.Measures, rd.Measures, resolve)
 		n.Evidence = append(n.Evidence, ev)
+		n.Identity = appendIdentity(n.Identity, matched)
 		return true
 	}
 	for _, t := range rd.To {
 		if e := g.Edges[from+"->"+resolve(t)]; e != nil {
 			e.Measures = mergeMeasures(e.Measures, rd.Measures, resolve)
 			e.Evidence = append(e.Evidence, ev)
+			if e.Identity == nil {
+				e.Identity = &model.ConnectionIdentity{}
+			}
+			e.Identity.From = appendIdentity(e.Identity.From, matched)
+			toIdentity, _ := identities.explain(t, result, nil, "", "")
+			toIdentity.Basis = "reading-candidate"
+			toIdentity.Alternatives = slices.Clone(rd.To)
+			e.Identity.To = appendIdentity(e.Identity.To, toIdentity)
 			return true
 		}
 	}
