@@ -23,10 +23,14 @@ To use another label, set it with the panel's **Journey label** option or `?jour
 A service on several journeys lists them, separated by commas:
 
 ```yaml
-# Docker Compose
-labels:
-  journey: checkout              # orders, payments
-  journey: "checkout,browse"     # web, on both
+# Docker Compose (add these labels to your existing services)
+services:
+  orders:
+    labels:
+      journey: checkout
+  web:
+    labels:
+      journey: "checkout,browse"
 ```
 
 ```yaml
@@ -38,8 +42,10 @@ metadata:
 
 Datastores, queues and third parties need no label: they join the journeys whose services call them.
 
-Kubernetes label values cannot contain commas. Until teia reads a list annotation, a service on several journeys
-can be left unlabelled: it still joins the journeys of the services it calls or that call it, as described below.
+Kubernetes label values cannot contain commas. Multi-journey membership through an annotation is not implemented
+yet. An unlabelled service can be included when reached **downstream** from a member, within the expansion limit.
+An unlabelled upstream caller remains a boundary port; leaving it unlabelled does not make it a member of every
+journey it calls. See T08 in the [roadmap](roadmap.md#prioritized-implementation-backlog).
 
 ## How a journey is built
 
@@ -60,6 +66,11 @@ Inside the frame, the journey reads left to right:
 - the services the outside calls into start it;
 - its datastores, queues and third parties end it, in one lane;
 - the frame's header gives its name, its health and what enters it (traffic, p95 and errors).
+
+The current header has known limitations: its latency is a weighted summary of entry-edge percentiles, not
+end-to-end journey p95, and unknown entry errors can be displayed as zero or dilute an aggregate. The headline
+health considers dependencies, whereas the traffic summary considers entry calls. See T01/T02 and the
+[reproduced findings](landscape.md#reproduced-correctness-gaps) before interpreting these as whole-journey metrics.
 
 Everything outside the frame becomes a port, a small chip beyond its edge:
 
@@ -104,7 +115,7 @@ The search box narrows too: type and press **Isolate** (`Shift+Enter`).
 
 ## Sharing a view
 
-The filters go in the address bar, so a view is a link:
+On the standalone page, the filters go in the address bar, so a view is a link:
 
 - `?journey=checkout,browse` shows both journeys;
 - `?filter=k8s.namespace:shop,health:failing` keeps what both say;
@@ -112,6 +123,8 @@ The filters go in the address bar, so a view is a link:
 
 In Grafana, the panel's **Journey** option takes a value or a dashboard variable such as `${journey}`. "All", or a
 variable left unresolved, shows the whole map. The lab dashboard has a Journey variable.
+Selections made on the panel itself are remembered locally per dashboard/panel; they do not automatically update
+the dashboard variable or make every filter shareable. A dashboard link can explicitly set `var-journey=checkout`.
 
 ## Limits, and what comes next
 
