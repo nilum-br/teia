@@ -540,6 +540,7 @@ button.label { cursor: pointer; }
     return seconds < 0 ? `${fmtSec(-seconds)} in the future; check source clock` : `${fmtSec(seconds)} ago`;
   };
   function evidenceText(e) {
+    const subject = e.subject ? `${e.subject.node || `${e.subject.from} → ${e.subject.to}`} · ` : '';
     const age = e.observedAt && e.collectedAt ? ` (age at collection: ${ageText(e.observedAt, Date.parse(e.collectedAt))})` : '';
     const observation = e.sampleCount
       ? `Sampled calls: ${e.sampleCount}. ` + (e.observedFrom && e.observedAt
@@ -547,7 +548,7 @@ button.label { cursor: pointer; }
         : 'Sample time range unknown: missing or invalid span times. ') +
         'Sample bounds do not imply continuous coverage or the service\'s last call. '
       : `Original observation: ${e.observedAt || 'unknown'}${age}. `;
-    return `${e.source} · ${e.signal || 'source'} · ${e.metrics.join(', ') || 'inventory'}${e.retained ? ' · retained topology' : ''}. ` +
+    return `${subject}${e.source} · ${e.signal || 'source'} · ${e.metrics.join(', ') || 'inventory'}${e.retained ? ' · retained topology' : ''}. ` +
       `Collected: ${e.collectedAt || 'unknown'}. ` + observation +
       (e.windowSeconds > 0 ? `Query lookback: ${fmtSec(e.windowSeconds)}.` : 'Query lookback not supplied.');
   }
@@ -1213,7 +1214,7 @@ button.label { cursor: pointer; }
         nodes.set(g, gn);
       }
       gn.members.push(n);
-      gn.evidence = [...(gn.evidence || []), ...(n.evidence || [])];
+      gn.evidence = [...(gn.evidence || []), ...(n.evidence || []).map(ev => ({ ...ev, subject: { node: n.id } }))];
       if (HEALTH_RANK[n.health] > HEALTH_RANK[gn.health]) gn.health = n.health;
       if (n.visibility === 'full' || (n.visibility === 'partial' && gn.visibility === 'none')) gn.visibility = n.visibility;
       gn.requestRate += n.requestRate || 0;
@@ -1232,7 +1233,10 @@ button.label { cursor: pointer; }
         edges.set(id, ve);
       }
       ve.members.push(e);
-      ve.evidence = [...(ve.evidence || []), ...(e.evidence || [])];
+      // Equal source/timing/count metadata on two different relationships
+      // is still two samples. Keep their identities when details deduplicate.
+      ve.evidence = [...(ve.evidence || []), ...(e.evidence || []).map(ev =>
+        from === e.from && to === e.to ? ev : { ...ev, subject: { from: e.from, to: e.to } })];
       ve.requestRate += e.requestRate;
       ve.latency.add(e);
       ve.measures.push(...e.measures);

@@ -99,6 +99,35 @@ describe('TeiaPanel', () => {
     expect(root.querySelector('#pane-details')!.textContent).not.toContain('5.0%');
   });
 
+  it('keeps identical evidence from different grouped members identifiable', () => {
+    const timing = { collectedAt: '2026-10-15T12:00:00Z', observedFrom: '2026-10-15T11:50:00Z', observedAt: '2026-10-15T11:55:00Z' };
+    const sample = JSON.stringify([{ source: 'tempo', signal: 'traces', ...timing, sampleCount: 3, metrics: ['latency'] }]);
+    const inventory = JSON.stringify([{ source: 'inventory', signal: 'docker', collectedAt: timing.collectedAt, metrics: [] }]);
+    const grouped = [
+      toDataFrame({ refId: 'nodes', fields: [
+        { name: 'id', values: ['web', 'a', 'b'] }, { name: 'labels', values: ['{}', '{"team":"backend"}', '{"team":"backend"}'] },
+        { name: 'evidence', values: ['[]', inventory, inventory] },
+      ] }),
+      toDataFrame({ refId: 'edges', fields: [
+        { name: 'source', values: ['web', 'web'] }, { name: 'target', values: ['a', 'b'] }, { name: 'evidence', values: [sample, sample] },
+      ] }),
+    ];
+    const { container } = render(<TeiaPanel {...props({ data: { series: grouped, state: LoadingState.Done } as never,
+      options: { teiaUrl: '', groupBy: 'team', flow: false, journey: '', journeyKey: '', values: true } })} />);
+    const root = shadow(container);
+    (root.querySelector('.edge path.hit') as SVGElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const details = root.querySelector('#pane-details')!;
+    const entries = [...details.querySelectorAll('p.explain')].filter(p => p.textContent?.includes('Sampled calls: 3'));
+    expect(entries).toHaveLength(2);
+    expect(entries[0].textContent).toContain('web → a');
+    expect(entries[1].textContent).toContain('web → b');
+    (root.querySelector('.node[data-id="group:backend"]') as SVGElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const members = [...details.querySelectorAll('p.explain')].filter(p => p.textContent?.includes('inventory · docker'));
+    expect(members).toHaveLength(2);
+    expect(members[0].textContent).toContain('a · inventory');
+    expect(members[1].textContent).toContain('b · inventory');
+  });
+
   it('remembers choices per dashboard and panel', () => {
     const { container } = render(<TeiaPanel {...props()} />);
     (shadow(container).querySelector('#flowBtn') as HTMLButtonElement).click();

@@ -86,8 +86,10 @@ No historical query support is claimed.
       round. Qualify sample counts and bounds in shared/Grafana details, including age at collection and future clocks.
 - [x] Reproduce and fix attribution of old sampled calls to a newer owner of a recycled IP. Validate old data
       in successful responses, failure/recovery, unknown/reversed times and grouping/paused panel provenance.
+- [x] Keep the original component/relationship identity in grouped evidence. Equal timestamps and sample
+      counts on different relationships must remain separately inspectable, without summing their samples.
 
-Validation on 15 October 2026: Go vet/race tests and golangci-lint passed; 74 shared-UI tests, 39 panel/frame
+Validation on 15 October 2026: Go vet/race tests and golangci-lint passed; 74 shared-UI tests, 40 panel/frame
 tests, TypeScript/lint/build and the full local lab scenario passed. The running lab exposed original Tempo
 sample bounds on 11 edges; three Grafana API tests verified the installed plugin and saved dashboard at 15-minute
 and 30-day ranges. Interactive visual checks remain open because this session exposed no browser surface.
