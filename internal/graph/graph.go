@@ -298,6 +298,17 @@ func BuildAt(results []Result, aliases map[string]string, ignore []string, now t
 				if o.Signal != "" {
 					e.Signals = appendUnique(e.Signals, o.Signal)
 				}
+				for _, sl := range o.Slices {
+					for dim, value := range sl.Dims {
+						if e.Dimensions == nil {
+							e.Dimensions = map[string][]string{}
+						}
+						if !slices.Contains(e.Dimensions[dim], value) {
+							e.Dimensions[dim] = append(e.Dimensions[dim], value)
+							slices.Sort(e.Dimensions[dim])
+						}
+					}
+				}
 				key := e.Key()
 				if o.RequestRate > e.RequestRate {
 					e.RequestRate = o.RequestRate

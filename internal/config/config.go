@@ -23,6 +23,7 @@ import (
 	"github.com/nilum-br/teia/internal/history"
 	"github.com/nilum-br/teia/internal/model"
 	"github.com/nilum-br/teia/internal/notify"
+	"github.com/nilum-br/teia/internal/slice"
 	"github.com/nilum-br/teia/internal/source"
 	"github.com/nilum-br/teia/internal/source/declared"
 	"github.com/nilum-br/teia/internal/source/docker"
@@ -210,6 +211,8 @@ type Tempo struct {
 	TracesPerService int               `yaml:"tracesPerService"`
 	MaxTraces        int               `yaml:"maxTraces"`
 	Headers          map[string]string `yaml:"headers"`
+	// Dimensions maps a business dimension to the span attribute holding it.
+	Dimensions map[string]string `yaml:"dimensions"`
 }
 
 // Query maps any PromQL or LogQL query to edges.
@@ -229,6 +232,8 @@ type Query struct {
 	ProtocolLabel string            `yaml:"protocolLabel"`
 	ToKind        string            `yaml:"toKind"`
 	Headers       map[string]string `yaml:"headers"`
+	// Dimensions maps a business dimension to the label holding it.
+	Dimensions map[string]string `yaml:"dimensions"`
 }
 
 type Kubernetes struct {
@@ -509,6 +514,9 @@ func (c *Config) validate() error {
 		if t.TracesPerService < 0 || t.MaxTraces < 0 {
 			bad("sources.tempo[%d]: tracesPerService and maxTraces must not be negative", i)
 		}
+		if err := validDimensions(t.Dimensions); err != nil {
+			bad("sources.tempo[%d].dimensions: %v", i, err)
+		}
 	}
 	for i, q := range s.Queries {
 		if q.URL == "" || q.Query == "" || q.From == "" || q.To == "" {
@@ -520,6 +528,9 @@ func (c *Config) validate() error {
 		notNegative(fmt.Sprintf("sources.queries[%d].window", i), q.Window)
 		if q.ToKind != "" && !oneOf(model.NodeKind(q.ToKind), nodeKinds) {
 			bad("sources.queries[%d].toKind %q is not a kind (one of %s)", i, q.ToKind, list(nodeKinds))
+		}
+		if err := validDimensions(q.Dimensions); err != nil {
+			bad("sources.queries[%d].dimensions: %v", i, err)
 		}
 	}
 	for i, p := range s.Postgres {
@@ -538,6 +549,20 @@ func (c *Config) validate() error {
 		seen[p.name] = true
 	}
 	return errors.Join(errs...)
+}
+
+// validDimensions checks dimension names against the selector syntax
+// (dimension:value pairs separated by commas) and requires a source field.
+func validDimensions(dims map[string]string) error {
+	for dim, field := range dims {
+		if err := slice.ValidName(dim); err != nil {
+			return err
+		}
+		if strings.TrimSpace(field) == "" {
+			return fmt.Errorf("%q needs the label or attribute holding it", dim)
+		}
+	}
+	return nil
 }
 
 func named(kind, name string, i, total int) string {
@@ -575,6 +600,7 @@ func (c *Config) plan() []planned {
 		add(named("tempo", t.Name, i, len(s.Tempo)), func(n string) source.Source {
 			return tempo.New(n, tempo.Config{
 				URL: t.URL, Window: t.Window, TracesPerService: t.TracesPerService, MaxTraces: t.MaxTraces, Headers: t.Headers,
+				Dimensions: t.Dimensions,
 			})
 		})
 	}
@@ -588,6 +614,7 @@ func (c *Config) plan() []planned {
 				Dialect: dialect, URL: q.URL, Query: q.Query, Errors: q.Errors, Latency: q.Latency, Window: q.Window, Headers: q.Headers,
 				From: q.From, To: q.To, FromAddress: q.FromAddress, ToAddress: q.ToAddress,
 				Protocol: q.Protocol, ProtocolLabel: q.ProtocolLabel, ToKind: model.NodeKind(q.ToKind),
+				Dimensions: q.Dimensions,
 			})
 		})
 	}

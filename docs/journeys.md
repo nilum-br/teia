@@ -199,6 +199,52 @@ It covers a shared frontend, two journeys, a shared database, unlabelled upstrea
 cycles, the expansion boundary and missing telemetry. A closed cycle with no entry and the 200-node cap have
 additional Go tests.
 
+## Slices follow the calls
+
+A label journey follows **ownership**: `orders` belongs to checkout, so every call it makes joins checkout's frame,
+even calls it only makes for another journey. When the telemetry itself says which journey (or tenant) each call
+belongs to, a **slice** shows only those calls:
+
+```yaml
+sources:
+  tempo:
+    - url: http://tempo:3200
+      dimensions:              # dimension: span attribute
+        journey: business.journey
+        tenant: business.tenant
+  queries:
+    - url: http://prometheus:9090
+      query: sum by (source, target, journey, tenant) (rate(app_calls_total[$window]))
+      errors: sum by (source, target, journey, tenant) (rate(app_calls_total{status="error"}[$window]))
+      latency: histogram_quantile(0.95, sum by (source, target, journey, tenant, le) (rate(app_call_duration_seconds_bucket[$window])))
+      from: source
+      to: target
+      dimensions:              # dimension: series label
+        journey: journey
+        tenant: tenant
+```
+
+- A trace span without the attribute inherits it from its closest ancestor in the same trace, so a database call
+  made while serving a notification belongs to the notification, whatever service makes it.
+- Each combination of values becomes a slice of the edge. Query slices carry their own rate, error share and p95;
+  trace slices carry a sample count and sampled p50/p95, with no rate or errors. The edge itself remains the total
+  of every call, and its details list the values seen on it.
+- `?slice=journey:checkout` (or `journey:checkout,tenant:acme`) on teia's page, or on `/api/v1/snapshot`, `graph`,
+  `journeys`, `findings`, `coverage`, `stream`, the Grafana frames and the flow matrix, rebuilds the round from the
+  selected calls only. Nodes no selected call touches disappear, including ports; health, journeys and findings are
+  judged on those calls. Exporter readings on nodes (memory, connections) stay node-wide.
+- Several matching slices (every tenant of one journey) add their rates; their p95s are weighted by traffic and
+  marked approximate, never summed. Errors use only measured traffic.
+- A source that cannot split by every selected dimension (a mesh preset, a query without `dimensions`) is left out
+  and listed in `slice.excluded`, rather than mixing global numbers into the selection.
+- A selection no call carried gives an **empty** snapshot with `slice.matched: false`, never the whole map.
+- `GET /api/v1/dimensions` lists the values seen. The bar above the map offers them under **Calls of**; the chip
+  says "metrics of these calls only", and ✕ returns to the whole map.
+
+Slices are a filter, not access control: anyone who can read the whole snapshot can read every slice. They follow
+the attributes your telemetry carries; a sampled trace source only knows the journeys of the traces it sampled.
+The Grafana panel reads slices through the frame endpoints (`?slice=`); its own slice picker is not implemented.
+
 ## Separate operation mode
 
 A label journey follows **ownership**, not single requests: a service shared by two journeys brings all of its calls.

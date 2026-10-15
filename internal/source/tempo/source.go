@@ -40,6 +40,11 @@ type Config struct {
 	TracesPerService int
 	// MaxTraces bounds the whole round.
 	MaxTraces int
+	// Dimensions maps a business dimension (journey, tenant...) to the span
+	// attribute holding it. A span without the attribute inherits it from
+	// its closest ancestor in the same trace that has it, so a call belongs
+	// to the journey of the request that caused it, not of its service.
+	Dimensions map[string]string
 }
 
 type Source struct {
@@ -114,17 +119,27 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 		}
 		return obs, fmt.Errorf("fetching traces: all %d failed, first %w", failed, fetchErr)
 	}
-	edges := map[string]*source.EdgeObservation{}
-	self := map[string]bool{}
-	targets := map[string]model.NodeKind{}
-	durations := map[string][]float64{}
+	p := newPairing(s.cfg.Dimensions)
 	for _, t := range traces {
-		pairTrace(t.spans, edges, self, targets, durations)
+		p.pair(t.spans)
 	}
 	obs.Operations = operationSamples(s.name, window, traces, len(ids), failed, searched, len(services), limited || searched < len(services))
-	for key, ms := range durations {
+	edges, self, targets := p.edges, p.self, p.targets
+	for key, ms := range p.durations {
 		edges[key].LatencyP50Ms, edges[key].LatencyP95Ms = quantile(ms, 0.5), quantile(ms, 0.95)
 	}
+	for _, key := range p.sliceOrder {
+		sl := p.slices[key]
+		if ms := sl.durations; len(ms) > 0 {
+			sl.slice.LatencyP50Ms, sl.slice.LatencyP95Ms = quantile(ms, 0.5), quantile(ms, 0.95)
+		}
+		e := edges[sl.edge]
+		e.Slices = append(e.Slices, sl.slice)
+	}
+	for dim := range s.cfg.Dimensions {
+		obs.Dimensions = append(obs.Dimensions, dim)
+	}
+	sort.Strings(obs.Dimensions)
 	for id := range self {
 		obs.Nodes = append(obs.Nodes, source.NodeObservation{ID: id, Kind: model.KindService, SelfReported: true,
 			Labels: map[string]string{source.SignalLabel(source.SignalTraces): "true"}})
@@ -174,9 +189,88 @@ type span struct {
 	startedAt, endedAt        time.Time
 }
 
+// pairing accumulates the edges of the sampled traces, the duration of each
+// call (in milliseconds) under its edge's key, and, with dimensions, the same
+// per combination of dimension values.
+type pairing struct {
+	dims       map[string]string
+	edges      map[string]*source.EdgeObservation
+	self       map[string]bool
+	targets    map[string]model.NodeKind
+	durations  map[string][]float64
+	slices     map[string]*traceSlice
+	sliceOrder []string
+}
+
+type traceSlice struct {
+	edge      string
+	slice     source.Slice
+	durations []float64
+}
+
+func newPairing(dims map[string]string) *pairing {
+	return &pairing{dims: dims, edges: map[string]*source.EdgeObservation{}, self: map[string]bool{},
+		targets: map[string]model.NodeKind{}, durations: map[string][]float64{}, slices: map[string]*traceSlice{}}
+}
+
+// envelope widens a sample's time bounds with one call. Both bounds become
+// unknown if any call has no valid times.
+func envelope(count int, from, at *time.Time, call span) {
+	switch {
+	case count == 1:
+		*from, *at = call.startedAt, call.endedAt
+	case call.startedAt.IsZero() || call.endedAt.IsZero() || from.IsZero() || at.IsZero():
+		// An undated call might be outside the known envelope. Do not
+		// present a partial range as the age of the entire sample.
+		*from, *at = time.Time{}, time.Time{}
+	default:
+		if call.startedAt.Before(*from) {
+			*from = call.startedAt
+		}
+		if call.endedAt.After(*at) {
+			*at = call.endedAt
+		}
+	}
+}
+
+// dimsOf reads the configured dimensions of a span, each from the span itself
+// or else from its closest ancestor holding it.
+func (p *pairing) dimsOf(sp span, byID map[string]span) map[string]string {
+	if len(p.dims) == 0 {
+		return nil
+	}
+	var out map[string]string
+	for dim, attr := range p.dims {
+		at, seen := sp, map[string]bool{}
+		for depth := 0; depth < 256 && !seen[at.id]; depth++ {
+			seen[at.id] = true
+			if v := strings.TrimSpace(at.attrs[attr]); v != "" {
+				if out == nil {
+					out = map[string]string{}
+				}
+				out[dim] = v
+				break
+			}
+			parent, ok := byID[at.parent]
+			if !ok {
+				break
+			}
+			at = parent
+		}
+	}
+	return out
+}
+
 // pairTrace adds the edges one trace shows, and the duration of each call
-// (in milliseconds) to durations under the edge's key.
+// (in milliseconds) to durations under the edge's key, without dimensions.
 func pairTrace(spans []span, edges map[string]*source.EdgeObservation, self map[string]bool, targets map[string]model.NodeKind, durations map[string][]float64) {
+	p := &pairing{edges: edges, self: self, targets: targets, durations: durations, slices: map[string]*traceSlice{}}
+	p.pair(spans)
+}
+
+// pair adds the edges one trace shows.
+func (p *pairing) pair(spans []span) {
+	edges, self, targets, durations := p.edges, p.self, p.targets, p.durations
 	byID := map[string]span{}
 	hasRemoteChild := map[string]bool{}
 	for _, sp := range spans {
@@ -185,7 +279,7 @@ func pairTrace(spans []span, edges map[string]*source.EdgeObservation, self map[
 			self[sp.service] = true
 		}
 	}
-	add := func(from, to, protocol string, call span) {
+	add := func(from, to, protocol string, call span, dims map[string]string) {
 		if from == "" || to == "" || from == to {
 			return
 		}
@@ -193,7 +287,8 @@ func pairTrace(spans []span, edges map[string]*source.EdgeObservation, self map[
 		// A synchronous call's span lasts as long as the caller waits; a
 		// message is not waited for, so producer and consumer spans say
 		// nothing about latency.
-		if call.dur > 0 && (call.kind == "client" || call.kind == "server") {
+		timed := call.dur > 0 && (call.kind == "client" || call.kind == "server")
+		if timed {
 			durations[key] = append(durations[key], float64(call.dur)/float64(time.Millisecond))
 		}
 		e := edges[key]
@@ -205,20 +300,22 @@ func pairTrace(spans []span, edges map[string]*source.EdgeObservation, self map[
 			e.Protocol = protocol
 		}
 		e.SampleCount++
-		switch {
-		case e.SampleCount == 1:
-			e.ObservedFrom, e.ObservedAt = call.startedAt, call.endedAt
-		case call.startedAt.IsZero() || call.endedAt.IsZero() || e.ObservedFrom.IsZero() || e.ObservedAt.IsZero():
-			// An undated call might be outside the known envelope. Do not
-			// present a partial range as the age of the entire sample.
-			e.ObservedFrom, e.ObservedAt = time.Time{}, time.Time{}
-		default:
-			if call.startedAt.Before(e.ObservedFrom) {
-				e.ObservedFrom = call.startedAt
-			}
-			if call.endedAt.After(e.ObservedAt) {
-				e.ObservedAt = call.endedAt
-			}
+		envelope(e.SampleCount, &e.ObservedFrom, &e.ObservedAt, call)
+		if len(dims) == 0 {
+			return
+		}
+		sk := key + "\x00" + dimsKey(dims)
+		sl := p.slices[sk]
+		if sl == nil {
+			// Spans count calls in a sample, not their rate or failures.
+			sl = &traceSlice{edge: key, slice: source.Slice{Dims: dims, NoErrors: true}}
+			p.slices[sk] = sl
+			p.sliceOrder = append(p.sliceOrder, sk)
+		}
+		sl.slice.SampleCount++
+		envelope(sl.slice.SampleCount, &sl.slice.ObservedFrom, &sl.slice.ObservedAt, call)
+		if timed {
+			sl.durations = append(sl.durations, float64(call.dur)/float64(time.Millisecond))
 		}
 	}
 	for _, sp := range spans {
@@ -236,7 +333,8 @@ func pairTrace(spans []span, edges map[string]*source.EdgeObservation, self map[
 		if call.kind != "client" {
 			call = sp
 		}
-		add(parent.service, sp.service, protocolOf(parent.attrs, sp.attrs), call)
+		dims := p.dimsOf(sp, byID)
+		add(parent.service, sp.service, protocolOf(parent.attrs, sp.attrs), call, dims)
 	}
 	for _, sp := range spans {
 		if (sp.kind != "client" && sp.kind != "producer") || hasRemoteChild[sp.id] {
@@ -249,8 +347,22 @@ func pairTrace(spans []span, edges map[string]*source.EdgeObservation, self map[
 		if _, known := targets[target]; !known || kind != model.KindUnknown {
 			targets[target] = kind
 		}
-		add(sp.service, target, protocolOf(sp.attrs, nil), sp)
+		add(sp.service, target, protocolOf(sp.attrs, nil), sp, p.dimsOf(sp, byID))
 	}
+}
+
+// dimsKey identifies a combination of dimension values.
+func dimsKey(dims map[string]string) string {
+	keys := make([]string, 0, len(dims))
+	for k := range dims {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(k + "=" + dims[k] + "\x00")
+	}
+	return b.String()
 }
 
 // quantile returns the q-quantile of a sample (nearest rank). With the few

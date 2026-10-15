@@ -103,6 +103,28 @@ type EdgeObservation struct {
 	// Measures are readings beyond traffic, such as sessions of this caller
 	// waiting on locks.
 	Measures []model.Measure
+	// Slices split the edge's traffic by business dimensions (journey,
+	// tenant...) the source saw on each call. Nil when the source was not
+	// configured with dimensions or saw none on this edge.
+	Slices []Slice
+}
+
+// Slice is the part of an edge's traffic whose calls carried one combination
+// of business dimension values, measured the same way as the whole edge.
+// A dimension missing from Dims was not present on those calls.
+type Slice struct {
+	Dims        map[string]string
+	RequestRate float64
+	ErrorRate   float64
+	NoErrors    bool
+	// LatencyP50Ms and LatencyP95Ms are measured for this slice only, never
+	// copied from the whole edge.
+	LatencyP50Ms       float64
+	LatencyP95Ms       float64
+	LatencyApproximate bool
+	SampleCount        int
+	ObservedFrom       time.Time
+	ObservedAt         time.Time
 }
 
 // Signals name the kind of telemetry that saw a node first-hand. A node
@@ -194,6 +216,10 @@ type Observation struct {
 	// UnknownCallers is traffic into a callee from callers this source
 	// cannot identify.
 	UnknownCallers []UnknownCaller
+	// Dimensions are the business dimensions this source splits its edges
+	// by. A sliced view leaves out the edges of a source that cannot split
+	// by every selected dimension instead of presenting them as in scope.
+	Dimensions []string
 	// Degraded marks a round that worked but saw less than it could.
 	Degraded bool
 	Message  string

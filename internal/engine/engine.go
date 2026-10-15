@@ -20,6 +20,7 @@ import (
 	"github.com/nilum-br/teia/internal/history"
 	"github.com/nilum-br/teia/internal/journey"
 	"github.com/nilum-br/teia/internal/model"
+	"github.com/nilum-br/teia/internal/slice"
 	"github.com/nilum-br/teia/internal/source"
 )
 
@@ -71,6 +72,10 @@ type Engine struct {
 	mu       sync.RWMutex
 	snap     model.Snapshot
 	snapJSON []byte
+	// results and statuses of the last round, for sliced views.
+	results  []graph.Result
+	statuses []model.SourceStatus
+	sliced   map[string]model.Snapshot
 	recent   []model.Change
 	subs     map[chan []byte]struct{}
 	running  sync.Mutex // one round at a time
@@ -226,6 +231,7 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 		Sources:     statuses,
 		Coverage:    graph.ComputeCoverage(g),
 	}
+	snap.Dimensions = slice.Values(snap.Edges)
 	snap.Journeys = journey.Build(snap, "")
 	snap.Operations = operationContract(results, g)
 	snap.Changes = e.differ.Diff(prev, snap, now)
@@ -243,6 +249,7 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 
 	e.mu.Lock()
 	e.snap, e.snapJSON = snap, data
+	e.results, e.statuses, e.sliced = results, statuses, map[string]model.Snapshot{}
 	e.recent = append(e.recent, snap.Changes...)
 	if len(e.recent) > recentChanges {
 		e.recent = e.recent[len(e.recent)-recentChanges:]
@@ -281,6 +288,65 @@ func (e *Engine) Refresh(ctx context.Context) model.Snapshot {
 	return snap
 }
 
+// maxSliced bounds the sliced snapshots cached for one round.
+const maxSliced = 64
+
+// Sliced rebuilds the last round from only the calls whose telemetry carried
+// every selected dimension value. Health, journeys and findings are judged
+// on those calls alone; the round number and time are the last round's.
+// A selection nothing matched gives an empty snapshot with Matched false.
+func (e *Engine) Sliced(sel slice.Selector) model.Snapshot {
+	key := sel.String()
+	e.mu.RLock()
+	base, results, statuses := e.snap, e.results, e.statuses
+	cached, ok := e.sliced[key]
+	e.mu.RUnlock()
+	if ok {
+		return cached
+	}
+	narrowed, contributed, excluded := slice.Results(results, sel)
+	g := graph.BuildAt(narrowed, e.opts.Aliases, e.opts.Ignore, base.GeneratedAt)
+	slice.Prune(g)
+	graph.ApplyTech(g)
+	graph.ApplyHealth(g, e.opts.Health, e.opts.HealthOverrides...)
+	var fromSources []model.Finding
+	for _, r := range narrowed {
+		fromSources = append(fromSources, r.Observation.Findings...)
+	}
+	snap := model.Snapshot{
+		Round:       base.Round,
+		GeneratedAt: base.GeneratedAt,
+		TimeMode:    base.TimeMode,
+		Nodes:       g.SortedNodes(),
+		Edges:       g.SortedEdges(),
+		Findings:    advisor.Advise(advisor.Input{Graph: g, Statuses: statuses}, fromSources),
+		Sources:     statuses,
+		Coverage:    graph.ComputeCoverage(g),
+		Dimensions:  base.Dimensions,
+		Slice: &model.SliceScope{
+			Selector: map[string]string(sel), Metrics: "scoped",
+			Sources: contributed, Excluded: excluded,
+		},
+	}
+	if snap.Sources == nil {
+		snap.Sources = []model.SourceStatus{}
+	}
+	for _, edge := range snap.Edges {
+		if edge.Observed {
+			snap.Slice.Matched = true
+			break
+		}
+	}
+	snap.Journeys = journey.Build(snap, "")
+	evidencelinks.Apply(&snap, e.opts.EvidenceLinks)
+	e.mu.Lock()
+	if e.sliced != nil && e.snap.Round == base.Round && len(e.sliced) < maxSliced {
+		e.sliced[key] = snap
+	}
+	e.mu.Unlock()
+	return snap
+}
+
 // topologyOnly preserves identities and intent during a source outage, but
 // old traffic and readings cannot establish the current health of a service.
 // Clone the slices we change: a source may reuse its observation on recovery.
@@ -298,6 +364,14 @@ func topologyOnly(obs source.Observation) source.Observation {
 		edge.LatencyApproximate = false
 		edge.NoErrors = true
 		edge.Measures = nil
+		edge.Slices = slices.Clone(edge.Slices)
+		for j := range edge.Slices {
+			sl := &edge.Slices[j]
+			sl.RequestRate, sl.ErrorRate = 0, 0
+			sl.LatencyP50Ms, sl.LatencyP95Ms = 0, 0
+			sl.LatencyApproximate = false
+			sl.NoErrors = true
+		}
 	}
 	obs.Readings = nil
 	obs.UnknownCallers = nil

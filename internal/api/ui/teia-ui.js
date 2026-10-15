@@ -228,6 +228,8 @@ details summary { cursor: pointer; color: var(--accent); font-size: 12px; margin
 .fchip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 10px; border-radius: 999px; white-space: nowrap;
   background: var(--panel); border: 1px solid var(--accent); color: var(--ink); font-size: 12px; font-weight: 600; }
 .fchip button { height: 20px; min-width: 20px; border: 0; border-radius: 999px; background: var(--panel-2); color: var(--ink-2); cursor: pointer; padding: 0 6px; }
+.fchip.slice { border-color: var(--accent); }
+.scope .slice-note { text-transform: none; letter-spacing: 0; }
 .scope .clear { border: 0; background: none; color: var(--accent); cursor: pointer; font-size: 12px; white-space: nowrap; }
 .filter-panel { position: absolute; z-index: 30; left: 12px; top: 112px; width: min(760px, calc(100% - 24px)); max-height: min(70vh, calc(100% - 130px)); overflow: auto;
   background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px 16px; }
@@ -747,12 +749,30 @@ button.label { cursor: pointer; }
       // Data without intent (plain Node Graph frames) has no drift to show.
       drift: s.drift !== false,
       changes: Array.isArray(s.changes) ? s.changes : [],
+      dimensions: dimensionsOf(s.dimensions),
+      slice: sliceOf(s.slice),
     };
   }
 
+  // dimensionsOf keeps {dimension: [values]} with string values only.
+  function dimensionsOf(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    for (const [k, v] of Object.entries(raw)) { const vs = strings(v); if (k && vs.length) out[k] = vs; }
+    return out;
+  }
+  // sliceOf describes a snapshot narrowed to calls carrying some dimension values.
+  function sliceOf(raw) {
+    if (!raw || typeof raw !== 'object' || !raw.selector || typeof raw.selector !== 'object') return undefined;
+    const selector = Object.fromEntries(Object.entries(raw.selector).filter(([k, v]) => k && typeof v === 'string'));
+    return { selector, matched: raw.matched === true, metrics: text(raw.metrics), sources: strings(raw.sources), excluded: strings(raw.excluded) };
+  }
+  // sliceText writes a selector the way the API reads it: journey:x,tenant:y.
+  const sliceText = selector => Object.keys(selector || {}).sort().map(k => k + ':' + selector[k]).join(',');
+
   // signature identifies what is drawn, so refreshes with the same data are no-ops.
   function signature(snap) {
-    return JSON.stringify([snap.nodes, snap.edges, snap.findings, snap.sources, snap.coverage, snap.journeys, snap.operations, snap.operationContext, snap.timeMode, snap.history, snap.drift]);
+    return JSON.stringify([snap.nodes, snap.edges, snap.findings, snap.sources, snap.coverage, snap.journeys, snap.operations, snap.operationContext, snap.timeMode, snap.history, snap.drift, snap.slice, snap.dimensions]);
   }
 
   function indexSnapshot(snap) {
@@ -1756,7 +1776,7 @@ button.label { cursor: pointer; }
     // -------------------------------------------------------------------- state
     const state = {
       snap: null, sig: '', pending: null, connected: false, error: '', lastData: 0,
-      historyId: '', historyLoading: false,
+      historyId: '', historyLoading: false, slice: '',
       investigation: { mode: 'all', focus: '', target: '', depth: 1, direction: 'both' }, display: 'graph', tablePage: 0, tableSort: 'health', operation: { id: '', traceId: '' },
       view: { x: 0, y: 0, k: 1 }, fitted: false, userMoved: false,
       positions: stored('positions', {}),
@@ -1925,7 +1945,7 @@ button.label { cursor: pointer; }
       return [[...f.journeys].sort().join(','), ...Object.keys(f.facets).sort().map(k => k + '=' + [...f.facets[k]].sort().join(','))].join('|').toLowerCase();
     };
     // ("@scope:" keeps layouts saved before frames, laid out for stubs, out)
-    const posKey = () => 'positions' + (filtersActive(state.filters) ? '@scope:' + scopeKey() : '');
+    const posKey = () => 'positions' + (state.slice ? '@slice:' + state.slice : '') + (filtersActive(state.filters) ? '@scope:' + scopeKey() : '');
 
     let ports = [];
     function renderMap() {
@@ -2787,6 +2807,7 @@ button.label { cursor: pointer; }
           if (names.length > 8) parts.push(el('span', { class: 'caption' }, `+${names.length - 8} in Filter`));
         }
       }
+      parts.push(...sliceBar());
       if (state.scope) {
         const sc = state.scope, why = journeyWhy(state.snap, sc);
         const line = el('span', { class: 'headline ' + why.health }, el('span', {}, `${sc.roles.size}${sc.truncated ? '+' : ''} components`));
@@ -2799,6 +2820,33 @@ button.label { cursor: pointer; }
         parts.push(line);
       }
       bar.replaceChildren(...parts);
+    }
+
+    // sliceBar offers the business dimension values seen on calls, and says
+    // what a slice in use shows: only those calls, with their own metrics.
+    function sliceBar() {
+      const sl = state.snap?.slice, dims = state.snap?.dimensions || {};
+      if (state.slice) {
+        const label = state.slice.split(',').map(p => p.replace(':', ' = ')).join(' · ');
+        const out = [el('span', { class: 'fchip slice' }, 'Calls of ' + label,
+          el('button', { type: 'button', 'aria-label': 'Show every call', title: 'Show every call', onclick: () => setSlice('') }, '✕'))];
+        if (sl && !sl.matched) out.push(el('span', { class: 'caption slice-note' }, 'no call carried this selection'));
+        else if (sl) out.push(el('span', { class: 'caption slice-note', title: 'Rates, errors and latencies come only from these calls. Node readings from exporters stay node-wide.' }, 'metrics of these calls only'));
+        if (sl?.excluded.length) out.push(el('span', { class: 'caption slice-note', title: 'These sources cannot split their connections by the selected dimensions, so their connections are left out of the slice.' }, 'without ' + sl.excluded.join(', ')));
+        for (const [k, vs] of Object.entries(dims)) {
+          const current = Object.fromEntries(state.slice.split(',').map(p => p.split(':')))[k];
+          if (current === undefined) continue;
+          for (const v of vs.slice(0, 6)) if (v !== current) out.push(el('button', { type: 'button', class: 'jtab', title: `Only the calls with ${k} = ${v}`, onclick: () => setSlice(state.slice.split(',').map(p => p.startsWith(k + ':') ? k + ':' + v : p).join(',')) }, `${k}: ${v}`));
+        }
+        return out;
+      }
+      const entries = Object.entries(dims);
+      if (!entries.length || !opts.api) return [];
+      const out = [el('span', { class: 'caption', title: 'Show only the calls whose own telemetry carried this value, with their own metrics' }, 'Calls of')];
+      for (const [k, vs] of entries) for (const v of vs.slice(0, 6)) {
+        out.push(el('button', { type: 'button', class: 'jtab', title: `Only the calls with ${k} = ${v}`, onclick: () => setSlice(k + ':' + v) }, `${k}: ${v}`));
+      }
+      return out;
     }
 
     // ----------------------------------------------------- the filter panel
@@ -3220,6 +3268,11 @@ button.label { cursor: pointer; }
         row('errors', errorText(e));
       }
       if (e.latencyP95Ms > 0) row('latency', latencyText(e));
+      const edgeDims = {};
+      for (const m of e.members) for (const [k, vs] of Object.entries(m.dimensions || {})) for (const v of strings(vs)) (edgeDims[k] ||= new Set()).add(v);
+      if (state.snap.slice) row('measured', 'only calls with ' + sliceText(state.snap.slice.selector).replaceAll(',', ', '));
+      else if (Object.keys(edgeDims).length) row('measured', 'all calls, every ' + Object.keys(edgeDims).sort().join(' and '));
+      for (const [k, vs] of Object.entries(edgeDims).sort()) row(k, [...vs].sort().join(', '));
       for (const m of e.measures) row(m.what, measureText(m));
       if (state.snap.drift) row('reason', e.reason || (e.declared ? '—' : 'not declared'));
       row('seen by', e.signals.map(s => has(SIGNAL, s) ? SIGNAL[s].label : s).join(', ') || (e.observed ? '—' : 'nobody yet'));
@@ -3703,7 +3756,7 @@ button.label { cursor: pointer; }
     async function load(signal) {
       if (state.historyId) { await replay(state.historyId); return; }
       const get = path => fetch(opts.api + path, { signal, headers: { Accept: 'application/json' } }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
-      const [snap, changes] = await Promise.all([get('snapshot'), get('changes').catch(() => [])]);
+      const [snap, changes] = await Promise.all([get('snapshot' + sliceQuery()), get('changes').catch(() => [])]);
       if (destroyed) return;
       if (snap.generatedAt && !String(snap.generatedAt).startsWith('0001')) apply(snap, false);
       pushActivity(changes, false);
@@ -3755,9 +3808,31 @@ button.label { cursor: pointer; }
       } catch (error) { if (!destroyed && request === historyListRequest) $('#historyStatus').textContent = error.message; }
     }
 
+    const sliceQuery = () => state.slice ? '?slice=' + encodeURIComponent(state.slice) : '';
+    // setSlice shows only the calls whose telemetry carried these dimension
+    // values (journey:x,tenant:y), with their own metrics; '' is the whole map.
+    function setSlice(next) {
+      next = String(next || '').trim();
+      if (next === state.slice) return;
+      state.slice = next;
+      state.positions = stored(posKey(), {});
+      topologyKey = '';
+      state.fitted = false;
+      if (page && typeof history !== 'undefined' && typeof location !== 'undefined') {
+        const url = new URL(location.href);
+        if (next) url.searchParams.set('slice', next); else url.searchParams.delete('slice');
+        history.replaceState(null, '', url);
+      }
+      syncSharedURL();
+      if (es) { es.close(); es = null; }
+      if (!opts.api) return;
+      load(aborter.signal).catch(error => { state.error = error.message; renderLive(); }).finally(() => { state.fitted = fit(); connect(); });
+      $('#announce').textContent = next ? `Only calls with ${next.replaceAll(',', ', ')}` : 'Whole map';
+    }
+
     function connect() {
       if (destroyed || es || !state.live || state.historyId || state.historyLoading || !opts.api || opts.stream === false) return;
-      try { es = new EventSource(opts.api + 'stream'); } catch { return; }
+      try { es = new EventSource(opts.api + 'stream' + sliceQuery()); } catch { return; }
       es.addEventListener('snapshot', ev => {
         reconnectDelay = 1000;
         try { apply(JSON.parse(ev.data), true); } catch { /* a malformed event is skipped */ }
@@ -3812,10 +3887,12 @@ button.label { cursor: pointer; }
     });
     showTab(state.tab);
     $('#search').addEventListener('input', ev => {
-      const query = ev.target.value;
-      $('#isolateBtn').hidden = !query.trim();
+      // Read the value now: once dispatch ends, the event is retargeted to
+      // the shadow host and ev.target.value is gone.
+      const value = ev.currentTarget.value;
+      $('#isolateBtn').hidden = !value.trim();
       clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => { state.query = query; state.tablePage = 0; syncSharedURL(); applyHighlight(); renderInvestigation(); }, 120);
+      searchTimer = setTimeout(() => { state.query = value; state.tablePage = 0; syncSharedURL(); applyHighlight(); renderInvestigation(); }, 120);
     });
     $('#search').addEventListener('keydown', ev => {
       if (ev.key !== 'Enter') return;
@@ -3874,7 +3951,7 @@ button.label { cursor: pointer; }
     app.querySelectorAll('[data-export]').forEach(b => b.addEventListener('click', () => exportMap(b.dataset.export)));
     function viewState() {
       return { version: 1, ...filtersToParams(state.filters), group: state.groupBy, query: state.query, select: state.selected?.id || (!state.restoredSelect && opts.select) || '',
-        flow: state.flow, values: state.values, live: state.live, journeyKey: state.journeyKey, states: state.states, signals: [...state.signals], history: state.historyId, expanded: [...state.expanded], investigation: state.investigation, display: state.display, operation: state.operation };
+        flow: state.flow, values: state.values, live: state.live, journeyKey: state.journeyKey, slice: state.slice, states: state.states, signals: [...state.signals], history: state.historyId, expanded: [...state.expanded], investigation: state.investigation, display: state.display, operation: state.operation };
     }
     function syncSharedURL() {
       if (typeof location === 'undefined' || typeof history === 'undefined') return;
@@ -3948,6 +4025,7 @@ button.label { cursor: pointer; }
       state.filters = filtersFromParams(params);
       if (params.has('journeyKey')) state.journeyKey = params.get('journeyKey').trim();
       if (params.has('values')) state.values = params.get('values') !== '0';
+      if (params.has('slice')) state.slice = params.get('slice').trim();
     }
     if (opts.journey) state.filters.journeys = [String(opts.journey).trim()];
     let hostJourney = opts.journey || '';
@@ -3958,7 +4036,7 @@ button.label { cursor: pointer; }
       if (view?.version === 1) {
         state.filters = filtersFromParams(new URLSearchParams({ journey: text(view.journey), filter: text(view.filter) }));
         state.groupBy = text(view.group); state.query = text(view.query); $('#search').value = state.query;
-        state.journeyKey = text(view.journeyKey); opts.select = text(view.select);
+        state.journeyKey = text(view.journeyKey); opts.select = text(view.select); state.slice = text(view.slice);
         if (opts.api) state.historyId = text(view.history);
         state.expanded = new Set(strings(view.expanded));
         state.investigation = { mode: oneOf(view.investigation?.mode, ['all','neighbors','path'], 'all'), focus: text(view.investigation?.focus), target: text(view.investigation?.target), depth: Math.max(1, Math.min(3, finite(view.investigation?.depth) || 1)), direction: oneOf(view.investigation?.direction, ['both','in','out'], 'both') };

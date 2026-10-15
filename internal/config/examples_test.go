@@ -29,7 +29,7 @@ func TestShippedConfigsLoad(t *testing.T) {
 	}{
 		{"../../examples/teia.yaml", []string{
 			"declared", "prometheus/main", "prometheus/mesh", "tempo/traces", "loki/access-logs",
-			"prometheus/kafka-clients", "prometheus/egress-flows", "kubernetes", "docker", "postgres/orders-db",
+			"prometheus/kafka-clients", "prometheus/app-calls", "prometheus/egress-flows", "kubernetes", "docker", "postgres/orders-db",
 		}},
 		{"../../lab/teia.yaml", []string{"declared", "prometheus", "tempo", "loki/access-logs", "docker", "postgres/orders-db"}},
 		{"../../lab/teia.host.yaml", []string{"declared", "prometheus", "tempo", "loki/access-logs", "docker", "postgres/orders-db"}},
