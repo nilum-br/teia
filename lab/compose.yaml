@@ -349,7 +349,7 @@ services:
   # the checkout (dist/ and the synced src/teia/teia-ui.js) to the checkout's
   # owner, so no root-owned files are left behind on Linux.
   teia-panel:
-    image: node:24.22.0-trixie
+    image: node:26.11.1-trixie
     restart: "no"
     labels:
       teia.ignore: "true"
