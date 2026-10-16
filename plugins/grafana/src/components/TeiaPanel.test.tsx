@@ -100,6 +100,45 @@ describe('TeiaPanel', () => {
     });
   });
 
+  describe('refreshes', () => {
+    // teia's frames of one round: every row carries the round's time.
+    const round = (at: string) => [
+      toDataFrame({ refId: 'nodes', fields: [{ name: 'id', values: ['web', 'orders'] }, { name: 'snapshotAt', values: [at, at] }] }),
+      toDataFrame({ refId: 'edges', fields: [{ name: 'source', values: ['web'] }, { name: 'target', values: ['orders'] }, { name: 'snapshotAt', values: [at] }] }),
+    ];
+    const withSeries = (s: ReturnType<typeof round>) => props({ data: { series: s, state: LoadingState.Done } as never });
+    const updates = () => {
+      const mount = jest.spyOn(TeiaUI, 'mount');
+      const update = jest.fn();
+      mount.mockImplementation((host, options) => {
+        mount.mockRestore();
+        const ui = TeiaUI.mount(host, options);
+        const draw = ui.update.bind(ui);
+        ui.update = (...args) => { update(); draw(...args); };
+        return ui;
+      });
+      return update;
+    };
+
+    it('draws a refresh of the same round only once', () => {
+      const update = updates();
+      const { rerender } = render(<TeiaPanel {...withSeries(round('2026-10-16T12:00:00Z'))} />);
+      // A dashboard refresh brings new frame objects with the same round.
+      rerender(<TeiaPanel {...withSeries(round('2026-10-16T12:00:00Z'))} />);
+      rerender(<TeiaPanel {...withSeries(round('2026-10-16T12:00:00Z'))} />);
+      expect(update).toHaveBeenCalledTimes(1);
+      rerender(<TeiaPanel {...withSeries(round('2026-10-16T12:00:30Z'))} />);
+      expect(update).toHaveBeenCalledTimes(2);
+    });
+
+    it('always draws frames that do not say their round', () => {
+      const update = updates();
+      const { rerender } = render(<TeiaPanel {...props()} />);
+      rerender(<TeiaPanel {...props({ data: { series: [...series], state: LoadingState.Done } as never })} />);
+      expect(update).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it('draws the nodes from the panel queries', () => {
     const { container } = render(<TeiaPanel {...props()} />);
     const ids = [...shadow(container).querySelectorAll('.node')].map((n) => (n as HTMLElement).dataset.id);

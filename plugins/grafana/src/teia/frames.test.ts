@@ -1,5 +1,5 @@
 import { toDataFrame } from '@grafana/data';
-import { coverageOf, framesToSnapshot, roleOf } from './frames';
+import { coverageOf, framesKey, framesToSnapshot, roleOf } from './frames';
 
 const nodes = toDataFrame({
   refId: 'nodes',
@@ -255,5 +255,25 @@ describe('framesToSnapshot', () => {
     expect(framesToSnapshot([frame], 1).snapshot!.nodes[0]).toMatchObject({
       requestRate: 0, errorsUnknown: true, health: 'failing', metricStatus: { requestRate: 'invalid' },
     });
+  });
+});
+
+describe('framesKey', () => {
+  const at = (time: string, extra: Array<{ name: string; values: unknown[] }> = []) => [
+    toDataFrame({ refId: 'nodes', fields: [{ name: 'id', values: ['web'] }, { name: 'snapshotAt', values: [time] }, ...extra] }),
+    toDataFrame({ refId: 'edges', fields: [{ name: 'source', values: ['web'] }, { name: 'target', values: ['db'] }] }),
+  ];
+  it('is the same for two refreshes of one round and differs for the next', () => {
+    expect(framesKey(at('2026-10-16T12:00:00Z'))).toBe(framesKey(at('2026-10-16T12:00:00Z')));
+    expect(framesKey(at('2026-10-16T12:00:00Z'))).not.toBe(framesKey(at('2026-10-16T12:00:30Z')));
+  });
+  it('tells slices, clusters and stored captures of one round apart', () => {
+    const base = framesKey(at('2026-10-16T12:00:00Z'));
+    expect(framesKey(at('2026-10-16T12:00:00Z', [{ name: 'slice', values: ['{"selector":{"journey":"checkout"}}'] }]))).not.toBe(base);
+    expect(framesKey(at('2026-10-16T12:00:00Z', [{ name: 'cluster', values: ['west'] }]))).not.toBe(base);
+    expect(framesKey(at('2026-10-16T12:00:00Z', [{ name: 'historyId', values: ['20261016T120000.000000000Z-0011223344556677'] }]))).not.toBe(base);
+  });
+  it('has no key for frames that do not say their round', () => {
+    expect(framesKey([nodes, edges])).toBeNull();
   });
 });

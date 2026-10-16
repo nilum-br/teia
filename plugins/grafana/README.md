@@ -107,6 +107,10 @@ a `cluster` variable: an Infinity query of teia's `/api/v1/clusters` (root `clus
 query as `cluster=${cluster:percentencode}`. Grafana shows it as the dashboard's cluster picker, and the dashboard's
 other panels can use `$cluster` too. With a single scope it has one empty option: teia's only map.
 
+**Refresh.** teia's map changes once a round (30 s by default). The panel does not redraw a refresh that brings the
+same round, but Grafana still fetches and decodes the frames each time: for a cluster with thousands of connections
+that is seconds of Grafana's CPU per viewer and refresh. For large maps, refresh at teia's interval or slower.
+
 ### Numeric frame contract
 
 For queries with different column names, use the panel's setup form or the optional **Column mapping (JSON)**

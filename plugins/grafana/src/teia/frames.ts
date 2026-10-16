@@ -52,6 +52,26 @@ export function roleOf(frame: DataFrame): Role | undefined {
   return undefined;
 }
 
+/** framesKey identifies the teia round a refresh's frames come from: each
+ * frame's role and length, and the round fields teia writes on its first
+ * row. A dashboard refreshes every few seconds while teia's map changes once
+ * a round, so two refreshes with one key hold the same data and the panel
+ * can skip converting and drawing it again. Frames without snapshotAt (from
+ * another data source) have no key and are always converted. */
+export function framesKey(series: DataFrame[]): string | null {
+  let dated = false;
+  const parts = series.map((frame) => {
+    const first = (name: string) => {
+      const field = frame.fields.find((f) => f.name === name);
+      return field && field.values.length ? str(field.values[0]) : '';
+    };
+    const at = first('snapshotAt');
+    dated ||= at !== '';
+    return [roleOf(frame) ?? '', frame.length ?? frame.fields[0]?.values.length ?? 0, at, first('historyId'), first('slice'), first('cluster'), first('timeMode')];
+  });
+  return dated ? JSON.stringify(parts) : null;
+}
+
 const has = (r: Row, key: string): boolean => Object.hasOwn(r, key) && r[key] != null && r[key] !== '';
 const str = (v: unknown): string => (v == null ? '' : String(v));
 const num = (v: unknown): number => {
