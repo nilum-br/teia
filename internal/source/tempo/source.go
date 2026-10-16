@@ -60,6 +60,11 @@ type Source struct {
 	next int
 }
 
+// searchConcurrency bounds the searches a round runs at once: enough to
+// cover many services in one round, few enough not to flood the query queue
+// of a Tempo that other clusters' rounds and people's queries share.
+const searchConcurrency = 4
+
 func New(name string, cfg Config) *Source {
 	if cfg.Window == 0 {
 		cfg.Window = 15 * time.Minute
@@ -109,15 +114,23 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	s.mu.Lock()
 	start := s.next % len(services)
 	s.mu.Unlock()
-	ids, searched, limited, err := s.traceIDs(ctx, services, start, window)
-	if err != nil {
-		return obs, err
-	}
+	found := s.traceIDs(ctx, services, start, window, searchUntil(ctx))
+	// Carry on from the first service this round did not reach, even when
+	// searches failed: retrying the same ones first every round would leave
+	// the services after them unsampled for good.
 	s.mu.Lock()
-	s.next = (start + searched) % len(services)
+	s.next = (start + found.searched) % len(services)
 	s.mu.Unlock()
+	if found.searched > 0 && found.failed == found.searched {
+		var denied *deniedError
+		if errors.As(found.firstErr, &denied) {
+			return s.denied(denied), nil
+		}
+		return obs, fmt.Errorf("every search failed (%d), first %w", found.failed, found.firstErr)
+	}
+	ids, searched := found.ids, found.searched
 
-	traces, failed, fetchErr := s.fetch(ctx, ids)
+	traces, failed, fetchErr := s.fetch(ctx, ids, fetchWindow(window, s.cfg.Window))
 	if failed > 0 && failed == len(ids) {
 		var denied *deniedError
 		if errors.As(fetchErr, &denied) {
@@ -129,7 +142,7 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	for _, t := range traces {
 		p.pair(t.spans)
 	}
-	obs.Operations = operationSamples(s.name, window, traces, s.cfg.Dimensions, len(ids), failed, searched, len(services), limited || searched < len(services))
+	obs.Operations = operationSamples(s.name, window, traces, s.cfg.Dimensions, len(ids), failed, searched, len(services), found.limited || searched < len(services))
 	edges, self, targets := p.edges, p.self, p.targets
 	for key, ms := range p.durations {
 		edges[key].LatencyP50Ms, edges[key].LatencyP95Ms = quantile(ms, 0.5), quantile(ms, 0.95)
@@ -163,6 +176,14 @@ func (s *Source) Discover(ctx context.Context) (source.Observation, error) {
 	obs.Message = fmt.Sprintf("sampled %d traces from %d services", len(traces), searched)
 	if searched < len(services) {
 		obs.Message = fmt.Sprintf("sampled %d traces from %d of %d services (the others are next)", len(traces), searched, len(services))
+	}
+	if found.outOfTime {
+		obs.Degraded = true
+		obs.Message += "; out of time for more searches in this round"
+	}
+	if found.failed > 0 {
+		obs.Degraded = true
+		obs.Message += fmt.Sprintf("; %d of %d searches failed, first %v", found.failed, searched, found.firstErr)
 	}
 	if failed > 0 {
 		obs.Degraded = true
@@ -508,52 +529,143 @@ func (s *Source) services(ctx context.Context, window url.Values) ([]string, err
 	return out, nil
 }
 
+// fetchShare is the part of a round's time kept for fetching the traces the
+// searches found: no new search starts once less than this is left.
+const fetchShare = 0.4
+
+// searchUntil is when a round with ctx's deadline stops starting searches;
+// zero without a deadline.
+func searchUntil(ctx context.Context) time.Time {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return time.Time{}
+	}
+	return deadline.Add(-time.Duration(float64(time.Until(deadline)) * fetchShare))
+}
+
+// fetchWindow bounds trace fetches: without a time range, Tempo looks a
+// trace up in every block it keeps. A trace the search found has spans in
+// the search window, and its first spans may start up to a window earlier.
+func fetchWindow(search url.Values, window time.Duration) url.Values {
+	start, err := strconv.ParseInt(search.Get("start"), 10, 64)
+	if err != nil {
+		return nil
+	}
+	return url.Values{"start": {strconv.FormatInt(start-int64(window/time.Second), 10)}, "end": search["end"]}
+}
+
+// sampling is what one round's searches found.
+type sampling struct {
+	ids              []string
+	searched, failed int
+	limited          bool // some search filled its limit: there are more traces
+	outOfTime        bool // the round stopped searching to keep time for fetches
+	firstErr         error
+}
+
 // traceIDs searches recent traces service by service, from services[start]
-// and wrapping around. Each service gets an even share of MaxTraces (at
-// least one trace, at most TracesPerService) and the search stops once the
-// cap is reached, so a round stays within budget and the next one carries
-// on from the first service left out. It returns how many services it
-// searched.
-func (s *Source) traceIDs(ctx context.Context, services []string, start int, window url.Values) ([]string, int, bool, error) {
+// and wrapping around, a few services at a time. Each service gets an even
+// share of MaxTraces (at least one trace, at most TracesPerService) and the
+// searches stop once the cap is reached, or at until, so a round stays within
+// budget and the next one carries on from the first service left out. A
+// failed search costs its service this round only. searched counts the
+// services from start that got an answer, failed or not.
+func (s *Source) traceIDs(ctx context.Context, services []string, start int, window url.Values, until time.Time) sampling {
 	per := max(1, min(s.cfg.MaxTraces/len(services), s.cfg.TracesPerService))
 	seen := map[string]bool{}
-	var ids []string
-	searched := 0
-	limited := false
-	for searched < len(services) && len(ids) < s.cfg.MaxTraces {
-		svc := services[(start+searched)%len(services)]
-		searched++
-		limit := min(per, s.cfg.MaxTraces-len(ids))
-		params := url.Values{"start": window["start"], "end": window["end"]}
-		params.Set("q", fmt.Sprintf(`{ resource.service.name = %q }`, svc))
-		params.Set("limit", strconv.Itoa(limit))
-		var resp struct {
-			Traces []struct {
-				TraceID string `json:"traceID"`
-			} `json:"traces"`
+	var out sampling
+	for out.searched < len(services) && len(out.ids) < s.cfg.MaxTraces {
+		if !until.IsZero() && !time.Now().Before(until) {
+			out.outOfTime = true
+			break
 		}
-		if err := s.get(ctx, "/api/search", params, &resp); err != nil {
-			return nil, searched, limited, fmt.Errorf("searching traces of %s: %w", svc, err)
+		// As many services as can still fill the cap, if each fills its share.
+		remaining := s.cfg.MaxTraces - len(out.ids)
+		n := min(searchConcurrency, (remaining+per-1)/per, len(services)-out.searched)
+		type answer struct {
+			ids []string
+			err error
 		}
-		limited = limited || len(resp.Traces) >= limit
-		taken := 0
-		for _, t := range resp.Traces {
-			if taken == limit {
-				break
+		answers := make([]answer, n)
+		limits := make([]int, n)
+		var wg sync.WaitGroup
+		for k := range n {
+			svc := services[(start+out.searched+k)%len(services)]
+			limits[k] = min(per, remaining-k*per)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				answers[k].ids, answers[k].err = s.search(ctx, svc, limits[k], window)
+				if answers[k].err != nil {
+					answers[k].err = fmt.Errorf("searching traces of %s: %w", svc, answers[k].err)
+				}
+			}()
+		}
+		wg.Wait()
+		// A search the round's deadline cut off is no failure of its
+		// service: it and the ones after it come first next round.
+		answered := n
+		if ctx.Err() != nil {
+			for k, a := range answers {
+				if a.err != nil && errors.Is(a.err, ctx.Err()) {
+					answered = k
+					break
+				}
 			}
-			if t.TraceID != "" && !seen[t.TraceID] {
-				seen[t.TraceID] = true
-				ids = append(ids, t.TraceID)
-				taken++
+			out.outOfTime = true
+		}
+		for k, a := range answers[:answered] {
+			if a.err != nil {
+				out.failed++
+				if out.firstErr == nil {
+					out.firstErr = a.err
+				}
+				continue
 			}
+			out.limited = out.limited || len(a.ids) >= limits[k]
+			taken := 0
+			for _, id := range a.ids {
+				if taken == limits[k] || len(out.ids) == s.cfg.MaxTraces {
+					break
+				}
+				if id != "" && !seen[id] {
+					seen[id] = true
+					out.ids = append(out.ids, id)
+					taken++
+				}
+			}
+		}
+		out.searched += answered
+		if answered < n {
+			break
 		}
 	}
-	return ids, searched, limited, nil
+	return out
+}
+
+// search returns the IDs of up to limit recent traces of one service.
+func (s *Source) search(ctx context.Context, svc string, limit int, window url.Values) ([]string, error) {
+	params := url.Values{"start": window["start"], "end": window["end"]}
+	params.Set("q", fmt.Sprintf(`{ resource.service.name = %q }`, svc))
+	params.Set("limit", strconv.Itoa(limit))
+	var resp struct {
+		Traces []struct {
+			TraceID string `json:"traceID"`
+		} `json:"traces"`
+	}
+	if err := s.get(ctx, "/api/search", params, &resp); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(resp.Traces))
+	for _, t := range resp.Traces {
+		ids = append(ids, t.TraceID)
+	}
+	return ids, nil
 }
 
 // fetch downloads the traces. It returns the ones it got, how many failed
 // and the first failure.
-func (s *Source) fetch(ctx context.Context, ids []string) ([]sampledTrace, int, error) {
+func (s *Source) fetch(ctx context.Context, ids []string, bounds url.Values) ([]sampledTrace, int, error) {
 	out := make([][]span, len(ids))
 	errs := make([]error, len(ids))
 	sem := make(chan struct{}, 8)
@@ -565,7 +677,7 @@ func (s *Source) fetch(ctx context.Context, ids []string) ([]sampledTrace, int, 
 			defer wg.Done()
 			defer func() { <-sem }()
 			var raw otlpTrace
-			if err := s.get(ctx, "/api/v2/traces/"+url.PathEscape(id), nil, &raw); err != nil {
+			if err := s.get(ctx, "/api/v2/traces/"+url.PathEscape(id), bounds, &raw); err != nil {
 				errs[i] = err
 				return
 			}
