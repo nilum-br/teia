@@ -61,6 +61,7 @@ date or an estimate backed by an implementation spike. Areas identify where work
 | T20 | P1 / M | Reviewable contract proposals from observed communication | T14 |
 | T21 | P2 / L | Sampled operation journeys from trace ancestry | T08 |
 | T22 | P1 / M | Identity resolution method and provenance | T03 |
+| T23 | P1 / L | Central multi-cluster stacks at scale: shared backends, slow backends, many viewers | T11, clusters |
 
 ### T01: Preserve unknown data throughout aggregation and frame import
 
@@ -460,6 +461,31 @@ chart installed teia built from this checkout with its inventory and an in-clust
 dimension: `helm test` passed, identities showed each source's decision, slices split calls and operations,
 and stored captures compared, at desktop and phone widths. People have not yet used these tools: their
 task-based evaluation belongs to the T12 pilot.
+
+### T23: Run against a central multi-cluster stack
+
+**Areas:** sources, configuration, API, Grafana panel, UI, capacity harness. Measured in [capacity](capacity.md#a-central-stack).
+
+- [x] Scope every query of a source to one cluster on a backend that keeps several: `selector` on Prometheus
+      (presets, probes and detection), queries (PromQL and LogQL) and Tempo (TraceQL), and `clusterSources`
+      with `$cluster` so one entry covers every cluster.
+- [x] Sample Tempo within the round's time: searches in parallel, partial samples kept and reported, the
+      rotation moving on after failed searches, and trace fetches bounded in time.
+- [x] Encode and gzip each round's answers once for every dashboard; set Go's memory limit from the
+      container's; share connections to a backend across clusters.
+- [x] Pick the cluster in the lab's dashboard; skip redrawing a refresh of the same round in the panel; open
+      maps too large to draw whole grouped.
+- [ ] Watch the Kubernetes inventory (informers) instead of listing every pod each round.
+- [ ] History that holds hours at thousands of connections: compressed records, an index for a fast start,
+      a budget shared by clusters, and captures only when something changed.
+- [ ] Live stream without the whole snapshot per viewer and round: a short round event and a cached,
+      compressed snapshot to fetch, with an ETag.
+- [ ] Back off when a shared backend answers 429 or 503 with `Retry-After`, instead of trying again next round
+      at full rate.
+- [ ] Smaller Grafana frames (no repeated health rules or identity text, details on demand), or a teia data
+      source, since Grafana's own decoding is the largest cost of a large map.
+- [ ] Beyond about 100 clusters of 2 000 connections in one process (5 GiB), split clusters across teia
+      instances behind one API.
 
 ## Suggested execution order
 
