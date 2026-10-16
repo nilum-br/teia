@@ -79,7 +79,7 @@ func New(name string, cfg Config) *Source {
 	if cfg.MaxTraces == 0 {
 		cfg.MaxTraces = 400
 	}
-	return &Source{name: name, cfg: cfg, client: &http.Client{Timeout: 15 * time.Second}, now: time.Now}
+	return &Source{name: name, cfg: cfg, client: promapi.HTTPClient(), now: time.Now}
 }
 
 func (s *Source) Name() string { return s.name }

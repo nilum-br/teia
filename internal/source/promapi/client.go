@@ -42,9 +42,29 @@ type Client struct {
 	Dialect Dialect
 }
 
+// transport is shared by every source's client: many clusters' rounds and a
+// Tempo source's parallel fetches reuse the connections to one central
+// backend instead of opening a new one, TLS handshake included, for most
+// requests (the default transport keeps only two idle per host).
+var transport = func() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConns = 256
+	t.MaxIdleConnsPerHost = 32
+	return t
+}()
+
+// requestTimeout only catches a backend that never answers a caller without
+// a deadline; rounds bound every request with the source's timeout.
+const requestTimeout = 2 * time.Minute
+
+// HTTPClient is the client sources use for their APIs.
+func HTTPClient() *http.Client {
+	return &http.Client{Transport: transport, Timeout: requestTimeout}
+}
+
 // New returns a client with sane defaults.
 func New(baseURL, path string, headers map[string]string) *Client {
-	return &Client{BaseURL: baseURL, Path: path, Headers: headers, HTTP: &http.Client{Timeout: 15 * time.Second}}
+	return &Client{BaseURL: baseURL, Path: path, Headers: headers, HTTP: HTTPClient()}
 }
 
 // Query runs an instant query and returns its vector. Samples that are not
