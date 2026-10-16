@@ -42,12 +42,12 @@ config="$out/teia.yaml"
     sources:
       queries:
         - name: calls
-          url: http://127.0.0.1:19090/c/$i
+          url: $(if [[ -n ${CENTRAL:-} ]]; then echo http://127.0.0.1:19090/central; else echo http://127.0.0.1:19090/c/$i; fi)
           query: sum by (source, target, journey, tenant) (rate(calls_total[\$window]))
           errors: sum by (source, target, journey, tenant) (rate(calls_total{status="error"}[\$window]))
           latency: histogram_quantile(0.95, sum by (source, target, journey, tenant, le) (rate(call_seconds_bucket[\$window])))
           from: source
-          to: target$dims
+          to: target$dims$(if [[ -n ${CENTRAL:-} ]]; then printf '\n          selector: {cluster: c%d}' "$i"; fi)
       tempo:
         - url: http://127.0.0.1:19090/c/$i/tempo
           maxTraces: ${TRACES:-100}
@@ -56,7 +56,8 @@ YAML
   done
 } > "$config"
 
-"$out/bin/synth" -clusters "$clusters" -services "$services" -fanout "$fanout" -journeys "$journeys" -tenants "$tenants" 2> "$out/synth.log" &
+"$out/bin/synth" -clusters "$clusters" -services "$services" -fanout "$fanout" -journeys "$journeys" -tenants "$tenants" \
+  -prom-latency "${PROM_LATENCY:-0s}" -search-latency "${SEARCH_LATENCY:-0s}" -trace-latency "${TRACE_LATENCY:-0s}" 2> "$out/synth.log" &
 synth=$!
 "$out/bin/teiaprof" -config "$config" -pprof 127.0.0.1:16060 2> "$out/teia.log" &
 teia=$!

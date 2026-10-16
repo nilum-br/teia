@@ -4,6 +4,10 @@
 // Cluster i answers under /c/<i>/: /c/<i>/api/v1/query (instant PromQL) and
 // /c/<i>/tempo/... (tag values, search, traces). Every cluster runs the same
 // services (svc-0000...) with its own traffic: what a central teia sees.
+// /central/api/v1/query is one backend keeping every cluster, as a shared
+// Mimir does: each series carries cluster="c<i>", and a query with a
+// cluster="c<i>" matcher reads that cluster only. The -*-latency flags make
+// each answer take that long, as a real backend would.
 // Each service calls -fanout others; each call is one series per journey and
 // tenant combination. Queries are answered by shape, not parsed: one with
 // histogram_quantile is a p95 in seconds, one with status="error" is failed
@@ -16,9 +20,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 type topology struct {
@@ -40,10 +46,12 @@ func (t topology) callees(i int) []int {
 }
 
 type server struct {
-	topo     topology
-	clusters int
-	queries  atomic.Int64
-	traces   atomic.Int64
+	topo                       topology
+	clusters                   int
+	queries                    atomic.Int64
+	traces                     atomic.Int64
+	promLatency, searchLatency time.Duration
+	traceLatency               time.Duration
 }
 
 func main() {
@@ -53,9 +61,14 @@ func main() {
 	fanout := flag.Int("fanout", 3, "calls each service makes")
 	journeys := flag.Int("journeys", 1, "journey values per call (1 = no journey dimension)")
 	tenants := flag.Int("tenants", 1, "tenant values per call (1 = no tenant dimension)")
+	promLatency := flag.Duration("prom-latency", 0, "how long each PromQL query takes")
+	searchLatency := flag.Duration("search-latency", 0, "how long each Tempo search takes")
+	traceLatency := flag.Duration("trace-latency", 0, "how long each Tempo trace fetch takes")
 	flag.Parse()
-	s := &server{topo: topology{*services, *fanout, *journeys, *tenants}, clusters: *clusters}
+	s := &server{topo: topology{*services, *fanout, *journeys, *tenants}, clusters: *clusters,
+		promLatency: *promLatency, searchLatency: *searchLatency, traceLatency: *traceLatency}
 	http.HandleFunc("/c/", s.route)
+	http.HandleFunc("/central/api/v1/query", s.central)
 	http.HandleFunc("/stats", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, `{"queries":%d,"traces":%d}`, s.queries.Load(), s.traces.Load())
 	})
@@ -74,7 +87,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	rest := "/" + parts[1]
 	switch {
 	case rest == "/api/v1/query":
-		s.query(w, r, cluster)
+		s.query(w, r, []int{cluster})
 	case rest == "/tempo/api/v2/search/tag/resource.service.name/values":
 		s.tagValues(w)
 	case rest == "/tempo/api/search":
@@ -91,8 +104,27 @@ func rate(cluster, from, to, j, t int) float64 {
 	return float64((cluster*31+from*17+to*13+j*7+t*3)%97+1) / 10
 }
 
-func (s *server) query(w http.ResponseWriter, r *http.Request, cluster int) {
+var clusterMatcher = regexp.MustCompile(`cluster="c(\d+)"`)
+
+// central answers like one backend keeping every cluster: all of them, or
+// the one a cluster="c<i>" matcher names.
+func (s *server) central(w http.ResponseWriter, r *http.Request) {
+	var clusters []int
+	if m := clusterMatcher.FindStringSubmatch(r.FormValue("query")); m != nil {
+		if c, err := strconv.Atoi(m[1]); err == nil && c < s.clusters {
+			clusters = []int{c}
+		}
+	} else {
+		for c := 0; c < s.clusters; c++ {
+			clusters = append(clusters, c)
+		}
+	}
+	s.query(w, r, clusters)
+}
+
+func (s *server) query(w http.ResponseWriter, r *http.Request, clusters []int) {
 	s.queries.Add(1)
+	time.Sleep(s.promLatency)
 	q := r.FormValue("query")
 	kind := "rate"
 	switch {
@@ -105,23 +137,25 @@ func (s *server) query(w http.ResponseWriter, r *http.Request, cluster int) {
 	var b strings.Builder
 	b.WriteString(`{"status":"success","data":{"resultType":"vector","result":[`)
 	first := true
-	for from := 0; from < s.topo.services; from++ {
-		for _, to := range s.topo.callees(from) {
-			for j := 0; j < s.topo.journeys; j++ {
-				for t := 0; t < s.topo.tenants; t++ {
-					v := rate(cluster, from, to, j, t)
-					switch kind {
-					case "errors":
-						v = v * float64((from+to)%5) / 100
-					case "p95":
-						v = float64((from*3+to+j)%400+5) / 1000
+	for _, cluster := range clusters {
+		for from := 0; from < s.topo.services; from++ {
+			for _, to := range s.topo.callees(from) {
+				for j := 0; j < s.topo.journeys; j++ {
+					for t := 0; t < s.topo.tenants; t++ {
+						v := rate(cluster, from, to, j, t)
+						switch kind {
+						case "errors":
+							v = v * float64((from+to)%5) / 100
+						case "p95":
+							v = float64((from*3+to+j)%400+5) / 1000
+						}
+						if !first {
+							b.WriteByte(',')
+						}
+						first = false
+						fmt.Fprintf(&b, `{"metric":{"cluster":"c%d","source":"%s","target":"%s","journey":"j%d","tenant":"t%d"},"value":[%d,"%g"]}`,
+							cluster, s.topo.name(from), s.topo.name(to), j, t, 1, v)
 					}
-					if !first {
-						b.WriteByte(',')
-					}
-					first = false
-					fmt.Fprintf(&b, `{"metric":{"cluster":"c%d","source":"%s","target":"%s","journey":"j%d","tenant":"t%d"},"value":[%d,"%g"]}`,
-						cluster, s.topo.name(from), s.topo.name(to), j, t, 1, v)
 				}
 			}
 		}
@@ -145,6 +179,7 @@ func (s *server) tagValues(w http.ResponseWriter) {
 
 // search returns one trace per call the service makes, up to the limit.
 func (s *server) search(w http.ResponseWriter, r *http.Request) {
+	time.Sleep(s.searchLatency)
 	q := r.FormValue("q")
 	start := strings.Index(q, `"`)
 	end := strings.LastIndex(q, `"`)
@@ -175,6 +210,7 @@ func (s *server) search(w http.ResponseWriter, r *http.Request) {
 // callee's server span, tagged with a journey.
 func (s *server) trace(w http.ResponseWriter, cluster int, id string) {
 	s.traces.Add(1)
+	time.Sleep(s.traceLatency)
 	if len(id) != 32 {
 		http.NotFound(w, nil)
 		return
