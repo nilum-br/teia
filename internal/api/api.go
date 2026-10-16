@@ -5,7 +5,6 @@ package api
 
 import (
 	"bytes"
-	"compress/gzip"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
@@ -198,6 +197,11 @@ func routes(eng Snapshotter, opts Options, slots chan struct{}) *http.ServeMux {
 	registerHistory(mux, opts)
 	registerReview(mux, eng, opts)
 	send := func(w http.ResponseWriter, v any) { writeJSON(w, opts.Log, v) }
+	// answers built from a round (whole or sliced) are encoded once a round.
+	answers := &roundCache{}
+	cached := func(w http.ResponseWriter, r *http.Request, s model.Snapshot, compute func() any) {
+		answers.serve(w, r, opts.Log, s, compute)
+	}
 	// snapOf is the whole snapshot, or with ?slice= only the selected calls.
 	// It answers the error itself and reports false when the request is bad.
 	snapOf := func(w http.ResponseWriter, r *http.Request) (model.Snapshot, bool) {
@@ -232,7 +236,7 @@ func routes(eng Snapshotter, opts Options, slots chan struct{}) *http.ServeMux {
 			}
 		}
 		if s, ok := snapOf(w, r); ok {
-			send(w, s)
+			cached(w, r, s, func() any { return s })
 		}
 	})
 	mux.HandleFunc("GET /api/v1/graph", func(w http.ResponseWriter, r *http.Request) {
@@ -240,7 +244,9 @@ func routes(eng Snapshotter, opts Options, slots chan struct{}) *http.ServeMux {
 		if !ok {
 			return
 		}
-		send(w, map[string]any{"generatedAt": s.GeneratedAt, "timeMode": s.TimeMode, "nodes": s.Nodes, "edges": s.Edges, "journeys": s.Journeys, "operations": s.Operations, "slice": s.Slice})
+		cached(w, r, s, func() any {
+			return map[string]any{"generatedAt": s.GeneratedAt, "timeMode": s.TimeMode, "nodes": s.Nodes, "edges": s.Edges, "journeys": s.Journeys, "operations": s.Operations, "slice": s.Slice}
+		})
 	})
 	mux.HandleFunc("GET /api/v1/dimensions", func(w http.ResponseWriter, _ *http.Request) {
 		dims := snap().Dimensions
@@ -256,11 +262,12 @@ func routes(eng Snapshotter, opts Options, slots chan struct{}) *http.ServeMux {
 		if !ok {
 			return
 		}
-		contract := s.Operations
-		if contract == nil {
-			contract = model.EmptyOperations()
-		}
-		send(w, contract)
+		cached(w, r, s, func() any {
+			if s.Operations == nil {
+				return model.EmptyOperations()
+			}
+			return s.Operations
+		})
 	})
 	mux.HandleFunc("GET /api/v1/journeys", func(w http.ResponseWriter, r *http.Request) {
 		s, ok := snapOf(w, r)
@@ -268,20 +275,21 @@ func routes(eng Snapshotter, opts Options, slots chan struct{}) *http.ServeMux {
 			return
 		}
 		key := r.URL.Query().Get("key")
-		contract := s.Journeys
-		if contract == nil || (key != "" && key != contract.Key) {
-			contract = journey.Build(s, key)
-		}
-		send(w, contract)
+		cached(w, r, s, func() any {
+			if s.Journeys == nil || (key != "" && key != s.Journeys.Key) {
+				return journey.Build(s, key)
+			}
+			return s.Journeys
+		})
 	})
 	mux.HandleFunc("GET /api/v1/findings", func(w http.ResponseWriter, r *http.Request) {
 		if s, ok := snapOf(w, r); ok {
-			send(w, s.Findings)
+			cached(w, r, s, func() any { return s.Findings })
 		}
 	})
 	mux.HandleFunc("GET /api/v1/coverage", func(w http.ResponseWriter, r *http.Request) {
 		if s, ok := snapOf(w, r); ok {
-			send(w, grafanaCoverageOf(s))
+			cached(w, r, s, func() any { return grafanaCoverageOf(s) })
 		}
 	})
 	mux.HandleFunc("GET /api/v1/sources", func(w http.ResponseWriter, _ *http.Request) {
@@ -307,17 +315,17 @@ func routes(eng Snapshotter, opts Options, slots chan struct{}) *http.ServeMux {
 	// built-in Node Graph panel.
 	mux.HandleFunc("GET /api/v1/grafana/nodes", func(w http.ResponseWriter, r *http.Request) {
 		if s, ok := snapOf(w, r); ok {
-			send(w, grafanaNodes(s))
+			cached(w, r, s, func() any { return grafanaNodes(s) })
 		}
 	})
 	mux.HandleFunc("GET /api/v1/grafana/edges", func(w http.ResponseWriter, r *http.Request) {
 		if s, ok := snapOf(w, r); ok {
-			send(w, grafanaEdges(s))
+			cached(w, r, s, func() any { return grafanaEdges(s) })
 		}
 	})
 	mux.HandleFunc("GET /api/v1/grafana/findings", func(w http.ResponseWriter, r *http.Request) {
 		if s, ok := snapOf(w, r); ok {
-			send(w, grafanaFindings(s))
+			cached(w, r, s, func() any { return grafanaFindings(s) })
 		}
 	})
 	mux.HandleFunc("GET /api/v1/grafana/sources", func(w http.ResponseWriter, _ *http.Request) {
@@ -380,16 +388,26 @@ func contentETags(fsys fs.FS) map[string]string {
 // writeJSON encodes v before sending anything, so a value JSON cannot
 // represent (NaN, Inf) becomes a 500 instead of a 200 with an empty body.
 func writeJSON(w http.ResponseWriter, log *slog.Logger, v any) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
+	data, err := encodeJSON(v)
+	if err != nil {
 		log.Error("encoding response", "err", err)
 		writeError(w, http.StatusInternalServerError, "teia could not encode this response; the server log has the details")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(buf.Bytes())
+	_, _ = w.Write(data)
+}
+
+// encodeJSON is the encoding of every API answer: HTML characters as they
+// are, one value per line.
+func encodeJSON(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // writeError sends {"error": msg} with the given status.
@@ -413,17 +431,13 @@ type snapshotBody struct {
 func (b *snapshotBody) serve(w http.ResponseWriter, r *http.Request, data []byte) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Vary", "Accept-Encoding")
-	if len(data) < 4096 || !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+	if len(data) < 4096 || !acceptsGzip(r) {
 		_, _ = w.Write(data)
 		return
 	}
 	b.mu.Lock()
 	if len(b.src) != len(data) || &b.src[0] != &data[0] {
-		var buf bytes.Buffer
-		zw, _ := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
-		_, _ = zw.Write(data)
-		_ = zw.Close()
-		b.src, b.gz = data, buf.Bytes()
+		b.src, b.gz = data, gzipped(data)
 	}
 	gz := b.gz
 	b.mu.Unlock()
