@@ -239,7 +239,9 @@ Stored-history comparison and server-validated proposals need a teia API the bro
 Where labels exist, ordered grouping supports cluster → namespace → service, with stable identities through
 expand/collapse. Neighbours can be ranked by traffic, measured errors or latency. Large overviews suppress
 annotations progressively; **Read names** focuses a component at a readable zoom, and search/selection/details
-retain access to every item. No topology is truncated by that display policy. **Flow** controls animation;
+retain access to every item. No topology is truncated by that display policy. A map of more than 1 000 components
+that nobody chose a grouping for opens grouped by namespace (or team, system, part-of), and says so; drawing
+thousands of cards and lines every round takes a browser seconds. **No grouping** draws every component. **Flow** controls animation;
 **Live** controls incoming updates. Keyboard, contrast and scale evidence is recorded in
 [UI validation](../../docs/ui-validation.md).
 
