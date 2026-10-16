@@ -128,3 +128,80 @@ clusters:
 		}
 	}
 }
+
+// One entry under clusterSources covers every cluster of a shared backend:
+// each cluster gets its own copy, with $cluster replaced by its name.
+func TestClusterSourcesAreReadByEveryCluster(t *testing.T) {
+	cfg, err := loadYAML(t, `
+clusters:
+  - name: east
+  - name: west
+    sources:
+      queries: [{name: batch, url: http://mimir:9009, query: up, from: a, to: b, selector: {cluster: $cluster}}]
+      kubernetes: {kubeconfig: /k/west-special.yaml}
+clusterSources:
+  prometheus: [{url: http://mimir:9009/prometheus, selector: {cluster: $cluster}, headers: {X-Scope-OrgID: tenant-$cluster}}]
+  tempo: [{url: http://tempo:3200, selector: {resource.k8s.cluster.name: $cluster}}]
+  kubernetes: {kubeconfig: /k/$cluster.yaml}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	east, west := cfg.SourcesOf(cfg.Clusters[0]), cfg.SourcesOf(cfg.Clusters[1])
+	if east.Prometheus[0].Selector["cluster"] != "east" || west.Prometheus[0].Selector["cluster"] != "west" ||
+		east.Prometheus[0].Headers["X-Scope-OrgID"] != "tenant-east" || east.Tempo[0].Selector["resource.k8s.cluster.name"] != "east" {
+		t.Errorf("$cluster not replaced: east %+v / %+v, west %+v", east.Prometheus, east.Tempo, west.Prometheus)
+	}
+	if east.Kubernetes.Kubeconfig != "/k/east.yaml" || west.Kubernetes.Kubeconfig != "/k/west-special.yaml" {
+		t.Errorf("kubeconfigs: east %q, west %q; a cluster's own inventory replaces the shared one", east.Kubernetes.Kubeconfig, west.Kubernetes.Kubeconfig)
+	}
+	if len(west.Queries) != 1 || west.Queries[0].Selector["cluster"] != "west" || len(east.Queries) != 0 {
+		t.Errorf("a cluster's own lists are added to the shared ones: east %+v, west %+v", east.Queries, west.Queries)
+	}
+	// The shared entry stays a template: no cluster's name leaks into it.
+	if cfg.ClusterSources.Prometheus[0].Selector["cluster"] != "$cluster" {
+		t.Errorf("clusterSources changed: %+v", cfg.ClusterSources.Prometheus[0])
+	}
+	// Unset lists stay unset: the inventory tells them from empty ones (its
+	// default excluded namespaces).
+	if east.Kubernetes.ExcludeNamespaces != nil {
+		t.Errorf("excludeNamespaces became %v", east.Kubernetes.ExcludeNamespaces)
+	}
+	var names []string
+	for _, s := range cfg.BuildScopes()[1].Sources {
+		names = append(names, s.Name())
+	}
+	if !slices.Equal(names, []string{"prometheus", "tempo", "prometheus/batch", "kubernetes"}) {
+		t.Errorf("west reads %v", names)
+	}
+}
+
+func TestClusterSourcesValidation(t *testing.T) {
+	cases := []struct{ name, yaml, want string }{
+		{"without clusters", `
+clusterSources: {prometheus: [{url: http://mimir:9009}]}
+sources: {prometheus: [{url: http://prom:9090}]}`, "clusterSources needs clusters"},
+		{"declarations", `
+clusters: [{name: east}]
+clusterSources: {declared: {paths: [./flows]}, prometheus: [{url: http://mimir:9009}]}`, "clusterSources.declared"},
+		{"same name as a cluster's own", `
+clusters: [{name: east, sources: {prometheus: [{name: main, url: http://prom-east:9090}]}}]
+clusterSources: {prometheus: [{name: main, url: http://mimir:9009}]}`, `two sources are named "prometheus/main"`},
+		{"no sources at all", `
+clusters: [{name: east}]`, "has no sources"},
+		{"bad template", `
+clusters: [{name: east}]
+clusterSources: {tempo: [{url: http://tempo:3200, selector: {"k8s.cluster.name": east}}]}`, "clusterSources.tempo[0].selector"},
+		{"placeholder outside a cluster", `
+sources: {prometheus: [{url: http://mimir:9009, selector: {cluster: $cluster}}]}`, "$cluster stands for a cluster's name"},
+		{"empty selector value", `
+clusters: [{name: east, sources: {prometheus: [{url: http://mimir:9009, selector: {cluster: ""}}]}}]`, "clusters[0].sources.prometheus[0].selector"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := loadYAML(t, c.yaml); err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("err = %v; want %q", err, c.want)
+			}
+		})
+	}
+}

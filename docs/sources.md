@@ -109,7 +109,7 @@ less than 40% of the source's `timeout` is left, keeping that time to fetch the 
 of time, or whose searches partly failed, keeps what it sampled and says so (degraded); the next round carries on with
 the services this one did not reach, so a slow Tempo or a failing search never stalls the rotation. Trace fetches
 are bounded to the search window and one window before it: without a time range, Tempo looks a trace up in every block
-it keeps. For
+it keeps. On a Tempo shared by several clusters, give the source a [`selector`](configuration.md#shared-backends). For
 many services, prefer the [service graph metrics](https://grafana.com/docs/tempo/latest/metrics-generator/service_graphs/)
 of Tempo's metrics-generator (the `servicegraph` preset), which see every span; a sample of 100–400 traces per round
 finds which calls exist and the operations, not their rates.

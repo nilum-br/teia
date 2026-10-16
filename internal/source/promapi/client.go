@@ -36,6 +36,10 @@ type Client struct {
 	Path    string
 	Headers map[string]string
 	HTTP    *http.Client
+	// Scope, when set, is added to every selector of every query, in
+	// Dialect: one cluster's series on a backend that keeps several.
+	Scope   Scope
+	Dialect Dialect
 }
 
 // New returns a client with sane defaults.
@@ -54,6 +58,13 @@ func (c *Client) Query(ctx context.Context, query string) ([]Sample, error) {
 // when the expression is evaluated, not the timestamp of its raw samples.
 // A zero at keeps the server's default evaluation time (used by detection).
 func (c *Client) QueryAt(ctx context.Context, query string, at time.Time) ([]Sample, error) {
+	if len(c.Scope) > 0 {
+		scoped, err := c.Scope.Apply(query, c.Dialect)
+		if err != nil {
+			return nil, fmt.Errorf("adding the selector %s to the query: %w", c.Scope, err)
+		}
+		query = scoped
+	}
 	params := url.Values{"query": {query}}
 	if !at.IsZero() {
 		params.Set("time", at.UTC().Format(time.RFC3339Nano))

@@ -45,6 +45,10 @@ type Config struct {
 	// its closest ancestor in the same trace that has it, so a call belongs
 	// to the journey of the request that caused it, not of its service.
 	Dimensions map[string]string
+	// Selector maps span attributes (resource.k8s.cluster.name) to the
+	// value every sampled trace must carry: one cluster's traces on a Tempo
+	// that keeps several.
+	Selector map[string]string
 }
 
 type Source struct {
@@ -80,6 +84,21 @@ func New(name string, cfg Config) *Source {
 
 func (s *Source) Name() string { return s.name }
 func (s *Source) Type() string { return "tempo" }
+
+// conditions renders the selector as TraceQL conditions, in a stable order,
+// each joined by "&&"; empty without a selector.
+func (s *Source) conditions() string {
+	attrs := make([]string, 0, len(s.cfg.Selector))
+	for attr := range s.cfg.Selector {
+		attrs = append(attrs, attr)
+	}
+	sort.Strings(attrs)
+	parts := make([]string, len(attrs))
+	for i, attr := range attrs {
+		parts[i] = fmt.Sprintf("%s = %q", attr, s.cfg.Selector[attr])
+	}
+	return strings.Join(parts, " && ")
+}
 
 type deniedError struct{ status int }
 
@@ -516,7 +535,12 @@ func (s *Source) services(ctx context.Context, window url.Values) ([]string, err
 			Value string `json:"value"`
 		} `json:"tagValues"`
 	}
-	if err := s.get(ctx, "/api/v2/search/tag/resource.service.name/values", window, &resp); err != nil {
+	params := url.Values{"start": window["start"], "end": window["end"]}
+	if c := s.conditions(); c != "" {
+		// Only the services that have traces with the selector.
+		params.Set("q", "{ "+c+" }")
+	}
+	if err := s.get(ctx, "/api/v2/search/tag/resource.service.name/values", params, &resp); err != nil {
 		return nil, fmt.Errorf("listing services: %w", err)
 	}
 	out := make([]string, 0, len(resp.TagValues))
@@ -646,7 +670,11 @@ func (s *Source) traceIDs(ctx context.Context, services []string, start int, win
 // search returns the IDs of up to limit recent traces of one service.
 func (s *Source) search(ctx context.Context, svc string, limit int, window url.Values) ([]string, error) {
 	params := url.Values{"start": window["start"], "end": window["end"]}
-	params.Set("q", fmt.Sprintf(`{ resource.service.name = %q }`, svc))
+	q := fmt.Sprintf(`resource.service.name = %q`, svc)
+	if c := s.conditions(); c != "" {
+		q += " && " + c
+	}
+	params.Set("q", "{ "+q+" }")
 	params.Set("limit", strconv.Itoa(limit))
 	var resp struct {
 		Traces []struct {

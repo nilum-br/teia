@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -30,6 +31,7 @@ import (
 	"github.com/nilum-br/teia/internal/source/docker"
 	"github.com/nilum-br/teia/internal/source/kubernetes"
 	"github.com/nilum-br/teia/internal/source/postgres"
+	"github.com/nilum-br/teia/internal/source/promapi"
 	"github.com/nilum-br/teia/internal/source/prometheus"
 	"github.com/nilum-br/teia/internal/source/query"
 	"github.com/nilum-br/teia/internal/source/tempo"
@@ -57,8 +59,12 @@ type Config struct {
 	Sources    Sources `yaml:"sources"`
 	// Clusters maps several clusters, each from its own sources. Without
 	// it, every source above describes one scope.
-	Clusters      []Cluster                `yaml:"clusters"`
-	EvidenceLinks []evidencelinks.Template `yaml:"evidenceLinks"`
+	Clusters []Cluster `yaml:"clusters"`
+	// ClusterSources are sources every cluster reads besides its own, with
+	// $cluster standing for the cluster's name: a Mimir and a Tempo shared
+	// by every cluster, told apart by a label.
+	ClusterSources *Sources                 `yaml:"clusterSources"`
+	EvidenceLinks  []evidencelinks.Template `yaml:"evidenceLinks"`
 }
 
 // Health sets the limits of each golden signal for amber and red.
@@ -215,6 +221,9 @@ type Prometheus struct {
 	Presets []string          `yaml:"presets"` // empty or [auto]: detect
 	Probes  []string          `yaml:"probes"`  // empty or [auto]: detect; [none]: off
 	Headers map[string]string `yaml:"headers"`
+	// Selector is added to every series selector of every query: one
+	// cluster's series on a backend that keeps several (cluster: prod-east).
+	Selector map[string]string `yaml:"selector"`
 }
 
 type Tempo struct {
@@ -226,6 +235,9 @@ type Tempo struct {
 	Headers          map[string]string `yaml:"headers"`
 	// Dimensions maps a business dimension to the span attribute holding it.
 	Dimensions map[string]string `yaml:"dimensions"`
+	// Selector maps span attributes to the value every sampled trace must
+	// carry (resource.k8s.cluster.name: prod-east).
+	Selector map[string]string `yaml:"selector"`
 }
 
 // Query maps any PromQL or LogQL query to edges.
@@ -247,6 +259,9 @@ type Query struct {
 	Headers       map[string]string `yaml:"headers"`
 	// Dimensions maps a business dimension to the label holding it.
 	Dimensions map[string]string `yaml:"dimensions"`
+	// Selector is added to every selector of the queries (stream selectors
+	// in LogQL): one cluster's series on a backend that keeps several.
+	Selector map[string]string `yaml:"selector"`
 }
 
 type Kubernetes struct {
@@ -498,7 +513,14 @@ func (c *Config) validate() error {
 	}
 
 	validateSources("sources", c.Sources, bad, notNegative)
+	// Top-level sources are not a cluster's: nothing replaces $cluster there.
+	if !reflect.DeepEqual(withCluster(c.Sources, "\x00"), c.Sources) {
+		bad("sources: %s stands for a cluster's name, under clusters[].sources or clusterSources", clusterPlaceholder)
+	}
 	if len(c.Clusters) == 0 {
+		if c.ClusterSources != nil {
+			bad("clusterSources needs clusters: they are the sources every cluster reads")
+		}
 		uniqueNames("", plan(c.Sources), bad)
 		return errors.Join(errs...)
 	}
@@ -512,6 +534,12 @@ func (c *Config) validate() error {
 		if set {
 			bad("sources.%s describes one cluster: with clusters, move it under clusters[].sources", key)
 		}
+	}
+	if t := c.ClusterSources; t != nil {
+		if t.Declared != nil {
+			bad("clusterSources.declared: declarations apply to every cluster already, set them under sources.declared")
+		}
+		validateSources("clusterSources", *t, bad, notNegative)
 	}
 	clusters := map[string]bool{}
 	for i, cl := range c.Clusters {
@@ -528,12 +556,12 @@ func (c *Config) validate() error {
 		if cl.Sources.Declared != nil {
 			bad("%s.sources.declared: declarations apply to every cluster, set them under sources.declared", prefix)
 		}
-		own := plan(cl.Sources)
-		if len(own) == 0 {
-			bad("%s (%s) has no sources", prefix, cl.Name)
+		reads := plan(c.SourcesOf(cl))
+		if len(reads) == 0 {
+			bad("%s (%s) has no sources, and there are no clusterSources", prefix, cl.Name)
 		}
 		validateSources(prefix+".sources", cl.Sources, bad, notNegative)
-		uniqueNames(fmt.Sprintf("cluster %q: ", cl.Name), append(plan(c.Sources), own...), bad)
+		uniqueNames(fmt.Sprintf("cluster %q: ", cl.Name), append(plan(c.Sources), reads...), bad)
 	}
 	return errors.Join(errs...)
 }
@@ -559,6 +587,9 @@ func validateSources(prefix string, s Sources, bad func(string, ...any), notNega
 			bad(prefix+".prometheus[%d].url is required", i)
 		}
 		notNegative(fmt.Sprintf(prefix+".prometheus[%d].window", i), p.Window)
+		if err := promapi.Scope(p.Selector).Validate(); err != nil {
+			bad(prefix+".prometheus[%d].selector: %v", i, err)
+		}
 		for _, name := range p.Presets {
 			if name != "auto" && prometheus.Lookup(name) == nil {
 				bad(prefix+".prometheus[%d]: unknown preset %q", i, name)
@@ -586,6 +617,11 @@ func validateSources(prefix string, s Sources, bad func(string, ...any), notNega
 		if err := validDimensions(t.Dimensions); err != nil {
 			bad(prefix+".tempo[%d].dimensions: %v", i, err)
 		}
+		for attr, value := range t.Selector {
+			if !traceAttribute.MatchString(attr) || value == "" {
+				bad(prefix+`.tempo[%d].selector: %q: want a scoped attribute with a value, such as resource.k8s.cluster.name: prod-east`, i, attr)
+			}
+		}
 	}
 	for i, q := range s.Queries {
 		if q.URL == "" || q.Query == "" || q.From == "" || q.To == "" {
@@ -601,6 +637,9 @@ func validateSources(prefix string, s Sources, bad func(string, ...any), notNega
 		if err := validDimensions(q.Dimensions); err != nil {
 			bad(prefix+".queries[%d].dimensions: %v", i, err)
 		}
+		if err := promapi.Scope(q.Selector).Validate(); err != nil {
+			bad(prefix+".queries[%d].selector: %v", i, err)
+		}
 	}
 	for i, p := range s.Postgres {
 		if p.Node == "" || p.DSN == "" {
@@ -609,6 +648,10 @@ func validateSources(prefix string, s Sources, bad func(string, ...any), notNega
 	}
 
 }
+
+// traceAttribute is a TraceQL attribute a Tempo selector can match on:
+// resource.*, span.* or unscoped (.name).
+var traceAttribute = regexp.MustCompile(`^(resource|span)?\.[A-Za-z_][A-Za-z0-9_.:/-]*$`)
 
 // validDimensions checks dimension names against the selector syntax
 // (dimension:value pairs separated by commas) and requires a source field.
@@ -651,14 +694,14 @@ func plan(s Sources) []planned {
 	}
 	for i, p := range s.Prometheus {
 		add(named("prometheus", p.Name, i, len(s.Prometheus)), func(n string) source.Source {
-			return prometheus.New(n, prometheus.Config{URL: p.URL, Window: p.Window, Presets: p.Presets, Probes: p.Probes, Headers: p.Headers})
+			return prometheus.New(n, prometheus.Config{URL: p.URL, Window: p.Window, Presets: p.Presets, Probes: p.Probes, Headers: p.Headers, Selector: p.Selector})
 		})
 	}
 	for i, t := range s.Tempo {
 		add(named("tempo", t.Name, i, len(s.Tempo)), func(n string) source.Source {
 			return tempo.New(n, tempo.Config{
 				URL: t.URL, Window: t.Window, TracesPerService: t.TracesPerService, MaxTraces: t.MaxTraces, Headers: t.Headers,
-				Dimensions: t.Dimensions,
+				Dimensions: t.Dimensions, Selector: t.Selector,
 			})
 		})
 	}
@@ -672,7 +715,7 @@ func plan(s Sources) []planned {
 				Dialect: dialect, URL: q.URL, Query: q.Query, Errors: q.Errors, Latency: q.Latency, Window: q.Window, Headers: q.Headers,
 				From: q.From, To: q.To, FromAddress: q.FromAddress, ToAddress: q.ToAddress,
 				Protocol: q.Protocol, ProtocolLabel: q.ProtocolLabel, ToKind: model.NodeKind(q.ToKind),
-				Dimensions: q.Dimensions,
+				Dimensions: q.Dimensions, Selector: q.Selector,
 			})
 		})
 	}
@@ -739,6 +782,81 @@ func (c *Config) EngineOptions(cluster string, archive *history.Store) engine.Op
 	}
 }
 
+// SourcesOf is what cluster cl reads: the clusterSources, then its own
+// sources, with $cluster replaced by its name in both.
+func (c *Config) SourcesOf(cl Cluster) Sources {
+	var out Sources
+	if c.ClusterSources != nil {
+		out = withCluster(*c.ClusterSources, cl.Name)
+	}
+	own := withCluster(cl.Sources, cl.Name)
+	out.Prometheus = append(slices.Clone(out.Prometheus), own.Prometheus...)
+	out.Tempo = append(slices.Clone(out.Tempo), own.Tempo...)
+	out.Queries = append(slices.Clone(out.Queries), own.Queries...)
+	out.Postgres = append(slices.Clone(out.Postgres), own.Postgres...)
+	if own.Kubernetes != nil {
+		out.Kubernetes = own.Kubernetes
+	}
+	if own.Docker != nil {
+		out.Docker = own.Docker
+	}
+	return out
+}
+
+// clusterPlaceholder stands for the cluster's name in its sources.
+const clusterPlaceholder = "$cluster"
+
+// withCluster returns a deep copy of v with every "$cluster" in its strings,
+// map keys included, replaced by name. Nil slices, maps and pointers stay
+// nil: some sources tell an unset list from an empty one.
+func withCluster[T any](v T, name string) T {
+	return replaced(reflect.ValueOf(v), name).Interface().(T)
+}
+
+func replaced(v reflect.Value, name string) reflect.Value {
+	switch v.Kind() {
+	case reflect.String:
+		out := reflect.New(v.Type()).Elem()
+		out.SetString(strings.ReplaceAll(v.String(), clusterPlaceholder, name))
+		return out
+	case reflect.Pointer:
+		if v.IsNil() {
+			return v
+		}
+		out := reflect.New(v.Type().Elem())
+		out.Elem().Set(replaced(v.Elem(), name))
+		return out
+	case reflect.Slice:
+		if v.IsNil() {
+			return v
+		}
+		out := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+		for i := range v.Len() {
+			out.Index(i).Set(replaced(v.Index(i), name))
+		}
+		return out
+	case reflect.Map:
+		if v.IsNil() {
+			return v
+		}
+		out := reflect.MakeMapWithSize(v.Type(), v.Len())
+		for it := v.MapRange(); it.Next(); {
+			out.SetMapIndex(replaced(it.Key(), name), replaced(it.Value(), name))
+		}
+		return out
+	case reflect.Struct:
+		out := reflect.New(v.Type()).Elem()
+		out.Set(v)
+		for i := range v.NumField() {
+			if out.Field(i).CanSet() {
+				out.Field(i).Set(replaced(v.Field(i), name))
+			}
+		}
+		return out
+	}
+	return v
+}
+
 // Scope is what one engine discovers: the sources of one cluster with the
 // shared ones, or every source when there are no clusters (Cluster empty).
 type Scope struct {
@@ -755,7 +873,7 @@ func (c *Config) BuildScopes() []Scope {
 	out := make([]Scope, 0, len(c.Clusters))
 	for _, cl := range c.Clusters {
 		var sources []source.Source
-		for _, p := range append(plan(c.Sources), plan(cl.Sources)...) {
+		for _, p := range append(plan(c.Sources), plan(c.SourcesOf(cl))...) {
 			sources = append(sources, p.build(p.name))
 		}
 		out = append(out, Scope{Cluster: cl.Name, Sources: sources})

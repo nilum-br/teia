@@ -566,3 +566,38 @@ func TestQuantile(t *testing.T) {
 		t.Error("quantile must not reorder its input")
 	}
 }
+
+// On a Tempo that keeps several clusters, a cluster's source lists and
+// samples only the traces of that cluster.
+func TestSelectorScopesServicesAndSearches(t *testing.T) {
+	var mu sync.Mutex
+	var tagQ, searchQ []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v2/search/tag/"):
+			tagQ = append(tagQ, r.URL.Query().Get("q"))
+			fmt.Fprint(w, `{"tagValues":[{"value":"web"}]}`)
+		case r.URL.Path == "/api/search":
+			searchQ = append(searchQ, r.URL.Query().Get("q"))
+			fmt.Fprint(w, `{"traces":[{"traceID":"t1"}]}`)
+		default:
+			fmt.Fprint(w, trace)
+		}
+	}))
+	defer srv.Close()
+	src := New("tempo", Config{URL: srv.URL, Selector: map[string]string{"resource.k8s.cluster.name": "east", "resource.deployment.environment": "prod"}})
+	if _, err := src.Discover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	scope := `resource.deployment.environment = "prod" && resource.k8s.cluster.name = "east"`
+	if len(tagQ) != 1 || tagQ[0] != "{ "+scope+" }" {
+		t.Errorf("services listed with q=%q; want { %s }", tagQ, scope)
+	}
+	if len(searchQ) != 1 || searchQ[0] != `{ resource.service.name = "web" && `+scope+" }" {
+		t.Errorf("searched with q=%q", searchQ)
+	}
+}

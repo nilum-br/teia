@@ -190,6 +190,11 @@ config:
 With `config.clusters`, the chart drops its default top-level inventory and adds the shared flows; any other
 top-level source is rejected, since it would mix clusters.
 
+When one Mimir (or Thanos, VictoriaMetrics, Grafana Cloud) and one Tempo keep every cluster, write their sources once
+under `config.clusterSources`, with a `selector` per source and `$cluster` for each cluster's name, and list only the
+names under `config.clusters`: see [Shared backends](configuration.md#shared-backends). One kubeconfig file per cluster
+in the Secret, named after the cluster, works with `kubernetes: {kubeconfig: /etc/teia/kube/$cluster.yaml}`.
+
 The cluster teia runs in can use `kubernetes: {}` (its in-cluster account). The pod needs network access to each
 cluster's API server and telemetry backends.
 
