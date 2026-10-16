@@ -2,7 +2,7 @@ import React, { use, useEffect, useRef } from 'react';
 import { LoadingState, PanelProps, ThemeContext } from '@grafana/data';
 import { getTemplateSrv, locationService } from '@grafana/runtime';
 import { TeiaOptions } from '../types';
-import { framesToSnapshot } from '../teia/frames';
+import { framesKey, framesToSnapshot } from '../teia/frames';
 import { applyMapping, describeFrames, parseMapping, validateMapping, type FrameMapping } from '../teia/mapping';
 import TeiaUI, { TeiaController } from '../teia/teia-ui';
 
@@ -15,6 +15,8 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, on
   const hostRef = useRef<HTMLDivElement>(null);
   const uiRef = useRef<TeiaController | null>(null);
   const roundRef = useRef(0);
+  // The round the map last drew, so an identical refresh costs nothing.
+  const drawnRef = useRef<string | null>(null);
   const optionsRef = useRef({ options, onOptionsChange });
   const theme = use(ThemeContext);
   const mode = theme.isDark ? 'dark' : 'light';
@@ -34,6 +36,7 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, on
     if (!hostRef.current) {
       return;
     }
+    drawnRef.current = null;
     uiRef.current = TeiaUI.mount(hostRef.current, {
       mode: 'panel',
       api: options.teiaUrl || undefined,
@@ -85,6 +88,7 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, on
       return;
     }
     if (data.state === LoadingState.Error) {
+      drawnRef.current = null;
       uiRef.current.setStatus(data.errors?.[0]?.message || 'the panel query failed');
       return;
     }
@@ -99,6 +103,12 @@ export const TeiaPanel: React.FC<PanelProps<TeiaOptions>> = ({ data, options, on
       return;
     }
     uiRef.current.setStatus('');
+    const key = framesKey(mapped);
+    const drawn = key === null ? null : `${options.frameMapping ?? ''}\u0000${key}`;
+    if (drawn !== null && drawn === drawnRef.current) {
+      return;
+    }
+    drawnRef.current = drawn;
     const { snapshot, changes } = framesToSnapshot(mapped, ++roundRef.current);
     if (snapshot) {
       uiRef.current.update(snapshot, changes);

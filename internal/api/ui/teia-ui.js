@@ -1575,6 +1575,32 @@ button.label { cursor: pointer; }
     return pos;
   }
 
+  // AUTO_GROUP_NODES is the most components a map draws one by one when
+  // nobody chose a grouping: past it a browser spends seconds on every round
+  // (2 000 components and 8 000 connections took 16 s a round in Chromium),
+  // and people read tens of nodes, not thousands. Such a map opens grouped by
+  // the first of AUTO_GROUP_KEYS that fits; No grouping still shows them all.
+  const AUTO_GROUP_NODES = 1000;
+  const AUTO_GROUP_KEYS = ['k8s.namespace', 'namespace', 'team', 'system', 'app.kubernetes.io/part-of', 'service.namespace'];
+  // autoGroupKey is the label a large map opens grouped by: one most of its
+  // components carry, giving at least two groups of three or more on average;
+  // empty for a map small enough to draw whole, or when no label fits.
+  function autoGroupKey(snap, keys) {
+    const nodes = snap?.nodes || [];
+    if (nodes.length <= AUTO_GROUP_NODES) return '';
+    for (const key of AUTO_GROUP_KEYS) {
+      if (!keys.includes(key)) continue;
+      const values = new Set();
+      let carried = 0;
+      for (const n of nodes) {
+        const v = n.labels?.[key];
+        if (v) { values.add(v); carried++; }
+      }
+      if (carried * 2 >= nodes.length && values.size >= 2 && values.size * 3 <= nodes.length) return key;
+    }
+    return '';
+  }
+
   // particleBudget shares a fixed number of animated dots among edges by
   // traffic, so a thousand edges cost the same per frame as fifty.
   function particleBudget(edges, total = 360) {
@@ -1596,7 +1622,7 @@ button.label { cursor: pointer; }
     } catch { return null; }
   }
 
-  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, scopeSnapshot, scopePins, journeyWhy, journeyNames, scopeOf, facetsOf, facetValues, journeyKeyOf, JOURNEY_KEYS, filtersFromParams, filtersToParams, filterLabel, filtersActive, emptyFilters, journeyPorts, packColumn, frameLayout, scopeStats, TECH, CATEGORY, SIGNAL, REASON };
+  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, autoGroupKey, AUTO_GROUP_NODES, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, scopeSnapshot, scopePins, journeyWhy, journeyNames, scopeOf, facetsOf, facetValues, journeyKeyOf, JOURNEY_KEYS, filtersFromParams, filtersToParams, filterLabel, filtersActive, emptyFilters, journeyPorts, packColumn, frameLayout, scopeStats, TECH, CATEGORY, SIGNAL, REASON };
   function operationsOf(value) {
     if (!value || value.version !== 1 || value.mode !== 'operation' || !Array.isArray(value.scopes) || !Array.isArray(value.sources)) return undefined;
     const scopes = value.scopes.filter(s => s && typeof s.id === 'string' && typeof s.operation === 'string' && typeof s.entryService === 'string' &&
@@ -1820,6 +1846,10 @@ button.label { cursor: pointer; }
       signals: new Set(stored('signals', [])),
       query: '',
       groupBy: stored('groupBy', opts.groupBy || ''),
+      // A grouping someone chose (stored, a host option, a link) is kept;
+      // without one, a map too large to draw whole opens grouped (autoGroup).
+      groupChosen: store.get('groupBy', null) !== null || !!opts.groupBy,
+      autoGroup: '',
       expanded: new Set(),
       flow: stored('flow', opts.flow === false ? false : !motionMQ.matches),
       live: true,
@@ -2467,8 +2497,9 @@ button.label { cursor: pointer; }
       const denseView = k < 0.12 && nodeEls.size > 200;
       viewport.classList.toggle('compact', compactView);
       viewport.classList.toggle('dense', denseView);
-      $('#mapHelp').hidden = !compactView || !nodeEls.size;
-      $('#mapHelp span').textContent = denseView ? `${nodeEls.size} components · ${edgeEls.size} connections. Group, search or focus to read names.` : 'Overview · select a component for its evidence.';
+      $('#mapHelp').hidden = !(compactView || state.autoGroup) || !nodeEls.size;
+      $('#mapHelp span').textContent = state.autoGroup ? `Grouped by ${state.autoGroup}: ${state.snap.nodes.length} components are too many to draw one by one. Open a group, or choose No grouping.`
+        : denseView ? `${nodeEls.size} components · ${edgeEls.size} connections. Group, search or focus to read names.` : 'Overview · select a component for its evidence.';
       for (const [id, g] of nodeEls) {
         const n = currentView.nodes.get(id), title = g._parts.title;
         const mark = DIFF_MARK[diffOf(n)] || '';
@@ -2981,7 +3012,12 @@ button.label { cursor: pointer; }
       const path = [['k8s.cluster.name', 'cluster'], ['k8s.namespace', 'namespace'], ['service.name', 'app.kubernetes.io/name']].map(choices => choices.find(key => keys.includes(key))).filter(Boolean);
       const hierarchical = path.length > 1 ? 'hierarchy:' + JSON.stringify(path) : '';
       if (hierarchical) keys.push(hierarchical);
-      if (state.groupBy && !keys.includes(state.groupBy)) { state.groupBy = ''; state.expanded.clear(); }
+      // A journey, a filter or an investigation already narrows the map.
+      if (!state.groupChosen) {
+        const auto = state.scope || state.investigation.mode !== 'all' || state.operation.id ? '' : autoGroupKey(state.snap, keys);
+        if (auto !== state.autoGroup) { state.groupBy = auto; state.autoGroup = auto; state.expanded.clear(); }
+      }
+      if (state.groupBy && !keys.includes(state.groupBy)) { state.groupBy = ''; state.autoGroup = ''; state.expanded.clear(); }
       if (groupKeys !== keys.join('|')) { // rebuilding would close an open dropdown on every update
         groupKeys = keys.join('|');
         sel.replaceChildren(el('option', { value: '' }, 'No grouping'), ...keys.map(k => el('option', { value: k }, k === hierarchical ? path.join(' → ') : 'Group by ' + k)));
@@ -4046,7 +4082,7 @@ button.label { cursor: pointer; }
     $('#groupBy').addEventListener('change', ev => {
       const selected = state.selected?.type === 'node' ? currentView.nodes.get(state.selected.id) : null;
       const identity = selected?.group ? selected.members[0]?.id : state.selected?.id;
-      state.groupBy = ev.target.value; state.expanded.clear(); store.set('groupBy', state.groupBy);
+      state.groupBy = ev.target.value; state.groupChosen = true; state.autoGroup = ''; state.expanded.clear(); store.set('groupBy', state.groupBy);
       syncSharedURL();
       renderMap(); if (identity) locate(identity, { move: false }); else renderDetails(); fit();
     });
@@ -4155,7 +4191,7 @@ button.label { cursor: pointer; }
     // Shareable views (page mode): ?journey=checkout&group=team&q=kind:database&theme=light&select=orders-db&legend=icons&flow=1&values=0&live=0
     if (page && typeof location !== 'undefined') {
       const params = new URLSearchParams(location.search);
-      if (params.has('group')) state.groupBy = params.get('group');
+      if (params.has('group')) { state.groupBy = params.get('group'); state.groupChosen = true; }
       if (params.has('q')) { state.query = params.get('q'); $('#search').value = state.query; }
       if (params.has('theme')) host.dataset.theme = params.get('theme');
       if (params.get('live') === '0') state.live = false;
@@ -4177,7 +4213,7 @@ button.label { cursor: pointer; }
       const view = raw && raw.length < 16000 ? JSON.parse(raw) : null;
       if (view?.version === 1) {
         state.filters = filtersFromParams(new URLSearchParams({ journey: text(view.journey), filter: text(view.filter) }));
-        state.groupBy = text(view.group); state.query = text(view.query); $('#search').value = state.query;
+        state.groupBy = text(view.group); state.groupChosen = true; state.query = text(view.query); $('#search').value = state.query;
         state.journeyKey = text(view.journeyKey); opts.select = text(view.select); state.slice = text(view.slice);
         if (opts.api && text(view.cluster)) state.cluster = text(view.cluster);
         if (opts.api) state.historyId = text(view.history);
@@ -4238,7 +4274,7 @@ button.label { cursor: pointer; }
         if (journey != null && journey !== hostJourney) { hostJourney = journey; setJourney(journey); }
         if (journeyKey != null && journeyKey !== hostOptions.journeyKey) { state.journeyKey = journeyKey; topologyKey = ''; if (state.snap) { renderAll(); state.fitted = fit(); } }
         if (values != null && values !== hostOptions.values) { state.values = values; renderButtons(); if (state.snap) renderReasons(); }
-        if (groupBy != null && groupBy !== hostOptions.groupBy) { state.groupBy = groupBy; state.expanded.clear(); if (state.snap) { renderGroupBy(); renderMap(); fit(); } }
+        if (groupBy != null && groupBy !== hostOptions.groupBy) { state.groupBy = groupBy; state.groupChosen = !!groupBy || store.get('groupBy', null) !== null; state.autoGroup = ''; state.expanded.clear(); if (state.snap) { renderGroupBy(); renderMap(); fit(); } }
         if (flow != null && flow !== hostOptions.flow) { state.flow = flow; renderButtons(); rebuildParticles(); wake(); }
         for (const key of Object.keys(hostOptions)) if (options[key] != null) hostOptions[key] = options[key];
       },

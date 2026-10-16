@@ -57,6 +57,9 @@ type Config struct {
 	// holding it. The queries must keep those labels in their grouping; each
 	// combination becomes a slice of the edge with its own rates and p95.
 	Dimensions map[string]string
+	// Selector is added to every selector of the three queries (stream
+	// selectors in LogQL): one cluster's series on a shared backend.
+	Selector map[string]string
 }
 
 type Source struct {
@@ -80,7 +83,12 @@ func New(name string, cfg Config) *Source {
 		order = append(order, dim)
 	}
 	sort.Strings(order)
-	return &Source{name: name, cfg: cfg, client: promapi.New(cfg.URL, path, cfg.Headers), dimOrder: order}
+	client := promapi.New(cfg.URL, path, cfg.Headers)
+	client.Scope = cfg.Selector
+	if cfg.Dialect == Loki {
+		client.Dialect = promapi.LogQL
+	}
+	return &Source{name: name, cfg: cfg, client: client, dimOrder: order}
 }
 
 func (s *Source) Name() string { return s.name }

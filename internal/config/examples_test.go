@@ -32,6 +32,7 @@ func TestShippedConfigsLoad(t *testing.T) {
 			"prometheus/kafka-clients", "prometheus/app-calls", "prometheus/egress-flows", "kubernetes", "docker", "postgres/orders-db",
 		}},
 		{"../../examples/teia-clusters.yaml", nil},
+		{"../../examples/teia-central.yaml", nil},
 		{"../../lab/teia.yaml", []string{"declared", "prometheus", "tempo", "loki/access-logs", "docker", "postgres/orders-db"}},
 		{"../../lab/teia.host.yaml", []string{"declared", "prometheus", "tempo", "loki/access-logs", "docker", "postgres/orders-db"}},
 	}
@@ -65,9 +66,10 @@ var exampleSkips = map[string]string{
 func TestExampleAndReferenceCoverEveryKey(t *testing.T) {
 	keys := map[string]bool{}
 	structKeys(reflect.TypeOf(Config{}), "", keys)
-	// A cluster's sources are the sources above, documented once.
+	// A cluster's sources and the clusterSources are the sources above,
+	// documented once.
 	for k := range keys {
-		if strings.HasPrefix(k, "clusters[].sources.") {
+		if strings.HasPrefix(k, "clusters[].sources.") || strings.HasPrefix(k, "clusterSources.") {
 			delete(keys, k)
 		}
 	}
@@ -75,7 +77,7 @@ func TestExampleAndReferenceCoverEveryKey(t *testing.T) {
 	// examples/teia.yaml maps one scope; the clusters keys are set in
 	// examples/teia-clusters.yaml, since a file uses one or the other.
 	set := map[string]bool{}
-	for _, path := range []string{"../../examples/teia.yaml", "../../examples/teia-clusters.yaml"} {
+	for _, path := range []string{"../../examples/teia.yaml", "../../examples/teia-clusters.yaml", "../../examples/teia-central.yaml"} {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)

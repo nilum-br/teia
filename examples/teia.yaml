@@ -169,6 +169,9 @@ sources:
       headers:
         Authorization: Bearer ${MIMIR_TOKEN}
         X-Scope-OrgID: platform
+      # This Mimir keeps several clusters: read only this one's series.
+      selector:
+        cluster: prod-east
 
   # Traces straight from Tempo, even without the metrics-generator.
   tempo:
@@ -184,6 +187,9 @@ sources:
       dimensions:
         journey: business.journey
         tenant: business.tenant
+      # Only this cluster's services and traces, on a Tempo shared by several.
+      selector:
+        resource.k8s.cluster.name: prod-east
 
   # Any PromQL or LogQL query that returns one series per caller/callee pair.
   queries:
@@ -204,6 +210,7 @@ sources:
       protocol: http # for series without that label
       headers:
         X-Scope-OrgID: platform
+      selector: {cluster: prod-east} # added to every stream selector
     # A custom exporter that names both ends.
     - name: kafka-clients
       dialect: prometheus # the default

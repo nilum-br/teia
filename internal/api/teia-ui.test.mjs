@@ -805,3 +805,24 @@ describe('dimension slices', () => {
     assert.deepEqual([...view(s).nodes.values()].filter(m).map(n => n.id), ['app-a']);
   });
 });
+
+describe('autoGroupKey', () => {
+  const map = (count, labels) => ({ nodes: Array.from({ length: count }, (_, i) => ({ id: 'svc-' + i, labels: labels(i) })) });
+  const keys = snap => core.labelKeys(snap);
+  it('leaves a map it can draw whole ungrouped', () => {
+    const snap = map(core.AUTO_GROUP_NODES, i => ({ 'k8s.namespace': 'ns-' + (i % 20) }));
+    assert.equal(core.autoGroupKey(snap, keys(snap)), '');
+  });
+  it('opens a larger map grouped by namespace, then team', () => {
+    const big = map(2000, i => ({ 'k8s.namespace': 'ns-' + (i % 20), team: 't' + (i % 4) }));
+    assert.equal(core.autoGroupKey(big, keys(big)), 'k8s.namespace');
+    const teams = map(2000, i => ({ team: 't' + (i % 4) }));
+    assert.equal(core.autoGroupKey(teams, keys(teams)), 'team');
+  });
+  it('does not group by a label few components carry, one value, or one per component', () => {
+    for (const labels of [i => (i % 10 === 0 ? { 'k8s.namespace': 'ns-' + (i % 30) } : {}), () => ({ 'k8s.namespace': 'shop' }), i => ({ 'k8s.namespace': 'ns-' + i })]) {
+      const snap = map(2000, labels);
+      assert.equal(core.autoGroupKey(snap, keys(snap)), '');
+    }
+  });
+});

@@ -1,0 +1,41 @@
+# teia for a central Grafana stack: one Mimir (or Thanos, VictoriaMetrics,
+# Grafana Cloud) and one Tempo keep every cluster, told apart by a label and
+# a resource attribute. The sources are written once, under clusterSources;
+# $cluster stands for each cluster's name. Each cluster is still discovered
+# on its own: its own round, snapshot, history and health.
+
+listen: :8080
+interval: 30s
+
+clusters:
+  - name: prod-east
+  - name: prod-west
+  - name: staging
+    # Its own sources are read too: here, one more query only it has.
+    sources:
+      queries:
+        - name: batch-calls
+          url: https://mimir.example.com/prometheus
+          query: sum by (job, target) (rate(batch_calls_total[$window]))
+          from: job
+          to: target
+          selector: {cluster: $cluster}
+
+clusterSources:
+  prometheus:
+    - url: https://mimir.example.com/prometheus
+      headers:
+        Authorization: Bearer ${MIMIR_TOKEN}
+      # Every query, presets, probes and detection included, reads one cluster.
+      selector: {cluster: $cluster}
+  tempo:
+    - url: https://tempo.example.com
+      maxTraces: 100
+      selector: {resource.k8s.cluster.name: $cluster}
+  # One read-only kubeconfig per cluster, mounted from a Secret.
+  kubernetes:
+    kubeconfig: /etc/teia/kube/$cluster.yaml
+
+sources:
+  declared:
+    paths: [./flows]

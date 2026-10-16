@@ -40,7 +40,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/v1/grafana/nodes?slice=${slice:percentencode}",
+          "url": "/api/v1/grafana/nodes?slice=${slice:percentencode}&cluster=${cluster:percentencode}",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -58,7 +58,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/v1/grafana/edges?slice=${slice:percentencode}",
+          "url": "/api/v1/grafana/edges?slice=${slice:percentencode}&cluster=${cluster:percentencode}",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -76,7 +76,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/v1/grafana/findings?slice=${slice:percentencode}",
+          "url": "/api/v1/grafana/findings?slice=${slice:percentencode}&cluster=${cluster:percentencode}",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -94,7 +94,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/v1/grafana/sources",
+          "url": "/api/v1/grafana/sources?cluster=${cluster:percentencode}",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -112,7 +112,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/v1/coverage?slice=${slice:percentencode}",
+          "url": "/api/v1/coverage?slice=${slice:percentencode}&cluster=${cluster:percentencode}",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -130,7 +130,7 @@
           "source": "url",
           "parser": "backend",
           "format": "table",
-          "url": "/api/v1/grafana/changes",
+          "url": "/api/v1/grafana/changes?cluster=${cluster:percentencode}",
           "url_options": {
             "method": "GET",
             "data": ""
@@ -184,7 +184,7 @@
               "source": "url",
               "parser": "backend",
               "format": "node-graph-nodes",
-              "url": "/api/v1/grafana/nodes?slice=${slice:percentencode}",
+              "url": "/api/v1/grafana/nodes?slice=${slice:percentencode}&cluster=${cluster:percentencode}",
               "url_options": {
                 "method": "GET",
                 "data": ""
@@ -202,7 +202,7 @@
               "source": "url",
               "parser": "backend",
               "format": "node-graph-edges",
-              "url": "/api/v1/grafana/edges?slice=${slice:percentencode}",
+              "url": "/api/v1/grafana/edges?slice=${slice:percentencode}&cluster=${cluster:percentencode}",
               "url_options": {
                 "method": "GET",
                 "data": ""
@@ -241,7 +241,7 @@
               "source": "url",
               "parser": "backend",
               "format": "table",
-              "url": "/api/v1/grafana/findings?slice=${slice:percentencode}",
+              "url": "/api/v1/grafana/findings?slice=${slice:percentencode}&cluster=${cluster:percentencode}",
               "url_options": {
                 "method": "GET",
                 "data": ""
@@ -297,6 +297,51 @@
   ],
   "templating": {
     "list": [
+      {
+        "type": "query",
+        "name": "cluster",
+        "label": "Cluster",
+        "description": "The cluster the panel maps, for a teia that maps several (?cluster=). Its options come from teia's /api/v1/clusters; with a single scope it has one empty option, teia's only map.",
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "teia"
+        },
+        "query": {
+          "infinityQuery": {
+            "refId": "variable",
+            "type": "json",
+            "source": "url",
+            "parser": "backend",
+            "format": "table",
+            "url": "/api/v1/clusters",
+            "url_options": {
+              "method": "GET",
+              "data": ""
+            },
+            "root_selector": "clusters",
+            "columns": [
+              {
+                "selector": "name",
+                "text": "name",
+                "type": "string"
+              }
+            ],
+            "filters": []
+          },
+          "query": "",
+          "queryType": "infinity"
+        },
+        "refresh": 1,
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": [],
+        "includeAll": false,
+        "multi": false,
+        "hide": 0,
+        "skipUrlSync": false
+      },
       {
         "type": "textbox",
         "name": "journey",

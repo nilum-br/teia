@@ -102,6 +102,15 @@ hidden textbox named `slice`, as in the lab's dashboard) and pass it to teia in 
 frames that come back say which slice they hold, and ✕ empties it for every call. Without the variable the panel
 offers no buttons but still labels frames a query sliced. Direct mode slices through teia's API instead.
 
+**Clusters.** For a teia that maps [several clusters](../../docs/configuration.md#clusters), the lab's dashboard has
+a `cluster` variable: an Infinity query of teia's `/api/v1/clusters` (root `clusters`, column `name`), passed to every
+query as `cluster=${cluster:percentencode}`. Grafana shows it as the dashboard's cluster picker, and the dashboard's
+other panels can use `$cluster` too. With a single scope it has one empty option: teia's only map.
+
+**Refresh.** teia's map changes once a round (30 s by default). The panel does not redraw a refresh that brings the
+same round, but Grafana still fetches and decodes the frames each time: for a cluster with thousands of connections
+that is seconds of Grafana's CPU per viewer and refresh. For large maps, refresh at teia's interval or slower.
+
 ### Numeric frame contract
 
 For queries with different column names, use the panel's setup form or the optional **Column mapping (JSON)**
@@ -230,7 +239,9 @@ Stored-history comparison and server-validated proposals need a teia API the bro
 Where labels exist, ordered grouping supports cluster → namespace → service, with stable identities through
 expand/collapse. Neighbours can be ranked by traffic, measured errors or latency. Large overviews suppress
 annotations progressively; **Read names** focuses a component at a readable zoom, and search/selection/details
-retain access to every item. No topology is truncated by that display policy. **Flow** controls animation;
+retain access to every item. No topology is truncated by that display policy. A map of more than 1 000 components
+that nobody chose a grouping for opens grouped by namespace (or team, system, part-of), and says so; drawing
+thousands of cards and lines every round takes a browser seconds. **No grouping** draws every component. **Flow** controls animation;
 **Live** controls incoming updates. Keyboard, contrast and scale evidence is recorded in
 [UI validation](../../docs/ui-validation.md).
 

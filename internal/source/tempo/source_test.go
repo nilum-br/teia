@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -87,11 +89,17 @@ func TestDeniedIsAPermissionFinding(t *testing.T) {
 
 // platform fakes Tempo with services s0..s<n-1>. Each search answers
 // "limit" traces of that service, each trace is one server span of it.
+// A search takes delay, and fails for the services in failing.
 type platform struct {
 	services int
+	delay    time.Duration
+	failing  map[string]bool
 	mu       sync.Mutex
-	searched []string // services searched, in order
+	searched []string // services searched, in the order they arrived
 	limits   map[string]bool
+	inflight int
+	most     int          // the most searches running at once
+	fetched  []url.Values // the query of every trace fetch
 }
 
 func (p *platform) serve() *httptest.Server {
@@ -108,14 +116,36 @@ func (p *platform) serve() *httptest.Server {
 			limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 			p.mu.Lock()
 			p.searched = append(p.searched, svc)
+			if p.limits == nil {
+				p.limits = map[string]bool{}
+			}
 			p.limits[r.URL.Query().Get("limit")] = true
+			p.inflight++
+			p.most = max(p.most, p.inflight)
 			p.mu.Unlock()
+			defer func() {
+				p.mu.Lock()
+				p.inflight--
+				p.mu.Unlock()
+			}()
+			select {
+			case <-time.After(p.delay):
+			case <-r.Context().Done():
+				return
+			}
+			if p.failing[svc] {
+				http.Error(w, "search failed", http.StatusInternalServerError)
+				return
+			}
 			var ids []string
 			for i := range limit {
 				ids = append(ids, fmt.Sprintf(`{"traceID":"%s-%d"}`, svc, i))
 			}
 			fmt.Fprintf(w, `{"traces":[%s]}`, strings.Join(ids, ","))
 		case strings.HasPrefix(r.URL.Path, "/api/v2/traces/"):
+			p.mu.Lock()
+			p.fetched = append(p.fetched, r.URL.Query())
+			p.mu.Unlock()
 			svc, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/api/v2/traces/"), "-")
 			fmt.Fprintf(w, `{"trace":{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":%q}}]},
 				"scopeSpans":[{"spans":[{"spanId":"A","kind":"SPAN_KIND_SERVER"}]}]}]}}`, svc)
@@ -125,18 +155,45 @@ func (p *platform) serve() *httptest.Server {
 	}))
 }
 
-// round runs one Discover and returns the services it searched, in order.
+// round runs one Discover and returns the services it searched, sorted:
+// searches run concurrently, so they arrive in any order.
 func (p *platform) round(t *testing.T, src *Source) []string {
 	t.Helper()
+	got, _ := p.roundWithin(t, src, 0)
+	return got
+}
+
+// roundWithin is round with the round's timeout (none when zero), and also
+// returns the observation.
+func (p *platform) roundWithin(t *testing.T, src *Source, timeout time.Duration) ([]string, source.Observation) {
+	t.Helper()
 	p.mu.Lock()
-	p.searched, p.limits = nil, map[string]bool{}
+	p.searched, p.limits, p.fetched = nil, map[string]bool{}, nil
 	p.mu.Unlock()
-	if _, err := src.Discover(context.Background()); err != nil {
+	ctx := context.Background()
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	obs, err := src.Discover(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.searched
+	return sortedServices(p.searched), obs
+}
+
+// sortedServices sorts s0..s<n> by number.
+func sortedServices(names []string) []string {
+	out := slices.Clone(names)
+	slices.SortFunc(out, func(a, b string) int {
+		x, _ := strconv.Atoi(strings.TrimPrefix(a, "s"))
+		y, _ := strconv.Atoi(strings.TrimPrefix(b, "s"))
+		return x - y
+	})
+	return out
 }
 
 func TestSamplingSharesTheCap(t *testing.T) {
@@ -169,7 +226,7 @@ func TestSamplingRotatesAndStopsAtTheCap(t *testing.T) {
 	src := New("tempo", Config{URL: srv.URL, MaxTraces: 4})
 
 	seen := map[string]bool{}
-	for i, want := range []string{"s0 s1 s2 s3", "s4 s5 s6 s7", "s8 s9 s0 s1"} {
+	for i, want := range []string{"s0 s1 s2 s3", "s4 s5 s6 s7", "s0 s1 s8 s9"} {
 		got := p.round(t, src)
 		if strings.Join(got, " ") != want {
 			t.Errorf("round %d searched %v, want %s (stop at the cap, start where the last round stopped)", i+1, got, want)
@@ -180,6 +237,96 @@ func TestSamplingRotatesAndStopsAtTheCap(t *testing.T) {
 	}
 	if len(seen) != 10 {
 		t.Errorf("after three rounds only %d of 10 services were sampled", len(seen))
+	}
+}
+
+// A Tempo that answers each search in a fraction of a second still needs
+// minutes to search a thousand services one at a time. The round keeps what
+// it had time for, says so, and the next round carries on from there.
+func TestSamplingKeepsWhatTheRoundHadTimeFor(t *testing.T) {
+	p := &platform{services: 40, delay: 100 * time.Millisecond}
+	srv := p.serve()
+	defer srv.Close()
+	src := New("tempo", Config{URL: srv.URL, MaxTraces: 40})
+
+	first, obs := p.roundWithin(t, src, 800*time.Millisecond)
+	if len(first) == 0 || len(first) == 40 {
+		t.Fatalf("searched %d services; want some, not all, within the round", len(first))
+	}
+	if len(obs.Nodes) == 0 || !obs.Degraded || !strings.Contains(obs.Message, "out of time") {
+		t.Errorf("want the traces found so far, degraded, saying it ran out of time: nodes=%d degraded=%v %q", len(obs.Nodes), obs.Degraded, obs.Message)
+	}
+	if obs.Operations == nil || !obs.Operations.Sources[0].Truncated {
+		t.Errorf("the operation sample must say it is truncated: %+v", obs.Operations)
+	}
+	second, _ := p.roundWithin(t, src, 800*time.Millisecond)
+	if len(second) == 0 || slices.Contains(second, first[0]) {
+		t.Errorf("second round searched %v after %v; want it to carry on with services not searched yet", second, first)
+	}
+}
+
+// A service whose search fails is skipped, not retried first every round:
+// before, one bad search failed the whole source, and the next round started
+// from the same service, so the services after it were never sampled.
+func TestSamplingMovesOnAfterAFailedSearch(t *testing.T) {
+	p := &platform{services: 6, failing: map[string]bool{"s1": true}}
+	srv := p.serve()
+	defer srv.Close()
+	src := New("tempo", Config{URL: srv.URL, MaxTraces: 3})
+
+	first, obs := p.roundWithin(t, src, 0)
+	if !obs.Degraded || !strings.Contains(obs.Message, "1 of 4 searches failed") {
+		t.Errorf("want a degraded round naming the failed search: %v %q", obs.Degraded, obs.Message)
+	}
+	if strings.Join(first, " ") != "s0 s1 s2 s3" {
+		t.Errorf("first round searched %v; want s0..s3 (s1 failed, s3 filled the cap)", first)
+	}
+	if second := p.round(t, src); strings.Join(second, " ") != "s0 s4 s5" {
+		t.Errorf("second round searched %v; want s4, s5 and then s0", second)
+	}
+}
+
+func TestSamplingFailsWhenEverySearchFails(t *testing.T) {
+	p := &platform{services: 2, failing: map[string]bool{"s0": true, "s1": true}}
+	srv := p.serve()
+	defer srv.Close()
+	if _, err := New("tempo", Config{URL: srv.URL}).Discover(context.Background()); err == nil || !strings.Contains(err.Error(), "every search failed") {
+		t.Errorf("err = %v; want every search failed", err)
+	}
+}
+
+func TestSearchesRunConcurrentlyAndBounded(t *testing.T) {
+	p := &platform{services: 12, delay: 50 * time.Millisecond}
+	srv := p.serve()
+	defer srv.Close()
+	p.round(t, New("tempo", Config{URL: srv.URL, MaxTraces: 12}))
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.most < 2 || p.most > searchConcurrency {
+		t.Errorf("at most %d searches ran at once; want between 2 and %d", p.most, searchConcurrency)
+	}
+}
+
+// A trace fetched by ID without a time range makes Tempo look through every
+// block it keeps. The fetch covers the search window and one window before
+// it, where the first spans of a trace found in the window can start.
+func TestTraceFetchesAreBoundedToTheWindow(t *testing.T) {
+	p := &platform{services: 2}
+	srv := p.serve()
+	defer srv.Close()
+	at := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	src := New("tempo", Config{URL: srv.URL, Window: 15 * time.Minute})
+	src.now = func() time.Time { return at }
+	p.round(t, src)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.fetched) == 0 {
+		t.Fatal("no trace was fetched")
+	}
+	for _, q := range p.fetched {
+		if q.Get("start") != strconv.FormatInt(at.Add(-30*time.Minute).Unix(), 10) || q.Get("end") != strconv.FormatInt(at.Unix(), 10) {
+			t.Errorf("trace fetched with %v; want from one window before the search to its end", q)
+		}
 	}
 }
 
@@ -417,5 +564,40 @@ func TestQuantile(t *testing.T) {
 	}
 	if sample[0] != 20 {
 		t.Error("quantile must not reorder its input")
+	}
+}
+
+// On a Tempo that keeps several clusters, a cluster's source lists and
+// samples only the traces of that cluster.
+func TestSelectorScopesServicesAndSearches(t *testing.T) {
+	var mu sync.Mutex
+	var tagQ, searchQ []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v2/search/tag/"):
+			tagQ = append(tagQ, r.URL.Query().Get("q"))
+			fmt.Fprint(w, `{"tagValues":[{"value":"web"}]}`)
+		case r.URL.Path == "/api/search":
+			searchQ = append(searchQ, r.URL.Query().Get("q"))
+			fmt.Fprint(w, `{"traces":[{"traceID":"t1"}]}`)
+		default:
+			fmt.Fprint(w, trace)
+		}
+	}))
+	defer srv.Close()
+	src := New("tempo", Config{URL: srv.URL, Selector: map[string]string{"resource.k8s.cluster.name": "east", "resource.deployment.environment": "prod"}})
+	if _, err := src.Discover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	scope := `resource.deployment.environment = "prod" && resource.k8s.cluster.name = "east"`
+	if len(tagQ) != 1 || tagQ[0] != "{ "+scope+" }" {
+		t.Errorf("services listed with q=%q; want { %s }", tagQ, scope)
+	}
+	if len(searchQ) != 1 || searchQ[0] != `{ resource.service.name = "web" && `+scope+" }" {
+		t.Errorf("searched with q=%q", searchQ)
 	}
 }

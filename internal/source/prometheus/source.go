@@ -28,6 +28,9 @@ type Config struct {
 	Presets []string
 	// Probes to use; empty or ["auto"] detects them, ["none"] turns them off.
 	Probes []string
+	// Selector is added to every series selector of every query, including
+	// detection: one cluster's series on a backend that keeps several.
+	Selector map[string]string
 }
 
 type Source struct {
@@ -50,7 +53,9 @@ func New(name string, cfg Config) *Source {
 	if cfg.Window == 0 {
 		cfg.Window = 5 * time.Minute
 	}
-	return &Source{name: name, cfg: cfg, client: promapi.New(cfg.URL, "/api/v1/query", cfg.Headers)}
+	client := promapi.New(cfg.URL, "/api/v1/query", cfg.Headers)
+	client.Scope = cfg.Selector
+	return &Source{name: name, cfg: cfg, client: client}
 }
 
 func (s *Source) Name() string { return s.name }

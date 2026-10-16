@@ -104,6 +104,16 @@ and `observedAt` their latest span end. Neither bound claims continuous coverage
 sample count is not total traffic or req/s. If any contributing call has missing or invalid times, both bounds
 remain unknown, even when some other calls are dated. Nanosecond timestamps are preserved in the API.
 
+Each round searches a few services at a time, each for its share of `maxTraces`, and stops starting searches once
+less than 40% of the source's `timeout` is left, keeping that time to fetch the traces it found. A round that ran out
+of time, or whose searches partly failed, keeps what it sampled and says so (degraded); the next round carries on with
+the services this one did not reach, so a slow Tempo or a failing search never stalls the rotation. Trace fetches
+are bounded to the search window and one window before it: without a time range, Tempo looks a trace up in every block
+it keeps. On a Tempo shared by several clusters, give the source a [`selector`](configuration.md#shared-backends). For
+many services, prefer the [service graph metrics](https://grafana.com/docs/tempo/latest/metrics-generator/service_graphs/)
+of Tempo's metrics-generator (the `servicegraph` preset), which see every span; a sample of 100–400 traces per round
+finds which calls exist and the operations, not their rates.
+
 Tempo searches use one window per collection round. A full trace can contain calls outside that search window;
 teia keeps their original times instead of replacing them with the search or collection time. For fully dated
 samples, IP resolution also checks the earliest call against the inventory's address ownership start. Old

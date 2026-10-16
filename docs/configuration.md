@@ -274,11 +274,44 @@ sources:
 |---|---|---|
 | `clusters` | none | The clusters teia maps, in the order the UI lists them; the first is the default. Each one gets its own discovery round, snapshot, history and activity. See [Kubernetes](kubernetes.md#several-clusters-from-one-teia). |
 | `clusters[].name` | required | Unique name shown in the UI and API (`?cluster=`), on `/metrics` series (`cluster="…"`), in webhook messages and MCP answers. 1–128 bytes, without `,` `:` `=` `/`. |
-| `clusters[].sources` | required | The cluster's sources, with the same keys as `sources` below. Source names only need to be unique within a cluster. |
+| `clusters[].sources` | required without `clusterSources` | The cluster's sources, with the same keys as `sources` below. Source names only need to be unique within a cluster. `$cluster` in any value stands for the cluster's name. |
+| `clusterSources` | none | Sources every cluster reads before its own, with the same keys as `sources`. `$cluster` in any value stands for each cluster's name: one entry covers a Mimir and a Tempo shared by every cluster. A cluster's own `kubernetes` or `docker` replaces the one here; its lists are added. See [Shared backends](#shared-backends). |
 
 With `clusters`, the top-level `sources` holds only `declared`, which applies to every cluster; a telemetry or
 inventory source there would be read into every cluster and mix them, so it is rejected. `history.directory` gets one
 subdirectory per cluster, and each cluster's history has the configured limits.
+
+### Shared backends
+
+When a central Mimir, Thanos, VictoriaMetrics or Grafana Cloud keeps every cluster's series apart by a label,
+and a central Tempo keeps every cluster's traces apart by a resource attribute, write the sources once, under
+`clusterSources`, and give each one a `selector`:
+
+```yaml
+clusters:
+  - name: prod-east
+  - name: prod-west
+  - name: staging
+clusterSources:
+  prometheus:
+    - url: https://mimir.example.com/prometheus
+      selector: {cluster: $cluster}                      # every query reads one cluster
+  tempo:
+    - url: https://tempo.example.com
+      selector: {resource.k8s.cluster.name: $cluster}    # services and traces of one cluster
+  kubernetes: {kubeconfig: /etc/teia/kube/$cluster.yaml}
+```
+
+Each cluster still gets its own round, snapshot and health; the `cluster="prod-east"` matcher goes into every
+series selector teia sends, presets, probes and detection included, so one cluster's map never adds up another
+cluster's traffic. Without a selector, a source on a shared backend reads every cluster as one. Where each cluster
+is its own tenant instead, use `headers: {X-Scope-OrgID: $cluster}`.
+
+Rounds of different clusters start at different points of the interval, so the backend sees about
+`clusters ÷ interval` rounds per second rather than all of them at once. Mimir and Thanos do not cache instant
+queries: every round is evaluated again. For large meshes, give them
+[recording rules](https://prometheus.io/docs/practices/rules/) that keep the caller, callee and cluster labels,
+and point a `queries` source at the recorded series. [Capacity](capacity.md#a-central-backend) has the numbers.
 
 Why not one map: two backends that observe the **same** calls (a mesh and traces) are merged per connection, and the
 busiest observation wins, so nothing is counted twice. Two clusters observe **different** calls; merging them would
@@ -313,6 +346,7 @@ name); the same for `tempo`, and `<dialect>/<name>` for queries. Two sources wit
 | `sources.prometheus[].presets` | `[auto]` | Metric families to read. Empty or `[auto]` detects which exist (re-checked every 5 minutes). Names: `servicegraph`, `istio`, `istio-tcp`, `linkerd`, `linkerd-tcp`, `beyla-network`, `obi-network`, `hubble-tcp`, `hubble-http`, `retina`. Unknown names are rejected. See [Presets](sources.md#presets). |
 | `sources.prometheus[].probes` | `[auto]` | Component health to read from standard exporters (memory, connections, consumer lag, locks, restarts). Empty or `[auto]` detects which exist; `[none]` turns them off. Names: `redis`, `kafka`, `rabbitmq`, `mongodb`, `mysql`, `postgres-exporter`, `containers`, `restarts`. See [Component health](sources.md#component-health). |
 | `sources.prometheus[].headers` | none | Map of request headers, such as `Authorization: Bearer ${PROM_TOKEN}` or `X-Scope-OrgID` for multi-tenant Mimir. |
+| `sources.prometheus[].selector` | none | Map of label to value added to every series selector of every query, detection included, such as `cluster: prod-east`: one cluster's series on a backend that keeps several. A selector that already matches on the label keeps its own matcher. See [Shared backends](#shared-backends). |
 
 ### `sources.tempo`: traces
 
@@ -326,6 +360,7 @@ name); the same for `tempo`, and `<dialect>/<name>` for queries. Two sources wit
 | `sources.tempo[].maxTraces` | `400` | Most traces per round. Each service gets an even share (at least one); when that cannot cover every service, rounds take turns. |
 | `sources.tempo[].headers` | none | Map of request headers. |
 | `sources.tempo[].dimensions` | none | Map of business dimension to span attribute, such as `journey: business.journey`. A span without the attribute inherits it from its closest ancestor in the same trace. Each combination becomes a sampled slice of the edge (sample count and sampled p50/p95, no rate or errors). See [slices](journeys.md#slices-follow-the-calls). |
+| `sources.tempo[].selector` | none | Map of TraceQL attribute (`resource.…`, `span.…` or unscoped `.…`) to the value every listed service and sampled trace must carry, such as `resource.k8s.cluster.name: prod-east`. See [Shared backends](#shared-backends). |
 
 ### `sources.queries`: any PromQL or LogQL
 
@@ -352,6 +387,7 @@ second.
 | `sources.queries[].toKind` | `unknown` | Kind of the callees: `service`, `database`, `cache`, `queue`, `external` or `unknown`. |
 | `sources.queries[].headers` | none | Map of request headers. |
 | `sources.queries[].dimensions` | none | Map of business dimension to series label, such as `journey: journey`. `query`, `errors` and `latency` must keep those labels in their grouping. Each combination becomes a slice of the edge with its own rate, error share and p95; the edge itself stays the total. See [slices](journeys.md#slices-follow-the-calls). |
+| `sources.queries[].selector` | none | Map of label to value added to every selector of `query`, `errors` and `latency` (every stream selector in LogQL), as for `sources.prometheus[].selector`. |
 
 Series without both labels, or with `-` as a value, are skipped.
 

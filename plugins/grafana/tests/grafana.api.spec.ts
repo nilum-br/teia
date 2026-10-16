@@ -29,7 +29,8 @@ for (const from of ['now-15m', 'now-30d']) {
       format === 'percentencode' ? encodeURIComponent(variables[name] ?? '') : variables[name] ?? '');
     const queries = panel.targets.filter((q: { refId: string }) => ['nodes', 'edges'].includes(q.refId))
       .map((q: { url?: string }) => ({ ...q, url: q.url && interpolate(q.url) }));
-    expect(queries.every((q: { url?: string }) => q.url?.endsWith('?slice='))).toBe(true);
+    // Every saved query names the slice and the cluster it reads; empty is every call of the default cluster.
+    expect(queries.every((q: { url?: string }) => /[?&]slice=(&|$)/.test(q.url ?? '') && /[?&]cluster=(&|$)/.test(q.url ?? ''))).toBe(true);
     const response = await request.post('/api/ds/query', { data: { queries, from, to: 'now' } });
     expect(response.ok()).toBe(true);
     const { results } = await response.json();

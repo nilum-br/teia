@@ -42,13 +42,27 @@ INTERVAL=60s VUS=50 DURATION=60s lab/stress/ladder.sh   # tune one run
 | `TRACES` | `100` | traces sampled per cluster and round (`maxTraces`) |
 | `VUS` / `DURATION` | `20` / `30s` | k6 virtual users and length |
 | `OUT` | a new directory in `$TMPDIR` | where results go |
+| `CENTRAL` | empty | `1`: every cluster's query source reads one backend that keeps all clusters (`/central`), with `selector: {cluster: c<i>}`, as on a shared Mimir |
+| `PROM_LATENCY` | `0s` | how long each PromQL query takes |
+| `SEARCH_LATENCY` | `0s` | how long each Tempo search takes |
+| `TRACE_LATENCY` | `0s` | how long each Tempo trace fetch takes |
+
+A slow backend shows what instant answers hide: with `SEARCH_LATENCY=400ms`, a round of 500 services has time for
+part of the searches, and the Tempo source says how many it reached.
+
+```sh
+SEARCH_LATENCY=400ms TRACE_LATENCY=100ms PROM_LATENCY=300ms lab/stress/ladder.sh "10 500 4 2 2"
+CENTRAL=1 lab/stress/ladder.sh "10 500 4 1 1"
+```
 
 ## What it does
 
 - `synth/` serves Prometheus and Tempo APIs for many clusters, under
   `/c/<i>/`: each runs the same services (`svc-0000`…) with its own traffic, each
   service calls `-fanout` others, and each call is one series per journey and
-  tenant combination.
+  tenant combination. `/central/` is one Prometheus API for every cluster, each
+  series labelled `cluster="c<i>"`, and `-prom-latency`, `-search-latency` and
+  `-trace-latency` slow its answers down.
 - `teiaprof/` runs teia's server exactly as `teia serve` builds it, plus Go's
   profiler on `127.0.0.1:16060`. It is a measurement tool; teia itself has no
   profiler.
