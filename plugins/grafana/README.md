@@ -102,6 +102,11 @@ hidden textbox named `slice`, as in the lab's dashboard) and pass it to teia in 
 frames that come back say which slice they hold, and ✕ empties it for every call. Without the variable the panel
 offers no buttons but still labels frames a query sliced. Direct mode slices through teia's API instead.
 
+**Clusters.** For a teia that maps [several clusters](../../docs/configuration.md#clusters), the lab's dashboard has
+a `cluster` variable: an Infinity query of teia's `/api/v1/clusters` (root `clusters`, column `name`), passed to every
+query as `cluster=${cluster:percentencode}`. Grafana shows it as the dashboard's cluster picker, and the dashboard's
+other panels can use `$cluster` too. With a single scope it has one empty option: teia's only map.
+
 ### Numeric frame contract
 
 For queries with different column names, use the panel's setup form or the optional **Column mapping (JSON)**
