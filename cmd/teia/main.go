@@ -162,6 +162,9 @@ func serve(args []string) error {
 	if ui != nil {
 		log.Info("serving the UI from disk; edits show on the next reload", "dir", *uiDir)
 	}
+	if limit := setMemoryLimit(os.Getenv, os.ReadFile); limit > 0 {
+		log.Info("Go memory limit set from the container's", "bytes", limit, "share", memoryShare)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
