@@ -28,8 +28,9 @@ differs keeps a heavy outline; what did not change is muted. The "+" and the das
 
 ## Rules for changes
 
-- Color is for health, selection and focus. A new state gets a shape or a stroke before it gets a color, and it
-  goes in the legend.
+- Color is for health, selection and focus. Health is a component's, teia's own (its connection, a failed
+  request) or a finding's severity; a pause, a count or a new call is not health. A new state gets a shape or a
+  stroke before it gets a color, and it goes in the legend.
 - Dashed means "only declared" everywhere; hatched means "teia cannot see inside"; a dot is a unit of work. Do not
   reuse them for anything else.
 - The marks that carry the grammar (the hatch, the dashed card, the dashed line) keep 3:1 against the surface under
@@ -41,3 +42,6 @@ differs keeps a heavy outline; what did not change is muted. The "+" and the das
   see it.
 - Icons follow the [icon library](icons.md#drawing-a-new-icon) rules.
 - Check a change on the standalone page and in the Grafana panel, light and dark, desktop and mobile.
+
+`internal/api/design-rules.test.mjs` checks the rules a stylesheet can break: health colors only on health states,
+dashes only on what is only declared, none of the excluded decoration, and the grammar's contrast in every theme.

@@ -108,7 +108,7 @@ header {
 .live { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--unknown); }
 .live.on i { background: var(--healthy); }
-.live.paused i { background: var(--degraded); }
+.live.paused i { background: none; border: 1.5px solid var(--muted); } /* a choice, not a health: hollow, not amber */
 .live.error i { background: var(--failing); }
 .live.error span { color: var(--err-text); }
 .search { position: relative; }
@@ -254,7 +254,6 @@ details summary { cursor: pointer; color: var(--accent); font-size: 12px; margin
 .fchip button { height: 20px; min-width: 20px; border: 0; border-radius: 4px; background: none; color: var(--ink-2); cursor: pointer; padding: 0 5px; }
 .fchip button:hover { background: var(--panel-2); color: var(--ink); }
 .fchip button svg { width: 12px; height: 12px; display: block; }
-.fchip.slice { border-style: dashed; }
 .scope .slice-note { text-transform: none; letter-spacing: 0; }
 .scope .clear { border: 0; background: none; color: var(--accent); cursor: pointer; font-size: 12px; white-space: nowrap; }
 .filter-panel { position: absolute; z-index: 30; left: 12px; top: 104px; width: min(760px, calc(100% - 24px)); max-height: min(70vh, calc(100% - 130px)); overflow: auto;
@@ -379,7 +378,7 @@ button.label:hover { border-color: var(--accent); }
 .teia.panel .legend { font-size: 12px; padding: 8px 10px; }
 .stepsBtn { display: inline-flex; }
 .teia.panel .stepsBtn { display: inline-flex; }
-.stepsBtn .count { color: var(--warn-text); font-weight: 600; font-size: 12px; }
+.stepsBtn .count { color: var(--ink); font-weight: 600; font-size: 12px; }
 @container teia (max-width: 640px) {
   .panel .rings { display: none; }
   .teia.panel .search input { width: 120px; }
@@ -1696,7 +1695,12 @@ button.label:hover { border-color: var(--accent); }
     projected.operationContext = { id, traceId, operation: scope?.operation || (base.slice ? 'not sampled in this slice' : 'unavailable in this capture'), unavailable: !scope || (!!traceId && !traces.length) };
     return projected;
   }
-  Object.assign(core, { groupingPath, neighbourOrder, mapReasons, safeLinks, investigateSnapshot, compareSnapshots, operationsOf, operationSnapshot });
+  // changeTone: the colour of a change in the activity feed and its toasts.
+  // Only health has one; a new undeclared call is news, not a warning.
+  const changeTone = c => c.to === 'failing' || (c.type === 'finding.opened' && c.to === 'critical') ? 'bad'
+    : c.to === 'healthy' || c.type === 'finding.resolved' ? 'good'
+      : c.to === 'degraded' ? 'warn' : '';
+  Object.assign(core, { groupingPath, neighbourOrder, mapReasons, safeLinks, investigateSnapshot, compareSnapshots, operationsOf, operationSnapshot, changeTone });
 
   // A bounded view of observed topology, never a claim that a path is one request.
   function investigateSnapshot(snap, options = {}) {
@@ -3505,9 +3509,6 @@ button.label:hover { border-color: var(--accent); }
       'finding.opened': '<path d="M4.25 17.25V2.75M4.25 3.75H15.25L12.75 7.25L15.25 10.75H4.25"/>',
       'finding.resolved': '<path d="M4.5 10.25L8.25 14L15.5 6.5"/>',
     };
-    const changeTone = c => c.to === 'failing' || (c.type === 'finding.opened' && c.to === 'critical') ? 'bad'
-      : c.to === 'healthy' || c.type === 'finding.resolved' ? 'good'
-        : (c.type === 'edge.added' && c.to === 'ghost') || c.to === 'degraded' ? 'warn' : '';
     const changeKey = c => `${c.at}|${c.type}|${c.id || c.subject}`;
 
     function renderActivity(freshCount = 0) {

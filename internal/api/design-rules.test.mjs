@@ -4,19 +4,25 @@
 //   node --test internal/api/design-rules.test.mjs
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { describe, it } from 'node:test';
 
 const source = readFileSync(new URL('./ui/teia-ui.js', import.meta.url), 'utf8');
+const { core } = createRequire(import.meta.url)('./ui/teia-ui.js');
 
-// The two stylesheets as written (neither interpolates), split into rules.
-// Rules inside @media come out with their own selector, which is all these checks need.
-const sheet = name => {
-  const start = source.indexOf(`const ${name} = \``) + `const ${name} = \``.length;
-  return source.slice(start, source.indexOf('`;', start));
+// The component's stylesheets as written (none interpolates), split into rules:
+// the page's, the investigation workspace's and the map's. Rules inside @media
+// come out with their own selector, which is all these checks need.
+const sheet = opening => {
+  const start = source.indexOf(opening);
+  assert.ok(start >= 0, `no stylesheet at ${opening}`);
+  return source.slice(start + opening.length, source.indexOf('`;', start));
 };
+const SHEETS = ['const STYLE = `', 'style.textContent = STYLE + `', 'const SVG_CSS = `'].map(sheet);
 const rulesOf = css => [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
   .map(([, selector, body]) => ({ selector: selector.trim().replace(/\s+/g, ' '), body }));
-const RULES = [...rulesOf(sheet('STYLE')), ...rulesOf(sheet('SVG_CSS'))];
+const RULES = SHEETS.flatMap(rulesOf);
+const selectors = r => r.selector.replace(/^@[^{]*$/, '').split(/,(?![^(]*\))/).map(s => s.trim());
 const rule = (selector, has = '') => {
   const found = RULES.find(r => r.selector === selector && r.body.includes(has));
   assert.ok(found, `no rule ${selector}`);
@@ -47,6 +53,44 @@ const stroke = (theme, selector, surface) => {
 };
 
 describe('design rules (docs/design.md)', () => {
+  // Health is a component's health, teia's own (its connection, a failed
+  // request) or a finding's severity. A rule that paints with one of these
+  // colours has to say which health it shows.
+  it('keeps green, amber and red for health', () => {
+    const HEALTH_COLOUR = /var\(--(?:healthy|degraded|failing|ok-text|warn-text|err-text|warning|critical)\)/;
+    const HEALTH_STATE = /\.(?:h-)?(?:healthy|degraded|failing|critical|warning|warn|error|err|fail|bad|good|ok)\b|\.live\.on\b/;
+    const misuse = RULES.filter(r => HEALTH_COLOUR.test(r.body)).flatMap(selectors).filter(s => !HEALTH_STATE.test(s));
+    assert.deepEqual(misuse, []);
+  });
+
+  it('colours a change in the activity feed only by health', () => {
+    assert.equal(core.changeTone({ type: 'edge.added', to: 'ghost' }), '', 'a new undeclared call is news, not a warning');
+    assert.equal(core.changeTone({ type: 'edge.changed', to: 'stale' }), '');
+    assert.equal(core.changeTone({ type: 'node.changed', to: 'degraded' }), 'warn');
+    assert.equal(core.changeTone({ type: 'edge.changed', to: 'failing' }), 'bad');
+    assert.equal(core.changeTone({ type: 'finding.resolved' }), 'good');
+  });
+
+  it('keeps the dash for what is only declared', () => {
+    const ONLY_DECLARED = /\.vis-none\b|\.s-stale\b|\.stale\b/;
+    const misuse = RULES.filter(r => /stroke-dasharray|\bdashed\b|\bdotted\b/.test(r.body)).flatMap(selectors).filter(s => !ONLY_DECLARED.test(s));
+    assert.deepEqual(misuse, []);
+  });
+
+  it('draws none of the decoration the rules exclude', () => {
+    const css = SHEETS.join('\n');
+    for (const [what, pattern] of [['uppercase labels', /text-transform:\s*uppercase/], ['letter-spaced labels', /letter-spacing:(?!\s*(?:0|normal)\s*[;}])[^;}]*/],
+      ['blur', /blur\(|backdrop-filter/], ['gradients', /-gradient\(/], ['endless motion', /\binfinite\b/], ['glow', /text-shadow|drop-shadow/]]) {
+      assert.equal(css.match(pattern)?.[0], undefined, what);
+    }
+    assert.equal(source.match(/feGaussianBlur|feDropShadow/)?.[0], undefined, 'glow in SVG');
+    // Floating surfaces (menus, dialogs, the drawer) share one shadow, and it falls below them: no halo.
+    for (const r of RULES.filter(r => /box-shadow/.test(r.body))) assert.match(r.body, /box-shadow:\s*(?:var\(--shadow\)|none)/, r.selector);
+    for (const [name, theme] of Object.entries(THEMES)) {
+      for (const layer of theme['--shadow'].split(/,(?![^(]*\))/)) assert.match(layer.trim(), /^0 [1-9]\d*px /, `${name} shadow: ${layer}`);
+    }
+  });
+
   // WCAG 2.2, 1.4.11: a graphic needed to understand the content keeps 3:1
   // against what it sits on. On the map that is the hatch (a blind spot), the
   // dashed card (no traffic seen) and the dashed line (declared, not seen).
