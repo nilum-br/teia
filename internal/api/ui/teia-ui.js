@@ -18,7 +18,7 @@
   --bg: #0d1120; --bg-2: #111627; --panel: #141a2a; --panel-2: #1b2234; --line: rgba(214, 222, 240, .09); --line-2: rgba(214, 222, 240, .17);
   --ink: #e7e9ed; --ink-2: #b6bcc6; --muted: #8d95a1; --accent: #6f9fff; --accent-2: #6f9fff; --accent-ink: #0b1220;
   --healthy: #4aae80; --degraded: #dfa23a; --failing: #ea5c5c; --unknown: #868e9b;
-  --ghost: #dfa23a; --stale: #868e9b; --edge: #7a8494; --particle: #c3c9d3;
+  --hatch: #6f7789; --stale: #868e9b; --edge: #7a8494; --particle: #c3c9d3;
   --card: #161c2c; --card-hi: #1d2437; --field: #0d1120; --grid: transparent;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .35);
   --critical: #ea5c5c; --warning: #dfa23a; --info: #6f9fff;
@@ -31,7 +31,7 @@
     --bg: #f3f4f6; --bg-2: #eceef1; --panel: #ffffff; --panel-2: #eef0f3; --line: #e1e4e9; --line-2: #cdd2da;
     --ink: #14171c; --ink-2: #383e49; --muted: #5a616d; --accent: #0052e0; --accent-2: #0052e0; --accent-ink: #ffffff;
     --healthy: #2c8f62; --degraded: #a87406; --failing: #d23b3b; --unknown: #7a818d;
-    --ghost: #a87406; --stale: #7a818d; --edge: #78808d; --particle: #4b5361;
+    --hatch: #838994; --stale: #7a818d; --edge: #78808d; --particle: #4b5361;
     --card: #ffffff; --card-hi: #f2f5fb; --field: #ffffff; --grid: transparent;
     --shadow: 0 1px 2px rgba(20, 23, 28, .06), 0 6px 18px rgba(20, 23, 28, .10);
     --critical: #d23b3b; --warning: #a87406; --info: #0052e0;
@@ -43,7 +43,7 @@
   --bg: #f3f4f6; --bg-2: #eceef1; --panel: #ffffff; --panel-2: #eef0f3; --line: #e1e4e9; --line-2: #cdd2da;
   --ink: #14171c; --ink-2: #383e49; --muted: #5a616d; --accent: #0052e0; --accent-2: #0052e0; --accent-ink: #ffffff;
   --healthy: #2c8f62; --degraded: #a87406; --failing: #d23b3b; --unknown: #7a818d;
-  --ghost: #a87406; --stale: #7a818d; --edge: #78808d; --particle: #4b5361;
+  --hatch: #838994; --stale: #7a818d; --edge: #78808d; --particle: #4b5361;
   --card: #ffffff; --card-hi: #f2f5fb; --field: #ffffff; --grid: transparent;
   --shadow: 0 1px 2px rgba(20, 23, 28, .06), 0 6px 18px rgba(20, 23, 28, .10);
   --critical: #d23b3b; --warning: #a87406; --info: #0052e0;
@@ -1944,8 +1944,12 @@ button.label:hover { border-color: var(--accent); }
          hatched card is a blind spot (only its callers report it). Colour is health. */
       .node .blind { fill: url(#teia-blind); pointer-events: none; display: none; }
       .node.vis-partial .blind { display: inline; }
-      .blind-line { stroke: var(--ink); stroke-opacity: .13; stroke-width: 1.3; }
+      /* The hatch and the dashed card keep 3:1 against every card surface (design-rules.test.mjs). */
+      .blind-line { stroke: var(--hatch); stroke-width: 1; }
+      .node.vis-partial :is(.title, .sub) { paint-order: stroke; stroke: var(--card); stroke-width: 4px; stroke-linejoin: round; }
+      .node.vis-partial:is(:hover, .sel, :focus-visible) :is(.title, .sub) { stroke: var(--card-hi); }
       .node.vis-none .card { stroke-dasharray: 5 4; }
+      .vis-none .card { stroke: var(--stale); } /* health, hover and selection outrank it */
       .node.vis-none .title { fill: var(--ink-2); }
       .h-degraded .card { stroke: var(--degraded); }
       .h-failing .card { stroke: var(--failing); stroke-width: 1.5; }
@@ -2054,8 +2058,8 @@ button.label:hover { border-color: var(--accent); }
         defs.append(m);
       }
       // Blind spots are hatched, like unsurveyed ground on a map.
-      const hatch = sv('pattern', { id: 'teia-blind', width: '5', height: '5', patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' });
-      hatch.append(sv('path', { d: 'M0,0 V5', class: 'blind-line' }));
+      const hatch = sv('pattern', { id: 'teia-blind', width: '7', height: '7', patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' });
+      hatch.append(sv('path', { d: 'M3.5,0 V7', class: 'blind-line' })); // centred: a line on the tile's edge is half clipped
       defs.append(hatch);
       const st = sv('style');
       st.textContent = SVG_CSS;
@@ -3552,7 +3556,7 @@ button.label:hover { border-color: var(--accent); }
       clone.setAttribute('viewBox', `0 0 ${w} ${h}`);
       clone.setAttribute('width', w); clone.setAttribute('height', h);
       clone.setAttribute('xmlns', SVGNS);
-      const vars = ['--bg', '--bg-2', '--panel', '--line', '--line-2', '--ink', '--ink-2', '--muted', '--accent', '--healthy', '--degraded', '--failing', '--unknown', '--ghost', '--stale', '--edge', '--particle', '--card', '--card-hi'];
+      const vars = ['--bg', '--bg-2', '--panel', '--line', '--line-2', '--ink', '--ink-2', '--muted', '--accent', '--healthy', '--degraded', '--failing', '--warn-text', '--err-text', '--unknown', '--hatch', '--stale', '--edge', '--particle', '--card', '--card-hi'];
       const st = clone.querySelector('style');
       st.textContent = `svg{${vars.map(v => `${v}:${css(v)}`).join(';')};font-family:"IBM Plex Sans",system-ui,sans-serif}` + st.textContent;
       clone.insertBefore(sv('rect', { width: '100%', height: '100%', fill: css('--bg') }), clone.firstChild.nextSibling);

@@ -28,6 +28,8 @@ declared, declared but not seen, blind spots. Each count is a button that shows 
   goes in the legend.
 - Dashed means "only declared" everywhere; hatched means "teia cannot see inside"; a dot is a unit of work. Do not
   reuse them for anything else.
+- The marks that carry the grammar (the hatch, the dashed card, the dashed line) keep 3:1 against the surface under
+  them in every theme, Grafana's included, so they do not depend on good eyesight or a good screen.
 - One sans-serif family, tabular numbers, small radii (6 px on cards, 1 px inside icons).
 - No decorative motion, glow, blur, gradients, dot-grid backgrounds, uppercase eyebrow labels, colored side
   stripes or icons in colored tiles. The traffic dots move only when **Flow** is on, and Flow starts off when the system asks for reduced motion.
