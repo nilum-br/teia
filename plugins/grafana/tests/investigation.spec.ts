@@ -157,3 +157,17 @@ test('refresh retains focus on filters and boundary ports, and shared port selec
   await expect(root.locator('.port.sel')).toHaveCount(1);
   await expect(root.locator('#pane-details h2')).toHaveText(label!);
 });
+
+test('next steps and the filter panel print nothing for a section they leave out', async ({ page }) => {
+  const snap = graphFixture();
+  snap.findings = [{ id: 'drift-1', rule: 'drift', kind: 'drift', severity: 'warning', subject: snap.nodes[1].id,
+    title: 'service-0001 has no flows file', detail: 'Its observed calls are not declared.' }];
+  const root = await mountFixture(page, snap);
+  const steps = root.locator('#pane-steps');
+  await expect(steps).toContainText('service-0001 has no flows file');
+  await expect(steps).not.toContainText('null');
+  await root.locator('#filterBtn').click();
+  const panel = root.locator('#filterPanel');
+  await expect(panel).toBeVisible();
+  await expect(panel).not.toContainText('null');
+});
