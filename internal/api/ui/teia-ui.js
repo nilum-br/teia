@@ -1973,12 +1973,12 @@ button.label:hover { border-color: var(--accent); }
       .node .icon { color: var(--unknown); }
       .h-healthy .icon { color: var(--healthy); } .h-degraded .icon { color: var(--degraded); }
       .h-failing .icon { color: var(--failing); }
-      .glyph { display: none; } .h-degraded .glyph.warn, .h-failing .glyph.fail { display: inline; }
+      .glyph { display: none; pointer-events: none; } .h-degraded .glyph.warn, .h-failing .glyph.fail { display: inline; }
       .glyph path { stroke: var(--card); stroke-width: 2; paint-order: stroke; stroke-linejoin: round; }
       .glyph.warn path { fill: var(--degraded); } .glyph.fail path { fill: var(--failing); }
       .kind-group .card { stroke: var(--ink-2); stroke-width: 1.2; }
       .node .title { fill: var(--ink); font-weight: 600; font-size: 13.5px; }
-      .compact .node :is(.sub, .alert, .why-tag, .icon, .glyph, .blind),
+      .compact .node :is(.sub, .alert, .why-tag, .icon),
       .compact :is(.value-tag, .why-tag, .elabel, .frame-stats, .lane-caption) { display: none; }
       .compact .h-degraded .card { stroke: var(--warn-text); stroke-width: 1.5; }
       .compact .h-failing .card { stroke: var(--err-text); stroke-width: 1.5; }
@@ -2587,14 +2587,23 @@ button.label:hover { border-color: var(--accent); }
       for (const [id, g] of nodeEls) {
         const n = currentView.nodes.get(id), title = g._parts.title;
         const mark = DIFF_MARK[diffOf(n)] || '';
-        const prefix = mark + (!compactView ? '' : n.health === 'failing' ? '× ' : n.health === 'degraded' ? '▲ ' : '');
-        const max = compactView ? Math.max(3, Math.floor((NODE_W * k - 12) / 7) - prefix.length) : 17 - mark.length;
+        const prefix = mark;
+        const glyphRoom = n.health === 'failing' || n.health === 'degraded' ? 2 : 0;
+        const max = compactView ? Math.max(3, Math.floor((NODE_W * k - 12) / 7) - prefix.length - glyphRoom) : 17 - mark.length;
         const name = denseView ? n.title : n.title.length > max ? n.title.slice(0, max - 1) + '…' : n.title;
         title.textContent = prefix + name;
-        title.setAttribute('x', compactView ? 0 : -NODE_W / 2 + 60);
+        const shift = compactView && glyphRoom ? 7 / k : 0;
+        title.setAttribute('x', compactView ? shift : -NODE_W / 2 + 60);
         title.setAttribute('y', compactView ? 4 / k : -3);
         title.setAttribute('text-anchor', compactView ? 'middle' : 'start');
         title.style.fontSize = compactView ? `${12 / k}px` : '14px';
+        // Health is a shape as well as a colour at every zoom: zoomed out, the
+        // card's triangle or cross moves next to the name, at screen size.
+        for (const glyph of g.querySelectorAll('.glyph')) {
+          if (!compactView) { glyph.setAttribute('transform', `translate(${-NODE_W / 2 + 33},9)`); continue; }
+          const w = title.getComputedTextLength ? title.getComputedTextLength() : name.length * 7 / k;
+          glyph.setAttribute('transform', `translate(${Math.max(-NODE_W / 2 + 8 / k, shift - w / 2 - 10 / k)},${-0.5 / k}) scale(${1 / k})`);
+        }
       }
       layerReasons?.classList.toggle('far', k < 0.55); // values unreadable this small
       stage.style.setProperty('--grid-x', x + 'px');
