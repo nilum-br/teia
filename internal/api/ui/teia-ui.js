@@ -1613,6 +1613,40 @@ button.label:hover { border-color: var(--accent); }
     return pos;
   }
 
+  // steadyLayout keeps the map where people last saw it (prev, the previous
+  // layout of the same view). layered places every card from scratch, so one
+  // call appearing used to move most of them. Here a call appearing or going
+  // away, or a component going away, moves nothing; a few new components each
+  // take a free row in the column after their caller (or before their callee).
+  // No previous layout, a large change, or a framed scope (pin) lays out
+  // afresh, from seed when it covers every card (two maps compared side by side).
+  function steadyLayout(prev, view, { colGap = 300, rowGap = 112, pin = new Map(), seed = null, taken = {} } = {}) {
+    const ids = [...view.nodes.keys()].sort();
+    if (!prev) return seed && ids.every(id => seed[id]) ? Object.fromEntries(ids.map(id => [id, seed[id]])) : layered(view, { colGap, rowGap, pin });
+    const added = ids.filter(id => !prev[id]);
+    if (added.length && (pin.size || added.length > Math.max(3, ids.length * 0.2))) return layered(view, { colGap, rowGap, pin });
+    const pos = {};
+    for (const id of ids) if (prev[id]) pos[id] = prev[id];
+    if (!added.length) return pos;
+    const fresh = layered(view, { colGap, rowGap, pin });
+    const edges = [...view.edges.values()];
+    for (const id of added) {
+      const callers = edges.filter(e => e.to === id && pos[e.from]).map(e => pos[e.from]);
+      const callees = edges.filter(e => e.from === id && pos[e.to]).map(e => pos[e.to]);
+      const near = [...callers, ...callees];
+      const x = callers.length ? Math.max(...callers.map(p => p.x)) + colGap : callees.length ? Math.min(...callees.map(p => p.x)) - colGap : fresh[id].x;
+      const want = near.length ? near.reduce((a, p) => a + p.y, 0) / near.length : fresh[id].y;
+      const column = [...Object.entries(pos), ...Object.entries(taken).filter(([other]) => view.nodes.has(other))]
+        .filter(([, p]) => Math.abs(p.x - x) < colGap / 2).map(([, p]) => p.y);
+      let y = want;
+      for (let step = 1; column.some(cy => Math.abs(cy - y) < rowGap - 1e-9) && step < 400; step++) {
+        y = want + Math.ceil(step / 2) * (rowGap / 2) * (step % 2 ? 1 : -1);
+      }
+      pos[id] = { x, y };
+    }
+    return pos;
+  }
+
   // AUTO_GROUP_NODES is the most components a map draws one by one when
   // nobody chose a grouping: past it a browser spends seconds on every round
   // (2 000 components and 8 000 connections took 16 s a round in Chromium),
@@ -1660,7 +1694,7 @@ button.label:hover { border-color: var(--accent); }
     } catch { return null; }
   }
 
-  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, autoGroupKey, AUTO_GROUP_NODES, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, scopeSnapshot, scopePins, journeyWhy, journeyNames, scopeOf, facetsOf, facetValues, journeyKeyOf, JOURNEY_KEYS, filtersFromParams, filtersToParams, filterLabel, filtersActive, emptyFilters, journeyPorts, packColumn, frameLayout, scopeStats, TECH, CATEGORY, SIGNAL, REASON };
+  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, steadyLayout, autoGroupKey, AUTO_GROUP_NODES, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, scopeSnapshot, scopePins, journeyWhy, journeyNames, scopeOf, facetsOf, facetValues, journeyKeyOf, JOURNEY_KEYS, filtersFromParams, filtersToParams, filterLabel, filtersActive, emptyFilters, journeyPorts, packColumn, frameLayout, scopeStats, TECH, CATEGORY, SIGNAL, REASON };
   function operationsOf(value) {
     if (!value || value.version !== 1 || value.mode !== 'operation' || !Array.isArray(value.scopes) || !Array.isArray(value.sources)) return undefined;
     const scopes = value.scopes.filter(s => s && typeof s.id === 'string' && typeof s.operation === 'string' && typeof s.entryService === 'string' &&
@@ -1937,7 +1971,7 @@ button.label:hover { border-color: var(--accent); }
     let viewport, layerFrame, layerEdges, layerPorts, layerMarks, layerReasons, layerParticles, layerLabels, layerNodes;
     const portEls = new Map(); // port id -> { port, g }
     const nodeEls = new Map(), edgeEls = new Map();
-    let currentView = null, layoutPos = {}, topologyKey = '';
+    let currentView = null, layoutPos = {}, topologyKey = '', layoutShape = '';
 
     const SVG_CSS = `
       .card { fill: var(--card); stroke: var(--line-2); stroke-width: 1; transition: fill .15s, stroke .15s; }
@@ -2107,7 +2141,13 @@ button.label:hover { border-color: var(--accent); }
       ports = ports.filter(p => p.anchors.length);
       const pin = scope ? scopePins(view, ports) : new Map();
       const key = [...view.nodes.keys()].sort().join('|') + '#' + [...view.edges.keys()].sort().join('|') + '#' + [...pin].sort().join(';');
-      if (key !== topologyKey) { layoutPos = layered(view, { pin }); topologyKey = key; }
+      // A new round of the same view keeps the cards where they were; another
+      // view (filters, grouping, an investigation, Reset) lays out afresh.
+      const shape = [posKey(), state.groupBy, [...state.expanded].sort().join(','), JSON.stringify(state.investigation), state.operation.id].join('#');
+      if (key !== topologyKey) {
+        layoutPos = steadyLayout(topologyKey && shape === layoutShape ? layoutPos : null, view, { pin, seed: opts.layout, taken: state.positions });
+        topologyKey = key; layoutShape = shape;
+      }
       if (state.hover && !view.nodes.has(state.hover)) state.hover = null;
       if (state.hoverEdge && !view.edges.has(state.hoverEdge)) state.hoverEdge = null;
 
@@ -2611,6 +2651,14 @@ button.label:hover { border-color: var(--accent); }
         const p = g._pos;
         x0 = Math.min(x0, p.x - NODE_W / 2); x1 = Math.max(x1, p.x + NODE_W / 2);
         y0 = Math.min(y0, p.y - NODE_H / 2); y1 = Math.max(y1, p.y + NODE_H / 2 + 12);
+      }
+      // Maps compared side by side share a layout and fit the same frame, every
+      // card either capture has, so a card sits in the same place in both.
+      if (opts.layout && [...nodeEls.keys()].every(id => opts.layout[id])) {
+        for (const p of Object.values(opts.layout)) {
+          x0 = Math.min(x0, p.x - NODE_W / 2); x1 = Math.max(x1, p.x + NODE_W / 2);
+          y0 = Math.min(y0, p.y - NODE_H / 2); y1 = Math.max(y1, p.y + NODE_H / 2 + 12);
+        }
       }
       if (state.frameBox) {
         const fb = state.frameBox;
@@ -3750,11 +3798,15 @@ button.label:hover { border-color: var(--accent); }
       const maps = el('div', { class: 'workspace-grid' });
       // Each map marks only what it can show: absences belong to "before", arrivals to "after".
       const marks = (rows, side) => Object.fromEntries(rows.filter(row => row.status === 'changed' || row.status === (side === 'before' ? 'removed' : 'added')).map(row => [row.id, row.status]));
+      // Both maps are laid out from every component and call either capture has.
+      const union = (a, b, key) => [...new Map([...a, ...b].map(x => [key(x), x])).values()];
+      const both = sanitize({ nodes: union(comparison.before.nodes, comparison.after.nodes, n => n.id), edges: union(comparison.before.edges, comparison.after.edges, e => e.from + '->' + e.to) });
+      const layout = layered(buildView(both, indexSnapshot(both)));
       for (const side of ['before','after']) {
         const host = el('div', { class: 'comparison-map', 'aria-label': `${side} communication map` });
         maps.append(el('div', {}, el('h3', {}, side === 'before' ? 'Before' : 'After'), host));
         result.append(maps);
-        const controller = mount(host, { mode: 'panel', flow: false, theme: hostTheme(), comparison: true, storageKey: prefix + 'compare-' + side,
+        const controller = mount(host, { mode: 'panel', flow: false, theme: hostTheme(), comparison: true, storageKey: prefix + 'compare-' + side, layout,
           diff: { nodes: marks(diff.nodes, side), edges: marks(diff.edges, side) } });
         controller.update(comparison[side]); comparisonMaps.push(controller);
       }

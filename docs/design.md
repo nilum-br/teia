@@ -35,6 +35,9 @@ differs keeps a heavy outline; what did not change is muted. The "+" and the das
   reuse them for anything else.
 - The marks that carry the grammar (the hatch, the dashed card, the dashed line) keep 3:1 against the surface under
   them in every theme, Grafana's included, so they do not depend on good eyesight or a good screen.
+- The map stays where people last saw it. A new round moves no card when a call appears or goes away, and a new
+  component takes a free row instead of pushing others; only another view (filters, grouping, an investigation)
+  or **Reset** lays the map out again. Two captures compared side by side share one layout.
 - One sans-serif family, tabular numbers, small radii (6 px on cards, 1 px inside icons).
 - No decorative motion, glow, blur, gradients, dot-grid backgrounds, uppercase eyebrow labels, colored side
   stripes or icons in colored tiles. The traffic dots move only when **Flow** is on, and Flow starts off when the system asks for reduced motion.

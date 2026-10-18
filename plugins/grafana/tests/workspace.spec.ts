@@ -61,6 +61,15 @@ for (const theme of ['light','dark'] as const) for (const width of [600,1600]) {
       await expect(map.locator('.node[data-id="service-0000"] .title')).toHaveText(/^~ /);
     }
     await expect(beforeMap.locator('.node[data-id="service-0001"]')).toHaveClass(/\bnodiff\b/);
+    // Both maps share one layout and one frame: a card sits in the same place in both.
+    const at = async (map: typeof beforeMap, id: string) => {
+      const m = (await map.locator('#map').boundingBox())!, b = (await map.locator(`.node[data-id="${id}"] .card`).boundingBox())!;
+      return [b.x - m.x, b.y - m.y];
+    };
+    for (const id of ['service-0000', 'service-0003']) {
+      const [a, b] = [await at(beforeMap, id), await at(afterMap, id)];
+      expect(Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1])).toBeLessThan(2);
+    }
     await expect(beforeMap.locator('.node.diff-added')).toHaveCount(0);
     await expect(root.locator('#comparisonResult')).toContainText('underlined is only after, struck through is only before');
     const dialog = root.locator('#investigateDialog[open]');
