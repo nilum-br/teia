@@ -129,6 +129,8 @@ header {
 .btn:disabled { opacity: .5; cursor: default; }
 .btn:disabled:hover { background: transparent; }
 .btn svg { width: 15px; height: 15px; color: var(--ink-2); flex: none; }
+/* Icons are drawn at 20px; smaller ones get a heavier stroke so it stays about 1.3px. */
+:is(.btn, .chip, .fchip, .fv, .legend, .feed, .search, .scope, .why) svg:not(.gram) { stroke-width: 1.75; }
 .btn.on { background: color-mix(in srgb, var(--accent) 13%, transparent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 .btn.on svg { color: var(--accent); }
 .btn.icon { width: 30px; padding: 0; justify-content: center; }
@@ -234,7 +236,7 @@ details summary { cursor: pointer; color: var(--accent); font-size: 12px; margin
 .hero { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
 .hero .tile { width: 28px; height: 28px; display: grid; place-items: center; flex: none; margin-top: 1px; color: var(--ink-2); }
 .hero .tile.healthy { color: var(--ok-text); } .hero .tile.degraded { color: var(--warn-text); } .hero .tile.failing { color: var(--err-text); }
-.hero .tile svg { width: 24px; height: 24px; }
+.hero .tile svg { width: 20px; height: 20px; }
 .hero h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; line-height: 1.3; word-break: break-all; }
 .why { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center; padding: 8px 10px; margin-bottom: 6px;
   border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel-2); }
@@ -399,17 +401,26 @@ button.label:hover { border-color: var(--accent); }
 }
 `;
 
-  // Icons drawn for the controls, on the icon library's 24px grid and stroke.
+  // Icons drawn for the controls, on the icon library's grid and stroke.
   const UI_ICON = {
-    x: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
-    chevron: '<path d="M7 10l5 5 5-5"/>',
-    plus: '<path d="M12 5.5v13M5.5 12h13"/>',
-    minus: '<path d="M5.5 12h13"/>',
-    fit: '<path d="M4.5 9V4.5H9M15 4.5h4.5V9M19.5 15v4.5H15M9 19.5H4.5V15"/>',
-    reset: '<path d="M4.8 12a7.2 7.2 0 1 0 2.1-5.1L4.8 9"/><path d="M4.8 4.6V9h4.4"/>',
-    check: '<path d="M5.5 12.5l4 4 9-9"/>',
+    x: '<path d="M5 5L15 15M15 5L5 15"/>',
+    chevron: '<path d="M5.5 8L10 12.5L14.5 8"/>',
+    plus: '<path d="M10 4.25V15.75M4.25 10H15.75"/>',
+    minus: '<path d="M4.25 10H15.75"/>',
+    fit: '<path d="M3.25 7.25V3.25H7.25M12.75 3.25H16.75V7.25M16.75 12.75V16.75H12.75M7.25 16.75H3.25V12.75"/>',
+    reset: '<path d="M4 10A6 6 0 1 0 5.75 5.75L3.75 7.75"/><path d="M3.75 3.75V7.75H7.75"/>',
+    check: '<path d="M4.5 10.25L8.25 14L15.5 6.5"/>',
+    search: '<circle cx="8.75" cy="8.75" r="5.5"/><path d="M12.75 12.75L16.75 16.75"/>',
+    info: '<circle cx="10" cy="10" r="7.25"/><path d="M10 9V13.75"/><circle cx="10" cy="6.5" r="1" fill="currentColor" stroke="none"/>',
+    filter: '<path d="M2.75 3.75H17.25L11.75 10.5V16.25L8.25 17.25V10.5Z"/>',
+    live: '<circle cx="10" cy="10" r="2" fill="currentColor" stroke="none"/><path d="M5.75 5.75A6 6 0 0 0 5.75 14.25M14.25 5.75A6 6 0 0 1 14.25 14.25"/>',
+    values: '<path d="M2.75 14.25L7.5 9.5L10.75 12.75L16.75 6.75M12.5 6.75H16.75V11"/>',
+    arrow: '<path d="M3.25 10H16.25M12 5.75L16.25 10L12 14.25"/>',
+    play: '<path d="M6 4V16L16 10Z"/>',
+    pause: '<path d="M7 4.75V15.25M13 4.75V15.25"/>',
   };
-  const uiIcon = paths => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+  const ICON_ATTRS = 'viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"';
+  const uiIcon = paths => `<svg ${ICON_ATTRS} aria-hidden="true">${paths}</svg>`;
 
   const MARKUP = `<header>
   <div class="brand">
@@ -446,7 +457,7 @@ button.label:hover { border-color: var(--accent); }
   <div class="spacer"></div>
   <div class="live" id="live" title="Live updates from the discovery engine"><i></i><span>connecting…</span></div>
   <label class="search">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+    ${uiIcon(UI_ICON.search)}
     <input id="search" type="search" placeholder="Search…  e.g. team:checkout" aria-label="Search the map" autocomplete="off" spellcheck="false">
     <button type="button" class="btn isolate" id="isolateBtn" title="Show only what the search names, and what it calls (Shift+Enter)" hidden>Isolate</button>
   </label>
@@ -530,33 +541,38 @@ button.label:hover { border-color: var(--accent); }
 
   const has = (obj, key) => obj != null && Object.prototype.hasOwnProperty.call(obj, key);
 
+  // The teia icon library, drawn for the map rather than taken from a kit: a
+  // 20px grid with 1px of padding, a 1.5 stroke with square ends and mitred
+  // corners, and a filled dot for a unit of work (a request, a message, a
+  // record), like the dots that travel the map's lines. Datastores share the
+  // cylinder; what is unusual about one is drawn inside it.
+  const DOT = (x, y, r = 1.5) => `<circle cx="${x}" cy="${y}" r="${r}" fill="currentColor" stroke="none"/>`;
+  const HEX = '<path d="M10 1.75L17.15 5.88V14.12L10 18.25L2.85 14.12V5.88Z"/>';
+  const CYL = '<ellipse cx="10" cy="4.75" rx="7.25" ry="2.5"/><path d="M2.75 4.75V15.25C2.75 16.63 6 17.75 10 17.75S17.25 16.63 17.25 15.25V4.75"/>';
   const ICON = {
-    service: '<path d="M12 2.8l8 4.6v9.2l-8 4.6-8-4.6V7.4z"/><path d="M12 12l8-4.6M12 12v9.2M12 12L4 7.4"/>',
-    database: '<ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.6 3.4 2.8 7.5 2.8s7.5-1.2 7.5-2.8v-13"/><path d="M4.5 12c0 1.6 3.4 2.8 7.5 2.8s7.5-1.2 7.5-2.8"/>',
-    external: '<circle cx="12" cy="12" r="8.6"/><path d="M3.4 12h17.2M12 3.4c2.4 2.4 3.6 5.3 3.6 8.6s-1.2 6.2-3.6 8.6M12 3.4C9.6 5.8 8.4 8.7 8.4 12s1.2 6.2 3.6 8.6"/>',
-    unknown: '<circle cx="12" cy="12" r="8.6"/><path d="M9.6 9.4a2.5 2.5 0 014.8.9c0 1.7-2.4 2.1-2.4 3.6"/><path d="M12 17.1v.1"/>',
-    group: '<rect x="3" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.6"/>',
+    service: HEX + DOT(10, 10, 2),
+    database: CYL + '<path d="M2.75 10C2.75 11.38 6 12.5 10 12.5S17.25 11.38 17.25 10"/>',
+    external: '<path d="M5.5 15.75H14.75A3.5 3.5 0 0 0 15.25 8.8A5.25 5.25 0 0 0 5.15 7.6A4.1 4.1 0 0 0 5.5 15.75Z"/>',
+    unknown: HEX.replace('/>', ' stroke-dasharray="2.5 2"/>') + '<path d="M8.25 8.25C8.25 6 11.75 6 11.75 8.25C11.75 9.75 10 10 10 11.5"/>' + DOT(10, 14, 1),
+    group: '<path d="M10 3.7L13.12 5.5V9.1L10 10.9L6.88 9.1V5.5ZM6.88 9.1L10 10.9V14.5L6.88 16.3L3.76 14.5V10.9ZM13.12 9.1L16.24 10.9V14.5L13.12 16.3L10 14.5V10.9Z"/>',
   };
-  // The teia icon library: one pictogram per category of component, drawn on
-  // the same 24px grid with the same stroke, so every map looks alike.
-  const CYL = '<ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.6 3.4 2.8 7.5 2.8s7.5-1.2 7.5-2.8v-13"/>';
   const CATEGORY = {
     service: { label: 'Microservice', icon: ICON.service },
-    frontend: { label: 'Frontend', icon: '<rect x="2.8" y="4" width="18.4" height="16" rx="2.4"/><path d="M2.8 8.6h18.4"/><path d="M5.6 6.3h.1M8 6.3h.1"/><path d="M9.6 12.4l-2.4 2.4 2.4 2.4M14.4 12.4l2.4 2.4-2.4 2.4"/>' },
-    gateway: { label: 'Gateway / proxy', icon: '<circle cx="4.5" cy="12" r="2"/><path d="M6.5 12h4l4-6h6.5M10.5 12h10M10.5 12l4 6h6.5"/><path d="M18.5 4l2.5 2-2.5 2M18.5 10l2.5 2-2.5 2M18.5 16l2.5 2-2.5 2"/>' },
-    job: { label: 'Job / worker', icon: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.6 2"/><path d="M9.5 2.8h5M12 2.8v3.2"/>' },
-    function: { label: 'Function', icon: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 18l4.2-7.6"/><path d="M9 6.4c1.9 0 2.5 1.1 3.2 2.8L15.6 16c.4.9 1 1.3 1.9 1.1"/>' },
-    relational: { label: 'Relational database', icon: CYL + '<path d="M4.5 10.2c0 1.6 3.4 2.8 7.5 2.8s7.5-1.2 7.5-2.8M4.5 14.6c0 1.6 3.4 2.8 7.5 2.8s7.5-1.2 7.5-2.8"/>' },
-    document: { label: 'Document database (NoSQL)', icon: CYL + '<path d="M10 10.5c-.9 0-1.3.5-1.3 1.3v1c0 .6-.4 1-1 1 .6 0 1 .4 1 1v1c0 .8.4 1.3 1.3 1.3M14 10.5c.9 0 1.3.5 1.3 1.3v1c0 .6.4 1 1 1-.6 0-1 .4-1 1v1c0 .8-.4 1.3-1.3 1.3"/>' },
-    widecolumn: { label: 'Wide-column database', icon: CYL + '<path d="M9.5 8.2v13M14.5 8.2v13"/>' },
-    search: { label: 'Search engine', icon: '<ellipse cx="10" cy="5.5" rx="6.5" ry="2.5"/><path d="M3.5 5.5v10c0 1.4 2.9 2.5 6.5 2.5M16.5 5.5v3.6"/><circle cx="16" cy="15" r="3.4"/><path d="M18.5 17.5l2.6 2.6"/>' },
-    timeseries: { label: 'Time-series / analytics', icon: '<path d="M3 20.5h18"/><path d="M3.5 16l4.2-5 3.6 3 4.2-7.4 5 5.8"/><circle cx="15.5" cy="6.6" r="1.3"/>' },
-    graphdb: { label: 'Graph database', icon: '<circle cx="5.5" cy="6.5" r="2.4"/><circle cx="18.5" cy="6.5" r="2.4"/><circle cx="12" cy="18" r="2.4"/><circle cx="12" cy="10.5" r="1.8"/><path d="M7.6 7.6l2.8 1.8M16.4 7.6l-2.8 1.8M12 12.3v3.3M7.4 7.9l3.4 8.3M16.6 7.9l-3.4 8.3"/>' },
-    cache: { label: 'Cache / key-value', icon: '<rect x="5" y="5" width="14" height="14" rx="2.6"/><path d="M9 2.4V5M15 2.4V5M9 19v2.6M15 19v2.6M2.4 9H5M2.4 15H5M19 9h2.6M19 15h2.6"/><path d="M12.8 7.8l-3.2 4.6h2.9l-.7 3.8 3.3-4.7h-2.9z"/>' },
-    stream: { label: 'Event stream', icon: '<rect x="2.5" y="7.5" width="4.2" height="9" rx="1.1"/><rect x="8.1" y="7.5" width="4.2" height="9" rx="1.1"/><rect x="13.7" y="7.5" width="4.2" height="9" rx="1.1"/><path d="M19.4 12h2.4M20.4 10.4l1.6 1.6-1.6 1.6"/>' },
-    queue: { label: 'Message queue', icon: '<path d="M3 13l2.6-7.6h12.8L21 13v5.4a1.6 1.6 0 01-1.6 1.6H4.6A1.6 1.6 0 013 18.4z"/><path d="M3 13h5.2l1.4 2.4h4.8l1.4-2.4H21"/><path d="M8.5 8.6h7M9.5 10.8h5"/>' },
-    storage: { label: 'Object storage', icon: '<ellipse cx="12" cy="6" rx="8" ry="2.6"/><path d="M4 6l1.8 12.6c.2 1.4 2.9 2.4 6.2 2.4s6-1 6.2-2.4L20 6"/><path d="M5 11.4c1.6.9 4.2 1.4 7 1.4s5.4-.5 7-1.4"/>' },
-    identity: { label: 'Identity', icon: '<circle cx="8" cy="15.5" r="4.2"/><path d="M11 12.5l8.8-8.8M16.4 7.1l2.4 2.4M14.3 9.2l2 2"/><circle cx="8" cy="15.5" r="1.1"/>' },
+    frontend: { label: 'Frontend', icon: '<rect x="2.75" y="3.75" width="14.5" height="12.5" rx="1"/><path d="M2.75 7.25H17.25"/>' + DOT(10, 11.75) },
+    gateway: { label: 'Gateway / proxy', icon: DOT(3.25, 10) + '<path d="M4.75 10H8.5L17.25 3.75M8.5 10H17.25M8.5 10L17.25 16.25"/>' },
+    job: { label: 'Job / worker', icon: '<circle cx="10" cy="11" r="6.75"/><path d="M10 11V7.75M7.75 1.75H12.25M10 1.75V4.25M15.25 4.5L16.5 5.75"/>' },
+    function: { label: 'Function', icon: '<path d="M5.75 2.75C3.75 5 3.75 15 5.75 17.25M14.25 2.75C16.25 5 16.25 15 14.25 17.25"/><path d="M11 4.5L7.75 10.5H12.25L9 15.5"/>' },
+    relational: { label: 'Relational database', icon: ICON.database },
+    document: { label: 'Document database (NoSQL)', icon: '<path d="M4.25 2.75H11.75L15.75 6.75V17.25H4.25Z"/><path d="M8.75 9C7.75 9 7.75 9.5 7.75 10.5S7.25 11.75 6.75 11.75C7.25 11.75 7.75 12 7.75 13S7.75 14.5 8.75 14.5M11.25 9C12.25 9 12.25 9.5 12.25 10.5S12.75 11.75 13.25 11.75C12.75 11.75 12.25 12 12.25 13S12.25 14.5 11.25 14.5" stroke-width="1.25"/>' },
+    widecolumn: { label: 'Wide-column database', icon: [2.75, 8, 13.25].map(x => `<ellipse cx="${x + 2}" cy="4.5" rx="2" ry="1"/><path d="M${x} 4.5V15.5C${x} 16.05 ${x + 0.9} 16.5 ${x + 2} 16.5S${x + 4} 16.05 ${x + 4} 15.5V4.5"/>`).join('') },
+    search: { label: 'Search engine', icon: '<ellipse cx="8.5" cy="4.5" rx="5.75" ry="2"/><path d="M2.75 4.5V13.5C2.75 14.6 5.3 15.5 8.5 15.5M14.25 4.5V8"/><circle cx="14" cy="13" r="3"/><path d="M16.25 15.25L18 17"/>' },
+    timeseries: { label: 'Time-series / analytics', icon: '<path d="M2.75 17.25H17.25M4 13L8 9L12 11.25L16 5.5"/>' + DOT(4, 13) + DOT(8, 9) + DOT(12, 11.25) + DOT(16, 5.5) },
+    graphdb: { label: 'Graph database', icon: '<circle cx="10" cy="4" r="2.25"/><circle cx="4" cy="15.5" r="2.25"/><circle cx="16" cy="15.5" r="2.25"/><path d="M9 6L5 13.5M11 6L15 13.5M6.25 15.5H13.75"/>' },
+    cache: { label: 'Cache / key-value', icon: '<rect x="2.75" y="4.75" width="14.5" height="8.5" rx="1"/><path d="M6 13.25V16.25M10 13.25V16.25M14 13.25V16.25"/>' + DOT(6.5, 9, 1.25) + DOT(10, 9, 1.25) + DOT(13.5, 9, 1.25) },
+    stream: { label: 'Event stream', icon: '<path d="M2.75 10H16.25M13.75 7L17 10L13.75 13"/>' + DOT(4.5, 10) + DOT(8.25, 10) + DOT(12, 10) },
+    queue: { label: 'Message queue', icon: '<path d="M13.25 5.75H2.75V14.25H13.25"/>' + DOT(5.5, 10) + DOT(9, 10) + DOT(15.75, 10) },
+    storage: { label: 'Object storage', icon: '<path d="M3 7.25H17L15.25 17.25H4.75Z"/><path d="M4.25 7.25C4.25 3.5 15.75 3.5 15.75 7.25"/>' },
+    identity: { label: 'Identity', icon: '<circle cx="6.25" cy="13.75" r="3.5"/><path d="M8.75 11.25L17 3M14 6L16.25 8.25M11.75 8.25L13.5 10"/>' },
     external: { label: 'External / SaaS', icon: ICON.external },
     unknown: { label: 'Unknown', icon: ICON.unknown },
   };
@@ -583,26 +599,27 @@ button.label:hover { border-color: var(--accent); }
   techs('external', 'external=External');
 
   const SIGNAL = {
-    traces: { label: 'Traces', icon: '<path d="M3 12h4l3-7 4 14 3-7h4"/>' },
-    mesh: { label: 'Mesh', icon: '<circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="12" cy="18" r="2.4"/><path d="M8.2 7.2l2.6 8.4M15.8 7.2l-2.6 8.4M8.4 6h7.2"/>' },
-    network: { label: 'Network', icon: '<path d="M4 9h16M4 15h16"/><path d="M8 5l-4 4 4 4M16 11l4 4-4 4"/>' },
-    logs: { label: 'Logs', icon: '<path d="M6 3.5h9l3.5 3.5v13.5H6z"/><path d="M9 11h6.5M9 14.5h6.5M9 18h4"/>' },
+    traces: { label: 'Traces', icon: '<rect x="2.75" y="3.75" width="8.5" height="2.5"/><rect x="6.25" y="8.75" width="8" height="2.5"/><rect x="9.75" y="13.75" width="7.5" height="2.5"/>' },
+    mesh: { label: 'Mesh', icon: '<path d="M8 2.75L13.25 5.75V12L8 15L2.75 12V5.75Z"/><rect x="13.25" y="10.75" width="4" height="6.5" rx="1"/>' },
+    network: { label: 'Network', icon: '<path d="M2.75 6.5H16M13 3.5L16.25 6.5L13 9.5M17.25 13.5H4M7 10.5L3.75 13.5L7 16.5"/>' },
+    logs: { label: 'Logs', icon: DOT(3.5, 5, 1.25) + DOT(3.5, 10, 1.25) + DOT(3.5, 15, 1.25) + '<path d="M6.75 5H17.25M6.75 10H17.25M6.75 15H13.25"/>' },
     database: { label: 'Database', icon: ICON.database },
-    metrics: { label: 'Metrics', icon: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>' },
-    inventory: { label: 'Inventory', icon: ICON.group },
-    declared: { label: 'Declared', icon: '<path d="M6 3.5h9l3.5 3.5v13.5H6z"/><path d="M9 13.5l2 2 4-4"/>' },
+    metrics: { label: 'Metrics', icon: '<path d="M2.75 17.25H17.25M5.25 14.25V9.75M10 14.25V3.75M14.75 14.25V7.75"/>' },
+    inventory: { label: 'Inventory', icon: '<rect x="2.75" y="2.75" width="5.5" height="5.5"/><rect x="11.75" y="2.75" width="5.5" height="5.5"/><rect x="2.75" y="11.75" width="5.5" height="5.5"/><rect x="11.75" y="11.75" width="5.5" height="5.5"/>' },
+    // A flows file: dashed, like everything only declared.
+    declared: { label: 'Declared', icon: '<rect x="2.75" y="3.75" width="14.5" height="12.5" rx="1" stroke-dasharray="2.5 2"/><path d="M6.75 10.25L9 12.5L13.5 8"/>' },
   };
   // Why a card or line is amber or red: one pictogram per golden signal.
   const REASON = {
-    errors: { label: 'Errors', icon: '<circle cx="12" cy="12" r="8.6"/><path d="M9 9l6 6M15 9l-6 6"/>' },
-    latency: { label: 'Latency', icon: '<circle cx="12" cy="12" r="8.6"/><path d="M12 7v5.2l3.4 2"/>' },
-    saturation: { label: 'Saturation', icon: '<path d="M3.8 17a8.2 8.2 0 0116.4 0"/><path d="M12 17l4.6-5.6"/><path d="M3.5 20.5h17"/>' },
-    backlog: { label: 'Queue backlog', icon: '<rect x="3" y="3.5" width="18" height="4.6" rx="1.3"/><rect x="3" y="9.7" width="18" height="4.6" rx="1.3"/><rect x="3" y="15.9" width="12" height="4.6" rx="1.3"/>' },
-    lag: { label: 'Delay / age', icon: '<path d="M6.5 3h11M6.5 21h11"/><path d="M7.5 3c0 4.5 4.5 5.5 4.5 9s-4.5 4.5-4.5 9M16.5 3c0 4.5-4.5 5.5-4.5 9s4.5 4.5 4.5 9"/><path d="M9.5 19h5"/>' },
-    locks: { label: 'Locks', icon: '<rect x="5" y="10.5" width="14" height="10" rx="2.2"/><path d="M8.2 10.5V7.8a3.8 3.8 0 017.6 0v2.7"/><path d="M12 14.6v2"/>' },
-    restarts: { label: 'Restarts', icon: '<path d="M20 11.5A8 8 0 006.3 6.3L4 8.6"/><path d="M4 4v4.6h4.6"/><path d="M4 12.5a8 8 0 0013.7 5.2l2.3-2.3"/><path d="M20 20v-4.6h-4.6"/>' },
-    evictions: { label: 'Cache evictions', icon: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 12h10m-3-3 3 3-3 3"/>' },
-    rejections: { label: 'Rejected clients', icon: '<circle cx="12" cy="12" r="8.6"/><path d="M7 12h10"/>' },
+    errors: { label: 'Errors', icon: '<circle cx="10" cy="10" r="7.25"/><path d="M7.5 7.5L12.5 12.5M12.5 7.5L7.5 12.5"/>' },
+    latency: { label: 'Latency', icon: '<path d="M2.75 4.75V15.25M17.25 4.75V15.25M5.75 10H14.25M8 7.75L5.75 10L8 12.25M12 7.75L14.25 10L12 12.25"/>' },
+    saturation: { label: 'Saturation', icon: '<path d="M2.75 15.25A7.25 7.25 0 0 1 17.25 15.25"/><path d="M10 15.25L13.5 10.25M2.75 17.25H17.25"/>' },
+    backlog: { label: 'Queue backlog', icon: '<path d="M2.75 5.75H17.25M2.75 10H17.25M2.75 14.25H11.25"/>' + DOT(15, 14.25, 1.25) },
+    lag: { label: 'Delay / age', icon: '<path d="M4.75 2.75H15.25M4.75 17.25H15.25M6 2.75H14L10 10L14 17.25H6L10 10Z"/>' },
+    locks: { label: 'Locks', icon: '<rect x="3.75" y="8.75" width="12.5" height="8.5" rx="1"/><path d="M6.75 8.75V6.25A3.25 3.25 0 0 1 13.25 6.25V8.75M10 12V14"/>' },
+    restarts: { label: 'Restarts', icon: '<path d="M16.25 8.25A6.5 6.5 0 0 0 4.5 6.5M3.75 11.75A6.5 6.5 0 0 0 15.5 13.5M4.25 3V6.75H8M15.75 17V13.25H12"/>' },
+    evictions: { label: 'Cache evictions', icon: '<rect x="2.75" y="5.75" width="9.5" height="8.5" rx="1"/><path d="M8 10H17.25M14.5 7.25L17.25 10L14.5 12.75"/>' },
+    rejections: { label: 'Rejected clients', icon: '<circle cx="10" cy="10" r="7.25"/><path d="M6.25 10H13.75"/>' },
   };
   // healthText says a node's or line's health in words.
   const healthText = x => x.health === 'unknown' && x.errorsUnknown && x.requestRate > 0 ? 'failures not measured' : HEALTH_LABEL[x.health];
@@ -1863,7 +1880,7 @@ button.label:hover { border-color: var(--accent); }
       return e;
     };
     const iconSVG = (paths, cls = '') => {
-      const s = sv('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', class: cls, 'aria-hidden': 'true' });
+      const s = sv('svg', { viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'square', 'stroke-linejoin': 'miter', class: cls, 'aria-hidden': 'true' });
       s.innerHTML = paths;
       return s;
     };
@@ -1979,6 +1996,7 @@ button.label:hover { border-color: var(--accent); }
       .why-tag rect { fill: var(--card); stroke-width: 1; }
       .why-tag.degraded rect { stroke: var(--degraded); } .why-tag.failing rect { stroke: var(--failing); }
       .why-tag text { font-size: 10.5px; font-weight: 600; }
+      .why-tag svg { stroke-width: 2.2; }
       .why-tag.degraded text { fill: var(--warn-text); } .why-tag.failing text { fill: var(--err-text); }
       .why-tag.degraded svg { color: var(--warn-text); } .why-tag.failing svg { color: var(--err-text); }
       .why-tag { cursor: pointer; }
@@ -2855,7 +2873,7 @@ button.label:hover { border-color: var(--accent); }
       const setLegend = open => { state.legend = open; store.set('legend', open); renderLegend(); $(open ? '#legend .close-legend' : '#legend .open-legend')?.focus(); };
       if (!state.legend) {
         box.replaceChildren(el('button', { type: 'button', class: 'open-legend', 'aria-expanded': 'false', title: 'What the colours, lines and tags mean', onclick: () => setLegend(true) },
-          iconSVG('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>'), 'Legend'));
+          iconSVG(UI_ICON.info), 'Legend'));
         return;
       }
       const lg = (kind, label) => el('div', { class: 'lg ' + kind }, grammarSVG(kind), label);
@@ -2930,7 +2948,7 @@ button.label:hover { border-color: var(--accent); }
       const parts = [el('button', {
         type: 'button', class: 'btn filter-btn', id: 'filterBtn', 'aria-expanded': String(filterPanelOpen()), 'aria-controls': 'filterPanel',
         title: 'Filter by journey, namespace, team, health, component… (J)', onclick: ev => { ev.stopPropagation(); setFilterPanel(!filterPanelOpen()); },
-      }, iconSVG('<path d="M3 5h18l-7 8.5V19l-4 2v-7.5z"/>'), 'Filter', count ? el('span', { class: 'count' }, String(count)) : null)];
+      }, iconSVG(UI_ICON.filter), 'Filter', count ? el('span', { class: 'count' }, String(count)) : null)];
       const chip = (label, onRemove) => el('span', { class: 'fchip' }, label, el('button', { type: 'button', 'aria-label': 'Remove ' + label, title: 'Remove', onclick: onRemove }, iconSVG(UI_ICON.x)));
       for (const j of f.journeys) parts.push(chip(filterLabel('journey', j), () => toggleFacet('journey', j)));
       for (const [k, vs] of activeFacets(f)) for (const v of vs) parts.push(chip(filterLabel(k, v), () => toggleFacet(k, v)));
@@ -3115,12 +3133,12 @@ button.label:hover { border-color: var(--accent); }
     function renderButtons() {
       syncSharedURL();
       const flow = $('#flowBtn');
-      flow.replaceChildren(iconSVG(state.flow ? '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>' : '<path d="M7 4.5v15l12-7.5z"/>'), 'Flow');
+      flow.replaceChildren(iconSVG(state.flow ? UI_ICON.pause : UI_ICON.play), 'Flow');
       flow.classList.toggle('on', state.flow);
       flow.setAttribute('aria-pressed', String(state.flow));
       svg.classList.toggle('flowing', state.flow);
       const live = $('#liveBtn');
-      live.replaceChildren(iconSVG('<circle cx="12" cy="12" r="3"/><path d="M5.6 5.6a9 9 0 000 12.8M18.4 5.6a9 9 0 010 12.8M8.5 8.5a5 5 0 000 7M15.5 8.5a5 5 0 010 7"/>'), 'Live');
+      live.replaceChildren(iconSVG(UI_ICON.live), 'Live');
       live.classList.toggle('on', state.live);
       live.setAttribute('aria-pressed', String(state.live));
       live.disabled = !!opts.comparison || !!state.historyId || state.snap?.timeMode === 'historical';
@@ -3128,7 +3146,7 @@ button.label:hover { border-color: var(--accent); }
       $('#historyBtn').hidden = !opts.api;
       $('#exploreBtn').hidden = !!opts.comparison;
       const values = $('#valuesBtn');
-      values.replaceChildren(iconSVG('<path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/>'), 'Values');
+      values.replaceChildren(iconSVG(UI_ICON.values), 'Values');
       values.classList.toggle('on', state.values);
       values.setAttribute('aria-pressed', String(state.values));
     }
@@ -3425,7 +3443,7 @@ button.label:hover { border-color: var(--accent); }
       const pills = [el('span', { class: 'pill' }, el('i', { class: 'dot', style: `background:${css('--' + color)}` }), healthText(e))];
       if (state.snap.drift) pills.push(' ', el('span', { class: 'pill' }, STATE_LABEL[e.state]));
       const parts = [el('div', { class: 'hero' },
-        el('div', { class: 'tile ' + color }, iconSVG('<path d="M4 12h14M13 6l6 6-6 6"/>')),
+        el('div', { class: 'tile ' + color }, iconSVG(UI_ICON.arrow)),
         el('div', {}, el('h2', {}, `${e.from} → ${e.to}`), ...pills)), detailActions(e), ...whyBlock(e.reasons)];
       for (const member of e.members.filter(m => m.frequency)) parts.push(el('p', { class: 'explain' }, `${e.members.length > 1 ? `${member.from} → ${member.to}: ` : ''}Expected every ${fmtSec(member.expectedFrequencySeconds)} · ${member.frequency.status}. ${text(member.frequency.detail)} Last observed: ${timestamp(member.frequency.lastObservedAt) || 'unknown'}. Next expected: ${timestamp(member.frequency.nextExpectedAt) || 'unknown'}.`));
       parts.push(...presenceBlock('edges', e.members.map(m => m.from + '->' + m.to)));
@@ -3493,17 +3511,18 @@ button.label:hover { border-color: var(--accent); }
         el('span', { class: 'state ' + s.state }, s.state))));
     }
 
+    // The history feed speaks the map's grammar: a line, a card, a hatch.
     const CHANGE_ICON = {
-      'edge.added': '<path d="M4 12h12M12 6l6 6-6 6"/><path d="M19 4v4M17 6h4"/>',
-      'edge.removed': '<path d="M4 12h12M12 6l6 6-6 6"/><path d="M17 5h4"/>',
-      'edge.state': '<path d="M4 7h13l-3-3M20 17H7l3 3"/>',
-      'edge.health': '<circle cx="12" cy="12" r="7"/>',
-      'node.added': '<path d="M12 5v14M5 12h14"/>',
-      'node.removed': '<path d="M5 12h14"/>',
-      'node.health': '<circle cx="12" cy="12" r="7"/>',
-      'node.visibility': '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
-      'finding.opened': '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
-      'finding.resolved': '<path d="M5 12.5l4.5 4.5L19 7"/>',
+      'edge.added': '<path d="M2.75 10H10.25M14.25 6.25V13.75M10.5 10H18"/>',
+      'edge.removed': '<path d="M2.75 10H8.25M11.75 10H17.25"/>',
+      'edge.state': '<path d="M2.75 10H8.25"/><path d="M11 10H17.25" stroke-dasharray="2 2"/>',
+      'edge.health': '<path d="M10 3.25L17.25 16.25H2.75Z"/>',
+      'node.added': '<rect x="2.75" y="5.75" width="9.5" height="8.5" rx="1"/><path d="M15.25 7V13M12.25 10H18.25"/>',
+      'node.removed': '<rect x="2.75" y="5.75" width="9.5" height="8.5" rx="1"/><path d="M14.25 10H18.25"/>',
+      'node.health': '<path d="M10 3.25L17.25 16.25H2.75Z"/>',
+      'node.visibility': '<rect x="2.75" y="5.75" width="14.5" height="8.5" rx="1"/><path d="M5.5 14.25L10.25 5.75M9.75 14.25L14.5 5.75" stroke-width="1"/>',
+      'finding.opened': '<path d="M4.25 17.25V2.75M4.25 3.75H15.25L12.75 7.25L15.25 10.75H4.25"/>',
+      'finding.resolved': '<path d="M4.5 10.25L8.25 14L15.5 6.5"/>',
     };
     const changeTone = c => c.to === 'failing' || (c.type === 'finding.opened' && c.to === 'critical') ? 'bad'
       : c.to === 'healthy' || c.type === 'finding.resolved' ? 'good'
