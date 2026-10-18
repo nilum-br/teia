@@ -2,7 +2,7 @@
 
 **Who talks to whom, compared with what teams declared.** A live communication map for Grafana.
 
-- **Health at a glance**: each card's tile turns green, amber or red with its error rate.
+- **Health at a glance**: each card's icon turns green, amber or red with its health; an amber or red card is outlined and tagged with the reason.
 - **Traffic you can see move**: dots travel along each communication at the speed of its traffic; red dots are errors.
 - **Drift**: dashed lines are communication nobody declared, dotted ones were declared but never seen.
 - **Blind spots**: card borders show how first-hand teia's view is, and the *Next steps* drawer says exactly what to do to see more.

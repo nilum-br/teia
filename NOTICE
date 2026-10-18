@@ -3,6 +3,6 @@ Copyright 2026 The teia authors (Nilum and contributors)
 
 This product includes software developed at Nilum (https://nilum.com.br).
 
-The built-in UI embeds the Outfit font (https://github.com/Outfitio/Outfit-Fonts),
-Copyright 2021 The Outfit Project Authors, licensed under the SIL Open Font
-License 1.1 (internal/api/ui/OFL-Outfit.txt).
+The built-in UI embeds the IBM Plex Sans font (https://github.com/IBM/plex),
+Copyright 2019 IBM Corp., licensed under the SIL Open Font License 1.1
+(internal/api/ui/OFL-IBM-Plex-Sans.txt).

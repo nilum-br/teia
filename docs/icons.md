@@ -1,8 +1,8 @@
 # The teia icon library
 
 Every map uses the same pictograms: one per **category** of component, drawn on the same 24 px grid with the
-same 1.8 px stroke. The card's tile color is the component's **health** (green, amber, red, grey), so the icon
-tells *what it is* and the color tells *how it is doing*.
+same 1.8 px stroke. The icon's color is the component's **health** (green, amber, red, grey), and an amber or red
+card is outlined in that color too, so the icon tells *what it is* and the color tells *how it is doing*.
 
 teia draws its own icons instead of product logos, so the map looks consistent and the project stays clear of
 trademark issues. The technology's name is written on the card (`PostgreSQL · 2.0/s`).
