@@ -86,7 +86,7 @@ header {
   color: var(--ink); color-scheme: dark; border-bottom-color: #020a33;
 }
 .brand { display: flex; align-items: center; gap: 8px; margin-right: 6px; }
-.brand svg { width: 22px; height: 22px; border-radius: 5px; }
+.brand svg { width: 22px; height: 22px; }
 .brand b { font-size: 15px; font-weight: 600; }
 .cluster { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 4px 2px 10px; min-height: 30px; max-width: 100%; }
 .cluster[hidden] { display: none; }
@@ -424,28 +424,7 @@ button.label:hover { border-color: var(--accent); }
 
   const MARKUP = `<header>
   <div class="brand">
-    <svg viewBox="0 0 128 128" aria-hidden="true">
-  <rect width="128" height="128" rx="26" fill="#020f59"/>
-  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M64 64 L64.0 11.0 M64 64 L109.9 37.5 M64 64 L109.9 90.5 M64 64 L64.0 117.0 M64 64 L18.1 90.5 M64 64 L18.1 37.5" stroke="#5b94ff" stroke-opacity=".5" stroke-width="2.2"/>
-  <path d="M64.0 49.0 Q69.8 53.9 77.0 56.5 M77.0 56.5 Q75.7 64.0 77.0 71.5 M77.0 71.5 Q69.8 74.1 64.0 79.0 M64.0 79.0 Q58.2 74.1 51.0 71.5 M51.0 71.5 Q52.3 64.0 51.0 56.5 M51.0 56.5 Q58.1 53.9 64.0 49.0 M64.0 33.0 Q76.1 43.1 90.8 48.5 M90.8 48.5 Q88.2 64.0 90.8 79.5 M90.8 79.5 Q76.1 84.9 64.0 95.0 M64.0 95.0 Q51.9 84.9 37.2 79.5 M37.2 79.5 Q39.8 64.0 37.2 48.5 M37.2 48.5 Q51.9 43.1 64.0 33.0 M64.0 17.0 Q82.3 32.3 104.7 40.5 M104.7 40.5 Q100.7 64.0 104.7 87.5 M104.7 87.5 Q82.3 95.7 64.0 111.0 M64.0 111.0 Q45.7 95.7 23.3 87.5 M23.3 87.5 Q27.3 64.0 23.3 40.5 M23.3 40.5 Q45.7 32.3 64.0 17.0" stroke="#5b94ff" stroke-opacity=".75" stroke-width="2.2"/>
-  <path d="M23.3 87.5 L37.2 79.5 Q51.9 84.9 64.0 95.0 L64.0 79.0 L64 64 L77.0 56.5 L90.8 48.5 L104.7 40.5" stroke="#a9f549" stroke-width="4.8"/>
-  </g>
-  <circle cx="64.0" cy="17.0" r="3.3" fill="#f7f8ff" fill-opacity=".8"/>
-  <circle cx="64.0" cy="111.0" r="3.3" fill="#f7f8ff" fill-opacity=".8"/>
-  <circle cx="23.3" cy="40.5" r="3.3" fill="#f7f8ff" fill-opacity=".8"/>
-  <circle cx="37.2" cy="48.5" r="3.3" fill="#f7f8ff" fill-opacity=".8"/>
-  <circle cx="90.8" cy="79.5" r="3.3" fill="#f7f8ff" fill-opacity=".8"/>
-  <circle cx="64.0" cy="49.0" r="3.3" fill="#f7f8ff" fill-opacity=".8"/>
-  <circle cx="51.0" cy="71.5" r="3.3" fill="#f7f8ff" fill-opacity=".8"/>
-  <circle cx="23.3" cy="87.5" r="5.2" fill="#020f59" stroke="#a9f549" stroke-width="2.8"/>
-  <circle cx="37.2" cy="79.5" r="5.2" fill="#020f59" stroke="#a9f549" stroke-width="2.8"/>
-  <circle cx="64.0" cy="95.0" r="5.2" fill="#020f59" stroke="#a9f549" stroke-width="2.8"/>
-  <circle cx="64.0" cy="79.0" r="5.2" fill="#020f59" stroke="#a9f549" stroke-width="2.8"/>
-  <circle cx="77.0" cy="56.5" r="5.2" fill="#020f59" stroke="#a9f549" stroke-width="2.8"/>
-  <circle cx="90.8" cy="48.5" r="5.2" fill="#020f59" stroke="#a9f549" stroke-width="2.8"/>
-  <circle cx="104.7" cy="40.5" r="5.2" fill="#020f59" stroke="#a9f549" stroke-width="2.8"/>
-  <circle cx="64" cy="64" r="8" fill="#a9f549" stroke="#020f59" stroke-width="2.5"/></svg>
+    <svg viewBox="0 0 20 20" fill="none" stroke-linejoin="miter" aria-hidden="true"><path d="M10 1.5V18.5M2.64 5.75L17.36 14.25M2.64 14.25L17.36 5.75" stroke="#5b94ff" stroke-opacity=".7" stroke-width=".9"/><path d="M10 1.5L17.36 5.75V14.25L10 18.5L2.64 14.25V5.75ZM10 5.75L13.68 7.88V12.13L10 14.25L6.32 12.13V7.88Z" stroke="#c9d0ee" stroke-width="1"/><path d="M2.64 14.25L6.32 12.13L10 14.25V10L17.36 5.75" stroke="#a9f549" stroke-width="1.8"/><circle cx="10" cy="10" r="2" fill="#a9f549" stroke="#020f59" stroke-width=".8"/></svg>
     <b>teia</b>
   </div>
   <div class="cluster" id="clusterBox" role="group" aria-label="Cluster" hidden>
