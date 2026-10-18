@@ -1978,16 +1978,13 @@ button.label:hover { border-color: var(--accent); }
       .glyph.warn path { fill: var(--degraded); } .glyph.fail path { fill: var(--failing); }
       .kind-group .card { stroke: var(--ink-2); stroke-width: 1.2; }
       .node .title { fill: var(--ink); font-weight: 600; font-size: 13.5px; }
-      .compact .node :is(.sub, .badges, .alert, .why-tag, .icon, .glyph, .blind),
+      .compact .node :is(.sub, .alert, .why-tag, .icon, .glyph, .blind),
       .compact :is(.value-tag, .why-tag, .elabel, .frame-stats, .lane-caption) { display: none; }
       .compact .h-degraded .card { stroke: var(--warn-text); stroke-width: 1.5; }
       .compact .h-failing .card { stroke: var(--err-text); stroke-width: 1.5; }
       .dense .node .title { display: none; }
       .dense .node:is(.sel, :hover, :focus-visible) .title { display: block; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
       .node .sub { fill: var(--muted); font-size: 11px; }
-      .node .badge-gap { fill: var(--card); }
-      .node:is(:hover, .sel, :focus-visible) .badge-gap { fill: var(--card-hi); }
-      .node .badge svg { color: var(--muted); }
       .node .alert rect { fill: var(--panel-2); stroke: var(--line-2); stroke-width: 1; }
       .node .alert.critical rect { stroke: var(--failing); }
       .node .alert text { fill: var(--ink-2); font-size: 10px; font-weight: 600; text-anchor: middle; }
@@ -2055,7 +2052,7 @@ button.label:hover { border-color: var(--accent); }
       .dim { opacity: .35; transition: opacity .15s; }
       .node.dim { opacity: 1; }
       .node.dim .title { fill: var(--muted); }
-      .node.dim :is(.icon, .badges, .why-tag, .blind) { opacity: .45; }
+      .node.dim :is(.icon, .why-tag, .blind) { opacity: .45; }
       .node.dim .card { stroke: var(--line); }
       /* Comparison marks outrank the compact health stroke; selection and focus outrank them. */
       .node.diff-added:not(.sel):not(:focus-visible) .card { stroke: var(--healthy); stroke-width: 2.5; }
@@ -2279,13 +2276,12 @@ button.label:hover { border-color: var(--accent); }
       fail.append(sv('path', { d: 'M-5,-3 L-3,-5 L0,-2 L3,-5 L5,-3 L2,0 L5,3 L3,5 L0,2 L-3,5 L-5,3 L-2,0 Z' }));
       const title = sv('text', { class: 'title', x: -NODE_W / 2 + 46, y: -3 });
       const sub = sv('text', { class: 'sub num', x: -NODE_W / 2 + 46, y: 14 });
-      const badges = sv('g', { class: 'badges' });
       const alert = sv('g', { class: 'alert', transform: `translate(${NODE_W / 2 - 6},${-NODE_H / 2})` });
       // The worst reason sits on the card's top edge, like a tab.
       const why = sv('g', { transform: `translate(${-NODE_W / 2 + 12},${-NODE_H / 2 - 2})` });
       const tip = sv('title');
-      g.append(halo, card, blind, icon, warn, fail, title, sub, badges, alert, why, tip);
-      g._parts = { icon, title, sub, badges, alert, why, tip };
+      g.append(halo, card, blind, icon, warn, fail, title, sub, alert, why, tip);
+      g._parts = { icon, title, sub, alert, why, tip };
       g.addEventListener('pointerdown', ev => startNodeDrag(ev, g));
       g.addEventListener('mouseenter', () => { state.hover = g.dataset.id; applyHighlight(); });
       g.addEventListener('mouseleave', () => { state.hover = null; applyHighlight(); });
@@ -2324,16 +2320,6 @@ button.label:hover { border-color: var(--accent); }
       }
       p.title.textContent = n.title.length > 18 ? n.title.slice(0, 17) + '…' : n.title;
       p.sub.textContent = cardSubtitle(n);
-      // The signals sit in one gap cut into the card's bottom edge.
-      const shown = n.signals.slice(0, 6);
-      p.badges.replaceChildren(...(shown.length ? [sv('rect', { class: 'badge-gap', x: -NODE_W / 2 + 44, y: NODE_H / 2 - 7, width: shown.length * 19 + 1, height: 14 })] : []), ...shown.map((s, i) => {
-        const b = sv('g', { class: 'badge', transform: `translate(${-NODE_W / 2 + 54 + i * 19},${NODE_H / 2})` });
-        const ic = iconSVG(SIGNAL[s].icon);
-        ic.setAttribute('x', -6); ic.setAttribute('y', -6); ic.setAttribute('width', 12); ic.setAttribute('height', 12);
-        const t = sv('title'); t.textContent = 'seen by ' + SIGNAL[s].label;
-        b.append(ic, t);
-        return b;
-      }));
       const fs = state.snap.findings.filter(f => n.group ? n.members.some(m => m.id === f.subject) : f.subject === n.id);
       p.alert.replaceChildren();
       if (fs.length) {
@@ -2448,7 +2434,7 @@ button.label:hover { border-color: var(--accent); }
       if (currentView.nodes.size > 200) return;
       const obstacles = [...nodeEls.values()].map(n => ({
         x0: n._pos.x - NODE_W / 2 - 6, x1: n._pos.x + NODE_W / 2 + 6,
-        y0: n._pos.y - NODE_H / 2 - 14, y1: n._pos.y + NODE_H / 2 + 12, // the card's own tag and badges
+        y0: n._pos.y - NODE_H / 2 - 14, y1: n._pos.y + NODE_H / 2 + 6, // the card and its own tag
       }));
       if (state.frameBox) {
         const fb = state.frameBox;
