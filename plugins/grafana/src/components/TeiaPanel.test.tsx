@@ -280,7 +280,7 @@ describe('TeiaPanel', () => {
     const banner = root.querySelector('#timeContext')!;
     expect(banner.textContent).toContain('Current state');
     expect(banner.textContent).toContain('dashboard range does not change this snapshot');
-    expect(banner.textContent).toContain('original observation time unknown');
+    expect(banner.textContent).toContain('Original observation time unknown');
     const original = banner.textContent;
     rerender(<TeiaPanel {...{ ...p, timeRange: range(30) }} />);
     expect(banner.textContent).toBe(original);
@@ -328,7 +328,7 @@ describe('TeiaPanel', () => {
     expect(detail).toContain('Sampled calls: 3');
     expect(detail).toContain(expected);
     expect(detail).toContain('Sample bounds do not imply continuous coverage');
-    expect(root.querySelector('#timeContext')!.textContent).toContain('original observation time unknown');
+    expect(root.querySelector('#timeContext')!.textContent).toContain('Original observation time unknown');
     (root.querySelector('#liveBtn') as HTMLButtonElement).click();
     rerender(<TeiaPanel {...{ ...p, data: { series, state: LoadingState.Done } as never }} />);
     expect(root.querySelector('#pane-details')!.textContent).toBe(detail);
@@ -356,7 +356,7 @@ describe('TeiaPanel', () => {
     const clients = entries.find(p => p.textContent?.includes('saturation: clients'))!.textContent;
     expect(clients).toContain('Original observation: unknown');
     expect(clients).not.toContain('Oldest input sample:');
-    expect(root.querySelector('#timeContext')!.textContent).toContain('original observation time unknown');
+    expect(root.querySelector('#timeContext')!.textContent).toContain('Original observation time unknown');
   });
 
   it('does not disguise a future original observation as zero age', () => {
@@ -366,7 +366,7 @@ describe('TeiaPanel', () => {
         timeMode: 'current', snapshotAt: '2026-10-15T12:00:00Z', observedAt: '2026-10-15T12:02:00Z',
       } } } }));
       const { container } = render(<TeiaPanel {...props({ data: { series: future, state: LoadingState.Done } as never })} />);
-      expect(shadow(container).querySelector('#timeContext')!.textContent).toContain('original observation 2 min in the future; check source clock');
+      expect(shadow(container).querySelector('#timeContext')!.textContent).toContain('Original observation 2 min in the future; check source clock');
     } finally {
       now.mockRestore();
     }

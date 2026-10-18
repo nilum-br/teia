@@ -201,6 +201,8 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 410px; min-height: 0
 @keyframes toast-in { from { transform: translateY(-4px); opacity: 0; } to { transform: none; opacity: 1; } }
 .empty-state { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); pointer-events: none; }
 .empty-state button { pointer-events: auto; }
+.empty-state .primer { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, max-content)); justify-content: center; gap: 6px 18px; margin: 14px auto; max-width: 560px; font-size: 12px; color: var(--ink-2); }
+.empty-state .primer .lg { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
 
 /* ---- side panel ------------------------------------------------------- */
 aside { background: var(--panel); border-left: 1px solid var(--line); display: grid; grid-template-rows: auto 1fr; min-height: 0; }
@@ -296,6 +298,7 @@ details summary { cursor: pointer; color: var(--accent); font-size: 12px; margin
 .kv { display: grid; grid-template-columns: 130px 1fr; gap: 6px 10px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; word-break: break-word; }
+.kv dd small.from { display: block; color: var(--muted); font-size: 11.5px; margin-top: 1px; }
 .labels { display: flex; flex-wrap: wrap; gap: 5px; }
 .label { font: 11.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; border: 1px solid var(--line-2); border-radius: 4px; padding: 0 6px; background: transparent; color: var(--ink); }
 button.label { cursor: pointer; }
@@ -475,7 +478,7 @@ button.label:hover { border-color: var(--accent); }
     <div id="investigationSummary" class="investigation-summary" hidden></div>
     <div id="entityTable" class="entity-table" hidden></div>
     <svg id="map" role="group" aria-label="Communication map. Drag to pan, F to fit, slash to search."></svg>
-    <div class="map-help" id="mapHelp" hidden><span>Overview · select a component for its evidence.</span><button type="button" id="readableBtn">Read names</button></div>
+    <div class="map-help" id="mapHelp" hidden><span>Overview. Select a component to see its evidence.</span><button type="button" id="readableBtn">Read names</button></div>
     <div class="empty-state" id="empty"><p>Waiting for the first discovery round…</p></div>
     <div class="floating legend" id="legend"></div>
     <div class="floating zoom">
@@ -674,23 +677,50 @@ button.label:hover { border-color: var(--accent); }
       `Collected: ${e.collectedAt || 'unknown'}. ` + (e.evaluatedAt ? `Query evaluated: ${e.evaluatedAt}. ` : '') + observation +
       (e.windowSeconds > 0 ? `Query lookback: ${fmtSec(e.windowSeconds)}.` : 'Query lookback not supplied.');
   }
+  // provenanceText says where a value comes from and when, in one form for
+  // every value the details show: "From prometheus (traces) and
+  // loki/access-logs (logs), the 2 min to 21:27:39." Only the sources that
+  // report that metric count (all of them when none is named); a source that
+  // gave no time says so instead of borrowing another's.
+  const clockTime = at => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  // teia names traffic and errors requestRate and errorRate; frames from other
+  // tools may say traffic and errors.
+  const METRIC_NAMES = { requestRate: ['requestRate', 'traffic'], errorRate: ['errorRate', 'errors'] };
+  const sourceName = e => e.source + (e.origin ? ` (${e.origin})` : e.signal && e.signal !== e.source ? ` (${e.signal})` : '');
+  function provenanceText(evidence, metric, clock = clockTime) {
+    const names = METRIC_NAMES[metric] || [metric];
+    const entries = (evidence || []).filter(e => !metric || names.some(name => e.metrics.includes(name)));
+    if (!entries.length) return 'Source not reported.';
+    const groups = new Map();
+    for (const e of entries) {
+      const end = e.evaluatedAt || e.observedAt || e.collectedAt;
+      const span = e.windowSeconds > 0 ? `the ${fmtSec(e.windowSeconds)} to ${clock(end)}` : `at ${clock(end)}`;
+      const when = e.retained ? 'kept from an earlier round: not current' : !end ? 'time unknown'
+        : e.sampleCount ? `${e.sampleCount} sampled calls ${e.windowSeconds > 0 ? 'in ' + span : 'to ' + clock(end)}` : span;
+      if (!groups.has(when)) groups.set(when, new Set());
+      groups.get(when).add(sourceName(e));
+    }
+    return 'From ' + [...groups].map(([when, names]) => `${[...names].join(' and ')}, ${when}`).join('; ') + '.';
+  }
+  // andList reads a list as a sentence does: "a", "a and b", "a, b and c".
+  const andList = list => list.length < 2 ? list.join('') : `${list.slice(0, -1).join(', ')} and ${list.at(-1)}`;
+  // temporalText says what time the map shows, in sentences.
   function temporalText(snap, opts = {}, now = Date.now()) {
-    if (!snap) return 'Waiting for time information';
-    if (snap.operationContext) return `Sampled operation · ${snap.operationContext.operation} · ${snap.operationContext.traceId || 'all returned traces'} · total traffic and sampling coverage unknown · global health excluded`;
-    if (opts.comparison) return `Frozen capture · ${snap.generatedAt || 'time unknown'} · ${snap.history?.id || snap.timeMode || 'query'} · discrete observation, not continuous coverage`;
+    if (!snap) return 'Waiting for time information.';
+    if (snap.operationContext) return `Sampled operation ${snap.operationContext.operation}, ${snap.operationContext.traceId ? 'trace ' + snap.operationContext.traceId : 'every returned trace'}: total traffic and sampling coverage unknown, and global health left out.`;
+    if (opts.comparison) return `Frozen capture of ${snap.generatedAt || 'an unknown time'} (${snap.history?.id || snap.timeMode || 'query'}): one observation, not continuous coverage.`;
     const mode = snap.timeMode || (opts.api ? 'current' : 'query');
     const age = at => ageText(at, now);
     const collected = timestamp(snap.generatedAt);
     const observed = timestamp(snap.observedAt);
     const windows = [...new Set([...snap.nodes, ...snap.edges].flatMap(x => (x.evidence || []).map(e => e.windowSeconds)).filter(w => w > 0))].sort((a, b) => a - b);
+    if (mode === 'historical') return `Historical snapshot of ${collected || 'an unknown time'}, recorded ${snap.history?.recordedAt || 'at an unknown time'}: one observation, not continuous coverage. Live updates are paused.`;
     const parts = [mode === 'current' ? 'Current state' : mode === 'mixed' ? 'Mixed time modes' : 'Query data'];
-    if (mode === 'historical') return `Historical snapshot · ${collected || 'time unknown'} · recorded ${snap.history?.recordedAt || 'unknown'} · discrete observation, not continuous interval coverage · live updates suspended`;
     if (mode !== 'current') parts.push(snap.period ? `${snap.period.from} – ${snap.period.to}` : 'effective period unknown');
-    parts.push(collected ? `snapshot updated ${age(collected)}` : 'collection time unknown');
-    if (windows.length) parts.push(`source lookbacks ${windows.map(fmtSec).join(', ')}`);
-    parts.push(observed ? `original observation ${age(observed)}` : 'original observation time unknown');
-    if (mode === 'current' && (opts.mode === 'panel' || opts.requestedRange)) parts.push('dashboard range does not change this snapshot');
-    return parts.join(' · ');
+    parts.push(collected ? `updated ${age(collected)}` : 'collection time unknown');
+    if (windows.length) parts.push(`from sources looking back ${andList(windows.map(fmtSec))}`);
+    return parts.join(', ') + '. ' + (observed ? `Original observation ${age(observed)}.` : 'Original observation time unknown.') +
+      (mode === 'current' && (opts.mode === 'panel' || opts.requestedRange) ? ' The dashboard range does not change this snapshot.' : '');
   }
   // measures are readings beyond traffic: connections in use, sessions
   // waiting on locks, consumer lag.
@@ -1613,6 +1643,40 @@ button.label:hover { border-color: var(--accent); }
     return pos;
   }
 
+  // steadyLayout keeps the map where people last saw it (prev, the previous
+  // layout of the same view). layered places every card from scratch, so one
+  // call appearing used to move most of them. Here a call appearing or going
+  // away, or a component going away, moves nothing; a few new components each
+  // take a free row in the column after their caller (or before their callee).
+  // No previous layout, a large change, or a framed scope (pin) lays out
+  // afresh, from seed when it covers every card (two maps compared side by side).
+  function steadyLayout(prev, view, { colGap = 300, rowGap = 112, pin = new Map(), seed = null, taken = {} } = {}) {
+    const ids = [...view.nodes.keys()].sort();
+    if (!prev) return seed && ids.every(id => seed[id]) ? Object.fromEntries(ids.map(id => [id, seed[id]])) : layered(view, { colGap, rowGap, pin });
+    const added = ids.filter(id => !prev[id]);
+    if (added.length && (pin.size || added.length > Math.max(3, ids.length * 0.2))) return layered(view, { colGap, rowGap, pin });
+    const pos = {};
+    for (const id of ids) if (prev[id]) pos[id] = prev[id];
+    if (!added.length) return pos;
+    const fresh = layered(view, { colGap, rowGap, pin });
+    const edges = [...view.edges.values()];
+    for (const id of added) {
+      const callers = edges.filter(e => e.to === id && pos[e.from]).map(e => pos[e.from]);
+      const callees = edges.filter(e => e.from === id && pos[e.to]).map(e => pos[e.to]);
+      const near = [...callers, ...callees];
+      const x = callers.length ? Math.max(...callers.map(p => p.x)) + colGap : callees.length ? Math.min(...callees.map(p => p.x)) - colGap : fresh[id].x;
+      const want = near.length ? near.reduce((a, p) => a + p.y, 0) / near.length : fresh[id].y;
+      const column = [...Object.entries(pos), ...Object.entries(taken).filter(([other]) => view.nodes.has(other))]
+        .filter(([, p]) => Math.abs(p.x - x) < colGap / 2).map(([, p]) => p.y);
+      let y = want;
+      for (let step = 1; column.some(cy => Math.abs(cy - y) < rowGap - 1e-9) && step < 400; step++) {
+        y = want + Math.ceil(step / 2) * (rowGap / 2) * (step % 2 ? 1 : -1);
+      }
+      pos[id] = { x, y };
+    }
+    return pos;
+  }
+
   // AUTO_GROUP_NODES is the most components a map draws one by one when
   // nobody chose a grouping: past it a browser spends seconds on every round
   // (2 000 components and 8 000 connections took 16 s a round in Chromium),
@@ -1660,7 +1724,7 @@ button.label:hover { border-color: var(--accent); }
     } catch { return null; }
   }
 
-  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, autoGroupKey, AUTO_GROUP_NODES, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, scopeSnapshot, scopePins, journeyWhy, journeyNames, scopeOf, facetsOf, facetValues, journeyKeyOf, JOURNEY_KEYS, filtersFromParams, filtersToParams, filterLabel, filtersActive, emptyFilters, journeyPorts, packColumn, frameLayout, scopeStats, TECH, CATEGORY, SIGNAL, REASON };
+  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, steadyLayout, provenanceText, autoGroupKey, AUTO_GROUP_NODES, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, scopeSnapshot, scopePins, journeyWhy, journeyNames, scopeOf, facetsOf, facetValues, journeyKeyOf, JOURNEY_KEYS, filtersFromParams, filtersToParams, filterLabel, filtersActive, emptyFilters, journeyPorts, packColumn, frameLayout, scopeStats, TECH, CATEGORY, SIGNAL, REASON };
   function operationsOf(value) {
     if (!value || value.version !== 1 || value.mode !== 'operation' || !Array.isArray(value.scopes) || !Array.isArray(value.sources)) return undefined;
     const scopes = value.scopes.filter(s => s && typeof s.id === 'string' && typeof s.operation === 'string' && typeof s.entryService === 'string' &&
@@ -1700,7 +1764,7 @@ button.label:hover { border-color: var(--accent); }
   const changeTone = c => c.to === 'failing' || (c.type === 'finding.opened' && c.to === 'critical') ? 'bad'
     : c.to === 'healthy' || c.type === 'finding.resolved' ? 'good'
       : c.to === 'degraded' ? 'warn' : '';
-  Object.assign(core, { groupingPath, neighbourOrder, mapReasons, safeLinks, investigateSnapshot, compareSnapshots, operationsOf, operationSnapshot, changeTone });
+  Object.assign(core, { groupingPath, neighbourOrder, mapReasons, safeLinks, investigateSnapshot, compareSnapshots, operationsOf, operationSnapshot, changeTone, temporalText });
 
   // A bounded view of observed topology, never a claim that a path is one request.
   function investigateSnapshot(snap, options = {}) {
@@ -1893,6 +1957,10 @@ button.label:hover { border-color: var(--accent); }
       s.innerHTML = glyph ? HEALTH_GLYPH[kind] : GRAMMAR[kind];
       return s;
     };
+    // primer: while there is nothing to draw, what the map will draw.
+    const primer = () => el('div', { class: 'primer' }, ...[['seen', STATE_LABEL.ok], ['undeclared', STATE_LABEL.ghost], ['declared', STATE_LABEL.stale],
+      ['blind', VIS_LABEL.partial], ['notraffic', VIS_LABEL.none]].map(([kind, label]) => el('span', { class: 'lg' }, grammarSVG(kind), label)));
+    $('#empty').replaceChildren(el('div', {}, el('p', {}, 'Waiting for the first discovery round. The map draws what teia sees, and what it does not:'), primer()));
     const css = name => getComputedStyle(host).getPropertyValue(name).trim();
     const timeOf = iso => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const stored = (k, d) => { const v = store.get(k, null); return v == null ? d : v; };
@@ -1937,7 +2005,7 @@ button.label:hover { border-color: var(--accent); }
     let viewport, layerFrame, layerEdges, layerPorts, layerMarks, layerReasons, layerParticles, layerLabels, layerNodes;
     const portEls = new Map(); // port id -> { port, g }
     const nodeEls = new Map(), edgeEls = new Map();
-    let currentView = null, layoutPos = {}, topologyKey = '';
+    let currentView = null, layoutPos = {}, topologyKey = '', layoutShape = '';
 
     const SVG_CSS = `
       .card { fill: var(--card); stroke: var(--line-2); stroke-width: 1; transition: fill .15s, stroke .15s; }
@@ -2107,7 +2175,13 @@ button.label:hover { border-color: var(--accent); }
       ports = ports.filter(p => p.anchors.length);
       const pin = scope ? scopePins(view, ports) : new Map();
       const key = [...view.nodes.keys()].sort().join('|') + '#' + [...view.edges.keys()].sort().join('|') + '#' + [...pin].sort().join(';');
-      if (key !== topologyKey) { layoutPos = layered(view, { pin }); topologyKey = key; }
+      // A new round of the same view keeps the cards where they were; another
+      // view (filters, grouping, an investigation, Reset) lays out afresh.
+      const shape = [posKey(), state.groupBy, [...state.expanded].sort().join(','), JSON.stringify(state.investigation), state.operation.id].join('#');
+      if (key !== topologyKey) {
+        layoutPos = steadyLayout(topologyKey && shape === layoutShape ? layoutPos : null, view, { pin, seed: opts.layout, taken: state.positions });
+        topologyKey = key; layoutShape = shape;
+      }
       if (state.hover && !view.nodes.has(state.hover)) state.hover = null;
       if (state.hoverEdge && !view.edges.has(state.hoverEdge)) state.hoverEdge = null;
 
@@ -2139,7 +2213,8 @@ button.label:hover { border-color: var(--accent); }
       const empty = $('#empty');
       empty.hidden = view.nodes.size > 0;
       if (!empty.hidden) {
-        empty.replaceChildren(el('div', {}, el('p', {}, scope ? 'Nothing matches these filters.' : 'No communication discovered yet.'),
+        empty.replaceChildren(el('div', {}, el('p', {}, scope ? 'Nothing matches these filters.' : 'No communication discovered yet. When a source reports some, the map draws:'),
+          scope ? null : primer(),
           el('button', { class: 'btn', type: 'button', onclick: () => { if (scope) setFilters(emptyFilters()); else { showTab('sources'); setDrawer(true); } } }, scope ? 'Clear filters' : 'Inspect sources')));
       }
 
@@ -2573,7 +2648,7 @@ button.label:hover { border-color: var(--accent); }
       viewport.classList.toggle('dense', denseView);
       $('#mapHelp').hidden = !(compactView || state.autoGroup) || !nodeEls.size;
       $('#mapHelp span').textContent = state.autoGroup ? `Grouped by ${state.autoGroup}: ${state.snap.nodes.length} components are too many to draw one by one. Open a group, or choose No grouping.`
-        : denseView ? `${nodeEls.size} components · ${edgeEls.size} connections. Group, search or focus to read names.` : 'Overview · select a component for its evidence.';
+        : denseView ? `${nodeEls.size} components and ${edgeEls.size} connections: group, search or focus to read their names.` : 'Overview. Select a component to see its evidence.';
       for (const [id, g] of nodeEls) {
         const n = currentView.nodes.get(id), title = g._parts.title;
         const mark = DIFF_MARK[diffOf(n)] || '';
@@ -2611,6 +2686,14 @@ button.label:hover { border-color: var(--accent); }
         const p = g._pos;
         x0 = Math.min(x0, p.x - NODE_W / 2); x1 = Math.max(x1, p.x + NODE_W / 2);
         y0 = Math.min(y0, p.y - NODE_H / 2); y1 = Math.max(y1, p.y + NODE_H / 2 + 12);
+      }
+      // Maps compared side by side share a layout and fit the same frame, every
+      // card either capture has, so a card sits in the same place in both.
+      if (opts.layout && [...nodeEls.keys()].every(id => opts.layout[id])) {
+        for (const p of Object.values(opts.layout)) {
+          x0 = Math.min(x0, p.x - NODE_W / 2); x1 = Math.max(x1, p.x + NODE_W / 2);
+          y0 = Math.min(y0, p.y - NODE_H / 2); y1 = Math.max(y1, p.y + NODE_H / 2 + 12);
+        }
       }
       if (state.frameBox) {
         const fb = state.frameBox;
@@ -2843,7 +2926,7 @@ button.label:hover { border-color: var(--accent); }
       const l = $('#live');
       if (opts.comparison) { l.className = 'live paused'; l.querySelector('span').textContent = 'frozen capture'; return; }
       if (state.error) { l.className = 'live error'; l.querySelector('span').textContent = state.error; return; }
-      if (state.snap?.timeMode === 'historical') { l.className = 'live paused'; l.querySelector('span').textContent = 'historical · stored snapshot'; return; }
+      if (state.snap?.timeMode === 'historical') { l.className = 'live paused'; l.querySelector('span').textContent = 'historical snapshot'; return; }
       l.className = 'live ' + (!state.live ? 'paused' : state.connected ? 'on' : '');
       const since = opts.api && state.snap ? new Date(state.snap.generatedAt).getTime() : state.lastData;
       const ago = since ? Math.max(0, Math.round((Date.now() - since) / 1000)) : 0;
@@ -3222,8 +3305,8 @@ button.label:hover { border-color: var(--accent); }
       const card = r => el('div', { class: 'evidence-card' },
         el('strong', {}, r.summary || reasonTag(r)),
         el('p', { class: 'explain' }, r.via ? `Dependency signal from ${r.via}; this suggests a relationship, not proof of causation.` : `Measured ${r.what || REASON[r.cause].label.toLowerCase()}${r.subject ? ` on ${r.subject}` : ''}.`),
-        el('p', {}, `${r.approximate ? 'Approximate ' : ''}value ${r.cause === 'latency' ? fmtMs(r.value) : fmtValue(r.value, r.unit)} · ${r.health} limit ${r.cause === 'latency' ? fmtMs(r.limit) : fmtValue(r.limit, r.unit)}${r.rule ? ` · rule ${r.rule}` : ''}`),
-        r.evidence?.length ? el('p', { class: 'explain' }, 'Sources: ' + [...new Set(r.evidence.map(e => e.source))].join(', ')) : null,
+        el('p', {}, `${r.approximate ? 'About ' : ''}${r.cause === 'latency' ? fmtMs(r.value) : fmtValue(r.value, r.unit)} against a ${r.health} limit of ${r.cause === 'latency' ? fmtMs(r.limit) : fmtValue(r.limit, r.unit)}${r.rule ? ` (rule ${r.rule})` : ''}.`),
+        el('p', { class: 'explain' }, provenanceText(r.evidence, '')),
         r.via ? el('button', { type: 'button', class: 'btn', title: `Show ${r.via} on the map`, onclick: () => locate(r.via) }, 'Inspect ' + r.via) : null);
       return [el('h3', {}, 'Primary signal'), card(unique[0]),
         unique.length > 1 ? el('details', {}, el('summary', {}, `Other signals (${unique.length - 1})`), ...unique.slice(1).map(card)) : null];
@@ -3233,21 +3316,29 @@ button.label:hover { border-color: var(--accent); }
       return el('button', { type: 'button', class: 'rel', onclick }, el('i', { class: 'dot', style: `background:${css('--' + health)}` }), label, el('span', {}, sub));
     }
 
+    const METRIC_WORDS = { topology: 'who calls whom', requestRate: 'traffic', errorRate: 'errors' };
     function evidenceBlock(item) {
       const entries = [...new Map((item.evidence || []).map(e => [JSON.stringify(e), e])).values()];
-      return [el('h3', {}, 'Evidence and time'), ...(entries.length ? entries.map(e => {
+      // An inventory or a flows file says a component or call exists and measures
+      // nothing: one sentence for all of them, not a card each with no sample age.
+      // A group's members keep their own cards, so each stays identifiable.
+      const bare = e => !e.metrics.length && !e.retained && !e.subject;
+      const known = [...new Set(entries.filter(bare).map(e => e.source === 'declared' ? 'a flows file' : sourceName(e)))];
+      const measured = entries.filter(e => !bare(e));
+      return [el('h3', {}, 'Evidence and time'), ...measured.map(e => {
         const original = e.oldestSampleAt || e.observedAt;
         const summary = e.retained ? 'Retained topology; current measurements unavailable'
           : original && e.collectedAt ? `Sample age at collection: ${ageText(original, Date.parse(e.collectedAt))}` : 'Original sample age unknown';
         const subject = e.subject?.node || (e.subject?.from ? `${e.subject.from} → ${e.subject.to}` : '');
         return el('article', { class: 'evidence-card' },
-          el('strong', {}, `${e.source}${e.origin ? ` · ${e.origin}` : ''}`),
+          el('strong', {}, sourceName(e)),
           subject ? el('p', { class: 'explain' }, subject) : null,
-          el('p', {}, e.metrics.join(', ') || e.signal || 'inventory'), el('p', { class: 'explain' }, summary),
-          e.windowSeconds ? el('p', { class: 'explain' }, `Query window: ${fmtSec(e.windowSeconds)}${e.sampleCount ? ` · ${e.sampleCount} sampled calls` : ''}`) : null,
+          el('p', {}, e.metrics.length ? `Reports ${andList(e.metrics.map(m => METRIC_WORDS[m] || m))}.` : 'Reports nothing current.'), el('p', { class: 'explain' }, summary),
+          e.windowSeconds ? el('p', { class: 'explain' }, `Looks back ${fmtSec(e.windowSeconds)}${e.sampleCount ? `; ${e.sampleCount} sampled calls` : ''}.`) : null,
           el('details', { 'data-disclosure-key': JSON.stringify(['evidence', e.source, e.origin, e.signal, e.metrics, e.subject]) }, el('summary', {}, 'Collection and sample times'), el('p', { class: 'explain' }, evidenceText(e))));
-      })
-        : [el('p', { class: 'explain' }, 'Source timing was not supplied; the age of these measurements is unknown.')])];
+      }),
+      known.length ? el('p', { class: 'explain' }, `Also known from ${andList(known)}, which ${known.length > 1 ? 'say' : 'says'} it exists without measuring it.`) : null,
+      entries.length ? null : el('p', { class: 'explain' }, 'Source timing was not supplied; the age of these measurements is unknown.')];
     }
 
     function renderIdentity(item) {
@@ -3388,11 +3479,11 @@ button.label:hover { border-color: var(--accent); }
           }
           parts.push(el('p', { class: 'explain' }, VIS_EXPLAIN[n.visibility]));
           const kv = el('dl', { class: 'kv' });
-          const row = (k, v) => kv.append(el('dt', {}, k), el('dd', {}, v));
-          if (n.requestRate > 0) row(n.trafficDirection ? `${n.trafficDirection} calls` : 'traffic', `${fmtRate(n.requestRate)} req/s · ${errorText(n)}`);
-          if (n.latencyP95Ms > 0) row('latency', latencyText(n));
+          const row = (k, v, from) => kv.append(el('dt', {}, k), el('dd', {}, v, from ? el('small', { class: 'from' }, from) : null));
+          if (n.requestRate > 0) row(n.trafficDirection ? `${n.trafficDirection} calls` : 'traffic', `${fmtRate(n.requestRate)} req/s · ${errorText(n)}`, provenanceText(n.evidence, 'requestRate'));
+          if (n.latencyP95Ms > 0) row('latency', latencyText(n), provenanceText(n.evidence, 'latency'));
           row('component', `${CATEGORY[categoryOf(n)]?.label || n.kind}${n.tech ? ' · ' + techLabel(n) : ''}`);
-          for (const m of n.measures) row(m.what, measureText(m));
+          for (const m of n.measures) row(m.what, measureText(m), provenanceText(n.evidence, `${m.cause}: ${m.what}`));
           row('known from', n.sources.join(', ') || '—');
           if (n.addresses.length) row('addresses', n.addresses.join(', '));
           parts.push(kv);
@@ -3442,19 +3533,19 @@ button.label:hover { border-color: var(--accent); }
         }[e.state]));
       }
       const kv = el('dl', { class: 'kv' });
-      const row = (k, v) => kv.append(el('dt', {}, k), el('dd', {}, v));
+      const row = (k, v, from) => kv.append(el('dt', {}, k), el('dd', {}, v, from ? el('small', { class: 'from' }, from) : null));
       row('protocol', [e.protocol || '—', e.port ? ':' + e.port : ''].join(''));
       if (e.requestRate > 0) {
-        row('traffic', `${fmtRate(e.requestRate)} req/s`);
-        row('errors', errorText(e));
+        row('traffic', `${fmtRate(e.requestRate)} req/s`, provenanceText(e.evidence, 'requestRate'));
+        row('errors', errorText(e), provenanceText(e.evidence, 'errorRate'));
       }
-      if (e.latencyP95Ms > 0) row('latency', latencyText(e));
+      if (e.latencyP95Ms > 0) row('latency', latencyText(e), provenanceText(e.evidence, 'latency'));
       const edgeDims = {};
       for (const m of e.members) for (const [k, vs] of Object.entries(m.dimensions || {})) for (const v of strings(vs)) (edgeDims[k] ||= new Set()).add(v);
       if (state.snap.slice) row('measured', 'only calls with ' + sliceText(state.snap.slice.selector).replaceAll(',', ', '));
       else if (Object.keys(edgeDims).length) row('measured', 'all calls, every ' + Object.keys(edgeDims).sort().join(' and '));
       for (const [k, vs] of Object.entries(edgeDims).sort()) row(k, [...vs].sort().join(', '));
-      for (const m of e.measures) row(m.what, measureText(m));
+      for (const m of e.measures) row(m.what, measureText(m), provenanceText(e.evidence, `${m.cause}: ${m.what}`));
       if (state.snap.drift) row('reason', e.reason || (e.declared ? '—' : 'not declared'));
       row('seen by', e.signals.map(s => has(SIGNAL, s) ? SIGNAL[s].label : s).join(', ') || (e.observed ? '—' : 'nobody yet'));
       if (e.sources.length) row('sources', e.sources.join(', '));
@@ -3640,8 +3731,8 @@ button.label:hover { border-color: var(--accent); }
       const active = state.investigation.mode !== 'all' || state.display === 'list' || !!state.operation.id;
       summary.hidden = !active; stage.classList.toggle('has-investigation', active);
       if (active && info) {
-        const message = (state.operation.id ? `Sampled operation: ${state.snap.operationContext?.operation} · ` : '') + `${info.snapshot.nodes.length} components · ${info.snapshot.edges.length} connections · ${info.hiddenNodes} components outside view · ${info.boundaryEdges} crossing connections`;
-        summary.replaceChildren(el('span', {}, message + (info.limited ? ' · 200-component limit reached; narrow the scope.' : '') + (!info.found ? ' · No directed path in the available topology.' : '')),
+        const message = (state.operation.id ? `Sampled operation: ${state.snap.operationContext?.operation}. ` : '') + `Showing ${info.snapshot.nodes.length} components and ${info.snapshot.edges.length} connections; ${info.hiddenNodes} components outside view and ${info.boundaryEdges} crossing connections.`;
+        summary.replaceChildren(el('span', {}, message + (info.limited ? ' The 200-component limit was reached: narrow the scope.' : '') + (!info.found ? ' No directed path in the available topology.' : '')),
           el('button', { class: 'btn', type: 'button', onclick: () => { state.display = state.display === 'list' ? 'graph' : 'list'; renderInvestigation(); syncSharedURL(); } }, state.display === 'list' ? 'Show graph' : 'Show table'),
           el('button', { class: 'btn', type: 'button', onclick: () => { state.investigation.mode = 'all'; state.display = 'graph'; state.operation = { id: '', traceId: '' }; state.fitted = false; apply(state.rawSnapshot, false, true); renderAll(); syncSharedURL(); } }, 'Reset investigation'));
       }
@@ -3750,11 +3841,15 @@ button.label:hover { border-color: var(--accent); }
       const maps = el('div', { class: 'workspace-grid' });
       // Each map marks only what it can show: absences belong to "before", arrivals to "after".
       const marks = (rows, side) => Object.fromEntries(rows.filter(row => row.status === 'changed' || row.status === (side === 'before' ? 'removed' : 'added')).map(row => [row.id, row.status]));
+      // Both maps are laid out from every component and call either capture has.
+      const union = (a, b, key) => [...new Map([...a, ...b].map(x => [key(x), x])).values()];
+      const both = sanitize({ nodes: union(comparison.before.nodes, comparison.after.nodes, n => n.id), edges: union(comparison.before.edges, comparison.after.edges, e => e.from + '->' + e.to) });
+      const layout = layered(buildView(both, indexSnapshot(both)));
       for (const side of ['before','after']) {
         const host = el('div', { class: 'comparison-map', 'aria-label': `${side} communication map` });
         maps.append(el('div', {}, el('h3', {}, side === 'before' ? 'Before' : 'After'), host));
         result.append(maps);
-        const controller = mount(host, { mode: 'panel', flow: false, theme: hostTheme(), comparison: true, storageKey: prefix + 'compare-' + side,
+        const controller = mount(host, { mode: 'panel', flow: false, theme: hostTheme(), comparison: true, storageKey: prefix + 'compare-' + side, layout,
           diff: { nodes: marks(diff.nodes, side), edges: marks(diff.edges, side) } });
         controller.update(comparison[side]); comparisonMaps.push(controller);
       }

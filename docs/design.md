@@ -35,13 +35,30 @@ differs keeps a heavy outline; what did not change is muted. The "+" and the das
   reuse them for anything else.
 - The marks that carry the grammar (the hatch, the dashed card, the dashed line) keep 3:1 against the surface under
   them in every theme, Grafana's included, so they do not depend on good eyesight or a good screen.
+- The map stays where people last saw it. A new round moves no card when a call appears or goes away, and a new
+  component takes a free row instead of pushing others; only another view (filters, grouping, an investigation)
+  or **Reset** lays the map out again. Two captures compared side by side share one layout.
 - One sans-serif family, tabular numbers, small radii (6 px on cards, 1 px inside icons).
 - No decorative motion, glow, blur, gradients, dot-grid backgrounds, uppercase eyebrow labels, colored side
   stripes or icons in colored tiles. The traffic dots move only when **Flow** is on, and Flow starts off when the system asks for reduced motion.
 - Text says what, from where and since when. A blind spot is written as what teia cannot see, why, and how to
-  see it.
+  see it. In the details every value and every reason carries one line in one form, naming only the sources that
+  report it: "From prometheus (traces) and loki/access-logs (logs), the 2 min to 21:27:39."
 - Icons follow the [icon library](icons.md#drawing-a-new-icon) rules.
 - Check a change on the standalone page and in the Grafana panel, light and dark, desktop and mobile.
+
+## How teia writes
+
+- **Evidence first.** What, from where, since when. A value carries its sources and their window; a time says
+  whether it is when teia collected, when the query ran or when the call happened.
+- **Say what teia does not know**, why, and how to know it. Unknown is a value: never write it as 0, as healthy or
+  as a blank.
+- **Two registers.** On the map, terse: a name, a number and its unit. In the details, the status lines and the
+  messages, sentences.
+- **Sentences, not strings of tags.** " · " separates data on one line (a rate and its latency); it never glues a
+  sentence together.
+- **Plain words.** Name the component, the source and the rule. No hype, no exclamation marks, no "smart".
+- **An empty state says what will appear and what to do.** The empty map draws the grammar it will use.
 
 `internal/api/design-rules.test.mjs` checks the rules a stylesheet can break: health colors only on health states,
 dashes only on what is only declared, none of the excluded decoration, and the grammar's contrast in every theme.

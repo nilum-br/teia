@@ -9,7 +9,7 @@ import { describe, it } from 'node:test';
 import { readFileSync } from 'node:fs';
 
 const { core } = createRequire(import.meta.url)('./ui/teia-ui.js');
-const { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, scopeSnapshot, scopePins, journeyWhy, journeyNames, scopeOf, facetsOf, filtersFromParams, filtersToParams, filterLabel, journeyKeyOf, journeyPorts, packColumn, frameLayout, scopeStats } = core;
+const { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, steadyLayout, provenanceText, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, scopeSnapshot, scopePins, journeyWhy, journeyNames, scopeOf, facetsOf, filtersFromParams, filtersToParams, filterLabel, journeyKeyOf, journeyPorts, packColumn, frameLayout, scopeStats } = core;
 
 const node = (id, extra = {}) => ({ id, kind: 'service', health: 'healthy', visibility: 'full', sources: [], ...extra });
 const edge = (from, to, extra = {}) => ({ from, to, state: 'ok', health: 'healthy', declared: true, observed: true, requestRate: 1, errorRate: 0, signals: ['traces'], sources: [], ...extra });
@@ -294,6 +294,107 @@ describe('layered', () => {
     const pos = layout(ids, edges.filter(([a, b]) => a !== b));
     assert.equal(Object.keys(pos).length, 500);
     assert.ok(performance.now() - t < 2000, 'layout took too long');
+  });
+});
+
+// Every value in the details says where it comes from and when, in one form.
+describe('provenanceText', () => {
+  const clock = at => at.slice(11, 19);
+  const ev = (source, signal, metrics, extra = {}) => ({ source, origin: '', signal, metrics, collectedAt: '2026-10-18T21:27:40.000Z',
+    evaluatedAt: '2026-10-18T21:27:39.000Z', observedAt: '', windowSeconds: 120, sampleCount: 0, retained: false, ...extra });
+
+  it('names only the sources that report the value, with the window they cover', () => {
+    const evidence = [ev('prometheus', 'traces', ['requestRate', 'latency']), ev('loki/access-logs', 'logs', ['requestRate']), ev('docker', 'docker', [])];
+    assert.equal(provenanceText(evidence, 'requestRate', clock), 'From prometheus (traces) and loki/access-logs (logs), the 2 min to 21:27:39.');
+    assert.equal(provenanceText(evidence, 'latency', clock), 'From prometheus (traces), the 2 min to 21:27:39.');
+    // frames from other tools may call them traffic and errors
+    const frames = [ev('fixture-metrics', 'metrics', ['traffic', 'errors', 'latency'], { windowSeconds: 300 })];
+    for (const metric of ['requestRate', 'errorRate', 'latency']) assert.equal(provenanceText(frames, metric, clock), 'From fixture-metrics (metrics), the 5 min to 21:27:39.');
+  });
+
+  it('tells sampled traces, retained data and unknown times apart', () => {
+    const tempo = ev('tempo', 'traces', ['latency'], { evaluatedAt: '', observedAt: '2026-10-18T21:27:08.000Z', sampleCount: 50, windowSeconds: 600 });
+    assert.equal(provenanceText([ev('prometheus', 'traces', ['latency']), tempo], 'latency', clock),
+      'From prometheus (traces), the 2 min to 21:27:39; tempo (traces), 50 sampled calls in the 10 min to 21:27:08.');
+    assert.equal(provenanceText([ev('prometheus', 'prometheus', ['requestRate'], { retained: true })], 'requestRate', clock),
+      'From prometheus, kept from an earlier round: not current.');
+    assert.equal(provenanceText([ev('x', 'x', ['requestRate'], { evaluatedAt: '', collectedAt: '' })], 'requestRate', clock), 'From x, time unknown.');
+    assert.equal(provenanceText([ev('prometheus', 'prometheus', ['backlog: messages waiting'], { origin: 'kafka', windowSeconds: 0 })], 'backlog: messages waiting', clock),
+      'From prometheus (kafka), at 21:27:39.');
+    assert.equal(provenanceText([], 'requestRate', clock), 'Source not reported.');
+  });
+
+  it('reads every entry when no value is named (the evidence of a reason)', () => {
+    assert.equal(provenanceText([ev('prometheus', 'mesh', ['errorRate'])], '', clock), 'From prometheus (mesh), the 2 min to 21:27:39.');
+  });
+});
+
+// The time line is read as sentences; " · " only separates data (docs/design.md).
+describe('temporalText', () => {
+  const { temporalText } = core;
+  const now = Date.parse('2026-10-18T12:00:30Z');
+  const timed = snap([node('a', { evidence: [{ source: 'prometheus', signal: 'traces', metrics: ['requestRate'], windowSeconds: 120 }, { source: 'tempo', signal: 'traces', metrics: ['latency'], windowSeconds: 600 }] })], [],
+    { generatedAt: '2026-10-18T12:00:00Z', observedAt: '2026-10-18T11:59:50Z', timeMode: 'current' });
+
+  it('says what time the map shows, in sentences', () => {
+    assert.equal(temporalText(timed, { mode: 'panel' }, now),
+      'Current state, updated 30 s ago, from sources looking back 2 min and 10 min. Original observation 40 s ago. The dashboard range does not change this snapshot.');
+    assert.equal(temporalText(sanitize({ ...timed, observedAt: '' }), { mode: 'page' }, now),
+      'Current state, updated 30 s ago, from sources looking back 2 min and 10 min. Original observation time unknown.');
+  });
+
+  it('keeps stored, frozen and sampled views apart', () => {
+    assert.match(temporalText(sanitize({ ...timed, timeMode: 'historical', history: { availability: 'stored-snapshot', id: 'h1', recordedAt: '2026-10-18T12:00:05Z' } }), {}, now),
+      /^Historical snapshot of 2026-10-18T12:00:00.000Z, recorded 2026-10-18T12:00:05Z: one observation, not continuous coverage. Live updates are paused.$/);
+    assert.match(temporalText(timed, { comparison: true }, now), /^Frozen capture of 2026-10-18T12:00:00.000Z \(current\): one observation, not continuous coverage.$/);
+    for (const opts of [{ mode: 'panel' }, { comparison: true }, {}]) assert.doesNotMatch(temporalText(timed, opts, now), / · /);
+  });
+});
+
+// A round that adds or drops a call must not rearrange the map someone is
+// reading; with the plain layered layout one call moved most of the cards.
+describe('steadyLayout', () => {
+  const ids = ['web', 'api', 'auth', 'orders', 'db', 'cache', 'queue', 'mail', 'pay', 'gw'];
+  const calls = [['web', 'api'], ['api', 'auth'], ['api', 'orders'], ['orders', 'db'], ['orders', 'cache'], ['orders', 'queue'], ['queue', 'mail'], ['orders', 'pay'], ['pay', 'gw']];
+  const v = (nodes, edges) => view(snap(nodes.map(id => node(id)), edges.map(([a, b]) => edge(a, b))));
+  const before = layered(v(ids, calls));
+  const same = (a, b) => Object.keys(b).filter(id => a[id]).every(id => a[id].x === b[id].x && a[id].y === b[id].y);
+  const apart = pos => Object.values(pos).every((p, i, all) => all.every((q, j) => i === j || p.x !== q.x || Math.abs(p.y - q.y) >= 112 - 1e-9));
+
+  it('moves nothing when a call appears or disappears', () => {
+    const more = v(ids, [...calls, ['mail', 'gw']]), fewer = v(ids, calls.filter(([a, b]) => a !== 'orders' || b !== 'queue'));
+    assert.ok(same(before, steadyLayout(before, more)));
+    assert.ok(same(before, steadyLayout(before, fewer)));
+    // the plain layout moves them
+    assert.ok(!same(before, layered(more)) && !same(before, layered(fewer)));
+  });
+
+  it('moves nothing when a component goes away', () => {
+    const pos = steadyLayout(before, v(ids.filter(id => id !== 'cache'), calls.filter(c => !c.includes('cache'))));
+    assert.ok(same(before, pos));
+    assert.equal(pos.cache, undefined);
+  });
+
+  it('gives a new component a free row next to its caller, without moving the others', () => {
+    const pos = steadyLayout(before, v([...ids, 'audit'], [...calls, ['orders', 'audit']]));
+    assert.ok(same(before, pos));
+    assert.equal(pos.audit.x, before.orders.x + 300);
+    assert.ok(apart(pos), 'no two cards share a slot');
+  });
+
+  it('lays out afresh with no layout yet, after a large change, or in a framed scope', () => {
+    const grown = v([...ids, 'a1', 'a2', 'a3', 'a4'], [...calls, ...['a1', 'a2', 'a3', 'a4'].map(id => ['web', id])]);
+    assert.deepEqual(steadyLayout(null, grown), layered(grown));
+    assert.deepEqual(steadyLayout(before, grown), layered(grown));
+    const pin = new Map([['db', 'last']]);
+    const one = v([...ids, 'audit'], [...calls, ['orders', 'audit']]);
+    assert.deepEqual(steadyLayout(before, one, { pin }), layered(one, { pin }));
+  });
+
+  it('starts from a shared seed when it covers every card', () => {
+    const seed = { ...before, extra: { x: 900, y: 0 } };
+    assert.deepEqual(steadyLayout(null, v(ids, calls), { seed }), Object.fromEntries(ids.map(id => [id, before[id]])));
+    assert.deepEqual(steadyLayout(null, v([...ids, 'other'], calls), { seed }), layered(v([...ids, 'other'], calls)));
   });
 });
 
