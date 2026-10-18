@@ -605,7 +605,11 @@ button.label:hover { border-color: var(--accent); }
   const HEALTH_LABEL = { healthy: 'healthy', degraded: 'degraded', failing: 'failing', unknown: 'health unknown' };
   const HEALTH_RANK = { failing: 3, degraded: 2, healthy: 1, unknown: 0 };
   // Comparison marks are text as well as colour, like health.
-  const DIFF_MARK = { added: '+ ', removed: '− ', changed: '~ ' };
+  // A comparison map writes its differences on the names, like tracked
+  // changes: underlined only after, struck through only before (SVG_CSS), and
+  // "~" for changed, terraform plan's in-place update. "+" and dashes keep
+  // their meaning on the map, and amber and red stay health.
+  const DIFF_MARK = { changed: '~ ' };
   const DIFF_TEXT = { added: 'only in the after capture', removed: 'only in the before capture', changed: 'changed between the captures' };
   const STATE_LABEL = { ok: 'declared and seen', ghost: 'seen, not declared', stale: 'declared, not seen' };
   const VIS_LABEL = { full: 'seen first-hand', partial: 'blind spot', none: 'no traffic seen' };
@@ -1821,9 +1825,8 @@ button.label:hover { border-color: var(--accent); }
       .comparison-map { height:clamp(330px, 55vh, 520px); min-width:0; border:1px solid var(--line-2); border-radius:8px; overflow:hidden; }
       .workspace-card { border:1px solid var(--line-2); padding:12px; border-radius:8px; min-width:0; }
       .workspace-card pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:300px; overflow:auto; }
-      .change-added td:first-child { color:var(--ok-text); font-weight:600; }
-      .change-removed td:first-child { color:var(--err-text); font-weight:600; }
-      .change-changed td:first-child { color:var(--warn-text); font-weight:600; }
+      .workspace-table tr[class^="change-"] td:first-child { font-weight:600; }
+      .change-added td:nth-child(2) .btn { text-decoration:underline; } .change-removed td:nth-child(2) .btn { text-decoration:line-through; }
       .workspace-dialog button:focus-visible,.entity-table button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
       @media(max-width:700px) { .workspace-grid { grid-template-columns:1fr; } .comparison-map { height:330px; } }
     `;
@@ -2013,9 +2016,7 @@ button.label:hover { border-color: var(--accent); }
       .edge.h-failing path.line { stroke: var(--failing); } .edge.h-unknown path.line { stroke: var(--edge); }
       .edge path.line { stroke-opacity: .9; }
       .edge.s-stale path.line { stroke-dasharray: 5 4; stroke: var(--stale); stroke-opacity: .9; }
-      .edge.diff-added path.line { stroke: var(--healthy); stroke-width: 3; stroke-opacity: 1; }
-      .edge.diff-removed path.line { stroke: var(--failing); stroke-width: 3; stroke-opacity: 1; stroke-dasharray: 7 5; }
-      .edge.diff-changed path.line { stroke: var(--degraded); stroke-width: 3; stroke-opacity: 1; }
+      .edge:is(.diff-added, .diff-removed, .diff-changed) path.line { stroke-width: 3; stroke-opacity: 1; }
       .edge.nodiff path.line { stroke-opacity: .3; }
       .edge.sel path.line, .edge:hover path.line { stroke-opacity: 1; }
       .edge.sel path.line { stroke: var(--accent); }
@@ -2037,10 +2038,12 @@ button.label:hover { border-color: var(--accent); }
       .node.dim .title { fill: var(--muted); }
       .node.dim :is(.icon, .why-tag, .blind) { opacity: .45; }
       .node.dim .card { stroke: var(--line); }
-      /* Comparison marks outrank the compact health stroke; selection and focus outrank them. */
-      .node.diff-added:not(.sel):not(:focus-visible) .card { stroke: var(--healthy); stroke-width: 2.5; }
-      .node.diff-removed:not(.sel):not(:focus-visible) .card { stroke: var(--failing); stroke-width: 2.5; stroke-dasharray: 7 5; }
-      .node.diff-changed:not(.sel):not(:focus-visible) .card { stroke: var(--degraded); stroke-width: 2.5; }
+      /* Comparison: what differs keeps a heavy outline (in its health colour when it has
+         one) and its own dashes; the name says how (DIFF_MARK). */
+      .node:is(.diff-added, .diff-removed, .diff-changed) .card { stroke-width: 2.5; }
+      .node:is(.diff-added, .diff-removed, .diff-changed):not(.h-degraded, .h-failing, .sel, :focus-visible) .card { stroke: var(--ink-2); }
+      .node.diff-added .title { text-decoration: underline; }
+      .node.diff-removed .title { text-decoration: line-through; }
       @media (prefers-reduced-motion: reduce) { .node.enter { animation: none; } .dim, .card, .edge path.line { transition: none; } }
     `;
 
@@ -3740,9 +3743,9 @@ button.label:hover { border-color: var(--accent); }
         result.append(el('p', { role: 'status' }, `Not compared: “before” holds ${holds(diff.scope.before)} and “after” holds ${holds(diff.scope.after)}. Their differences would be the scope, not changes. Choose two captures of the same scope.`));
         return;
       }
-      result.append(el('p', { role: 'status' }, `${diff.counts.added} only after · ${diff.counts.removed} only before · ${diff.counts.changed} changed · ${diff.counts.unchanged} unchanged`));
+      result.append(el('p', { role: 'status' }, `Compared: ${diff.counts.added} only after, ${diff.counts.removed} only before, ${diff.counts.changed} changed, ${diff.counts.unchanged} unchanged.`));
       if (Date.parse(comparison.before.generatedAt) > Date.parse(comparison.after.generatedAt)) result.append(el('p', {}, 'The selected “before” capture is newer than “after”. The comparison preserves your selected order.'));
-      result.append(el('p', {}, 'Map marks: + only after (green outline) · − only before (red dashed outline) · ~ changed health, state, kind, labels, addresses or identity resolution (amber outline). Unmarked items are unchanged and muted.'));
+      result.append(el('p', {}, 'On the maps, what differs keeps a heavy outline and its name says how: underlined is only after, struck through is only before, and “~” changed its health, state, kind, labels, addresses or identity resolution. Everything unchanged is muted; the other marks keep their usual meaning.'));
       const maps = el('div', { class: 'workspace-grid' });
       // Each map marks only what it can show: absences belong to "before", arrivals to "after".
       const marks = (rows, side) => Object.fromEntries(rows.filter(row => row.status === 'changed' || row.status === (side === 'before' ? 'removed' : 'added')).map(row => [row.id, row.status]));
@@ -3757,7 +3760,7 @@ button.label:hover { border-color: var(--accent); }
       const rows = [...diff.nodes, ...diff.edges].filter(row => row.status !== 'unchanged');
       const body = el('tbody');
       for (const row of rows.slice(0,500)) body.append(el('tr', { class: 'change-' + row.status },
-        el('td', {}, row.status === 'removed' ? '− Only before' : row.status === 'added' ? '+ Only after' : '~ Changed'),
+        el('td', {}, row.status === 'removed' ? 'Only before' : row.status === 'added' ? 'Only after' : '~ Changed'),
         el('td', {}, row.type, ' ', el('button', { type: 'button', class: 'btn', onclick: () => comparisonMaps.forEach(controller => controller.focus(row.id)) }, row.id)),
         el('td', {}, row.changes.map(change => `${change.field}: ${JSON.stringify(change.before)} → ${JSON.stringify(change.after)}`).join('; ') || 'Presence in these two captures')));
       result.append(el('table', { class: 'workspace-table' }, el('caption', {}, 'Structural and health differences'), el('thead', {}, el('tr', {}, ...['Change','Identity — locate on both maps','Before → after'].map(label => el('th', { scope: 'col' }, label)))), body),

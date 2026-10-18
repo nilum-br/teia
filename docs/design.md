@@ -22,6 +22,10 @@ font and theme inside a dashboard); the grammar below does not.
 The **plan line** at the top of the page counts the same marks, like a diff: declared and seen, seen but not
 declared, declared but not seen, blind spots. Each count is a button that shows only those.
 
+**Compare snapshots** draws the two captures side by side with the same grammar and writes the differences on
+the names, like tracked changes: underlined is only after, struck through is only before, and `~` changed. What
+differs keeps a heavy outline; what did not change is muted. The "+" and the dashes keep their meaning there too.
+
 ## Rules for changes
 
 - Color is for health, selection and focus. A new state gets a shape or a stroke before it gets a color, and it

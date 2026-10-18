@@ -47,18 +47,22 @@ for (const theme of ['light','dark'] as const) for (const width of [600,1600]) {
     await expect(root.locator('#comparisonResult .change-changed')).toContainText('health');
     await expect(root.locator('.comparison-map')).toHaveCount(2);
     await expect(root.locator('.comparison-map').first().locator('#timeContext')).toContainText('Frozen capture');
-    // The maps themselves mark the differences, in text as well as colour.
+    // The maps mark the differences on the names, like tracked changes; amber, red,
+    // "+" and dashes keep their meaning on the map.
     const beforeMap = root.locator('.comparison-map').first(), afterMap = root.locator('.comparison-map').nth(1);
     const added = afterMap.locator('.node[data-id="new-service"]');
     await expect(added).toHaveClass(/\bdiff-added\b/);
     await expect(added).toHaveAttribute('aria-label', /only in the after capture/);
-    await expect(added.locator('.title')).toHaveText(/^\+ /);
+    await expect(added.locator('.title')).toHaveCSS('text-decoration-line', 'underline');
+    await expect(added.locator('.title')).not.toHaveText(/^\+/);
+    await expect(added.locator('.card')).toHaveCSS('stroke-dasharray', 'none');
     for (const map of [beforeMap, afterMap]) {
       await expect(map.locator('.node[data-id="service-0000"]')).toHaveClass(/\bdiff-changed\b/);
+      await expect(map.locator('.node[data-id="service-0000"] .title')).toHaveText(/^~ /);
     }
     await expect(beforeMap.locator('.node[data-id="service-0001"]')).toHaveClass(/\bnodiff\b/);
     await expect(beforeMap.locator('.node.diff-added')).toHaveCount(0);
-    await expect(root.locator('#comparisonResult')).toContainText('Map marks: + only after');
+    await expect(root.locator('#comparisonResult')).toContainText('underlined is only after, struck through is only before');
     const dialog = root.locator('#investigateDialog[open]');
     expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
     await page.screenshot({path:info.outputPath('comparison.png'),animations:'disabled'});

@@ -141,7 +141,7 @@ test('a capture of a slice is compared only with a capture of the same slice', a
   await expect(dialog.locator('#compare-label-after')).toContainText('only calls with journey = checkout');
   await page.screenshot({ path: info.outputPath('compare-scopes.png'), animations: 'disabled' });
   await dialog.getByRole('button', { name: 'Capture current snapshot as before', exact: true }).click();
-  await expect(dialog.locator('#comparisonResult')).toContainText('0 only after · 0 only before · 0 changed');
+  await expect(dialog.locator('#comparisonResult')).toContainText('Compared: 0 only after, 0 only before, 0 changed');
   await expect(dialog.locator('.comparison-map')).toHaveCount(2);
 });
 
