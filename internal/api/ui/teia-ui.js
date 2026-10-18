@@ -2995,13 +2995,13 @@ button.label { cursor: pointer; }
         const again = panel.querySelector('input');
         again.focus(); again.setSelectionRange(at, at);
       });
-      panel.replaceChildren(
+      panel.replaceChildren(...[
         el('div', { class: 'top' }, search, el('button', { type: 'button', class: 'btn', onclick: () => setFilterPanel(false) }, 'Done')),
         el('p', { class: 'explain' }, 'Counts cover the whole snapshot. Different filters intersect; values within one filter are combined.'),
         sections.length ? el('div', { class: 'facets' }, ...sections) : null,
         advanced.length ? el('details', { open: q || panelAdvanced ? '' : null, ontoggle: ev => { if (!q) panelAdvanced = ev.target.open; } }, el('summary', {}, 'Advanced filters'), el('div', { class: 'facets' }, ...advanced)) : null,
         !sections.length && !advanced.length ? el('p', { class: 'muted' }, 'Nothing matches. Try a different filter search.') : null,
-      );
+      ].filter(Boolean));
       if (focused) [...panel.querySelectorAll('[data-filter-key]')].find(b => b.getAttribute('data-filter-key') === focused)?.focus({ preventScroll: true });
     }
 
@@ -3114,10 +3114,10 @@ button.label { cursor: pointer; }
         : state.scope ? new Set(state.scope.roles.keys()) : null;
       const local = ids ? fs.filter(f => ids.has(f.subject) || f.subject.split('->').some(id => ids.has(id))) : fs;
       const other = fs.filter(f => !local.includes(f));
-      pane.replaceChildren(el('h3', {}, ids ? 'Next steps for this selection' : 'Next steps for the whole map'),
+      pane.replaceChildren(...[el('h3', {}, ids ? 'Next steps for this selection' : 'Next steps for the whole map'),
         ...local.map(f => findingCard(f)),
         !local.length ? el('p', { class: 'explain' }, 'No advisor actions for this selection. Inspect its measured signals and evidence in Details.') : null,
-        other.length ? el('details', {}, el('summary', {}, `Other platform advice (${other.length})`), ...other.map(f => findingCard(f))) : null);
+        other.length ? el('details', {}, el('summary', {}, `Other platform advice (${other.length})`), ...other.map(f => findingCard(f))) : null].filter(Boolean));
     }
 
     // measureText reads a measure out: "12 of 97 (12%)", "3, held by legacy-reports".
