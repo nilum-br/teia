@@ -744,7 +744,7 @@ describe('filters', () => {
 
   it('lists every facet with counts and the worst health of each value', () => {
     const fs = facetsOf(lab);
-    assert.deepEqual(fs.map(f => f.key), ['journey', 'k8s.namespace', 'team', 'health', 'category', 'tech']);
+    assert.deepEqual(fs.map(f => f.key), ['journey', 'k8s.namespace', 'team', 'health', 'visibility', 'category', 'tech']);
     const journeys = fs.find(f => f.key === 'journey').values;
     assert.deepEqual(journeys.map(v => [v.value, v.health]), [['browse', 'healthy'], ['checkout', 'failing']]);
     const ns = fs.find(f => f.key === 'k8s.namespace').values;

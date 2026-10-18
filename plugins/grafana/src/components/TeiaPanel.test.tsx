@@ -226,7 +226,7 @@ describe('TeiaPanel', () => {
     const root = shadow(container);
     expect(root.querySelector('.frame-stats')!.textContent).toContain('50% err (10% covered)');
     expect(root.querySelector('.frame-stats')!.textContent).toContain('≈ p95');
-    expect(root.querySelector('#rings')!.textContent).toContain('0%visibility');
+    expect(root.querySelector('#rings')!.textContent).toContain('3blind spots');
     (root.querySelector('.edge path.hit') as SVGElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(root.querySelector('#pane-details')!.textContent).toContain('50% errors · measured on 10% of traffic');
     expect(root.querySelector('#pane-details')!.textContent).toContain('p95 approximation');

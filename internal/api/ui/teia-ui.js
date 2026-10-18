@@ -93,13 +93,17 @@ header {
 .cluster-label { color: var(--muted); font-size: 12px; }
 .cluster-name { font-size: 13px; font-weight: 600; padding-right: 6px; overflow-wrap: anywhere; }
 .cluster select { font-weight: 600; max-width: 220px; }
-.rings { display: flex; gap: 6px 18px; flex-wrap: wrap; }
-.ring { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; }
-.ring b { font-size: 14px; font-weight: 600; }
-.ring b.low { color: var(--err-text); }
-.ring b.mid { color: var(--warn-text); }
-.ring span { color: var(--ink-2); font-size: 12px; }
-.ring small { color: var(--muted); font-size: 12px; }
+/* The plan line: the map's grammar with its counts, read like a diff. */
+.rings { display: flex; gap: 2px 4px; flex-wrap: wrap; }
+.ring {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; height: 26px; padding: 0 7px;
+  border: 1px solid transparent; border-radius: 6px; background: none; cursor: pointer; color: var(--ink-2); font-size: 12px;
+}
+.ring:hover { background: var(--panel-2); }
+.ring[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 13%, transparent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.ring b { font-size: 13px; font-weight: 600; color: var(--ink); }
+.ring svg { flex: none; color: var(--ink-2); }
+.gram .hatch { stroke-width: 1; stroke-opacity: .65; }
 .spacer { flex: 1; }
 .live { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--unknown); }
@@ -166,9 +170,8 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 410px; min-height: 0
 .sep { width: 1px; background: var(--line-2); margin: 3px 2px; }
 .legend { left: 12px; bottom: 12px; padding: 10px 12px; font-size: 12px; color: var(--ink-2); display: grid; grid-template-columns: repeat(3, auto); gap: 5px 18px; max-width: calc(100% - 80px); max-height: calc(100% - 24px); overflow: auto; }
 .legend .lg { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
-.legend .sw { width: 10px; height: 10px; border-radius: 2px; }
-.legend .ln { width: 20px; height: 0; border-top: 2px solid var(--ink-2); }
-.legend .bx { width: 16px; height: 11px; border: 1.5px solid var(--ink-2); border-radius: 3px; }
+.legend .lg svg.gram { flex: none; color: var(--ink-2); }
+.legend .lg.healthy svg { color: var(--healthy); } .legend .lg.degraded svg { color: var(--degraded); } .legend .lg.failing svg { color: var(--failing); }
 .legend h4 { margin: 0 0 2px; font-size: 12px; font-weight: 600; color: var(--ink); grid-column: span 1; }
 .legend h4.span3 { grid-column: 1 / -1; margin-top: 8px; }
 .legend .lg.icon svg { width: 16px; height: 16px; color: var(--ink-2); flex: none; }
@@ -608,10 +611,11 @@ button.label:hover { border-color: var(--accent); }
   // Comparison marks are text as well as colour, like health.
   const DIFF_MARK = { added: '+ ', removed: '− ', changed: '~ ' };
   const DIFF_TEXT = { added: 'only in the after capture', removed: 'only in the before capture', changed: 'changed between the captures' };
-  const STATE_LABEL = { ok: 'declared and observed', ghost: 'observed, not declared', stale: 'declared, not observed' };
+  const STATE_LABEL = { ok: 'declared and seen', ghost: 'seen, not declared', stale: 'declared, not seen' };
+  const VIS_LABEL = { full: 'seen first-hand', partial: 'blind spot', none: 'no traffic seen' };
   const VIS_EXPLAIN = {
     full: 'teia sees it first-hand: its own SDK, sidecar, eBPF probe or database explorer reports it.',
-    partial: 'teia only knows it through what its peers report. Whatever it calls, nobody tells teia.',
+    partial: 'Blind spot: teia sees it only through what its callers report, so whatever it calls stays invisible. To see it first-hand, give it an SDK, a sidecar or an eBPF probe.',
     none: 'teia knows it exists (inventory or a flows file) but has seen no traffic to or from it.',
   };
 
@@ -1143,6 +1147,8 @@ button.label:hover { border-color: var(--accent); }
     if (key === 'health') return [n.health];
     if (key === 'category') return [categoryOf(n)];
     if (key === 'tech') return n.tech ? [n.tech] : [];
+    // Third parties are only ever seen through their callers: not a blind spot to fix.
+    if (key === 'visibility') return n.kind === 'external' || n.group ? [] : [n.visibility];
     return labelValues(n, key);
   }
 
@@ -1201,6 +1207,9 @@ button.label:hover { border-color: var(--accent); }
     for (const k of labelKeys(snap, key)) sections.push({ key: k, title: k, values: tally(k).sort((a, b) => a.label < b.label ? -1 : 1) });
     const order = ['failing', 'degraded', 'healthy', 'unknown'];
     sections.push({ key: 'health', title: 'Health', values: tally('health', v => HEALTH_LABEL[v]).sort((a, b) => order.indexOf(a.value) - order.indexOf(b.value)) });
+    const sight = ['partial', 'none', 'full'];
+    const visibility = tally('visibility', v => VIS_LABEL[v]).sort((a, b) => sight.indexOf(a.value) - sight.indexOf(b.value));
+    if (visibility.length) sections.push({ key: 'visibility', title: 'Visibility', values: visibility });
     sections.push({ key: 'category', title: 'Component', values: tally('category', v => CATEGORY[v]?.label || v).sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : 1)) });
     const techs = tally('tech', v => has(TECH, v) ? TECH[v].label : v).sort((a, b) => a.label < b.label ? -1 : 1);
     if (techs.length) sections.push({ key: 'tech', title: 'Technology', values: techs });
@@ -1235,6 +1244,7 @@ button.label:hover { border-color: var(--accent); }
     if (key === 'health') return HEALTH_LABEL[value] || value;
     if (key === 'category') return CATEGORY[value]?.label || value;
     if (key === 'tech') return has(TECH, value) ? TECH[value].label : value;
+    if (key === 'visibility') return VIS_LABEL[value] || value;
     return `${key} ${value}`;
   }
 
@@ -1857,6 +1867,29 @@ button.label:hover { border-color: var(--accent); }
       s.innerHTML = paths;
       return s;
     };
+    // The map's grammar drawn small, for the legend and the plan line: a solid
+    // stroke is seen, a dashed one only declared, "+" seen but not declared,
+    // a hatched card a blind spot. Health glyphs match the cards'.
+    const GRAMMAR = {
+      seen: '<path d="M1 6H21"/>',
+      undeclared: '<path d="M1 6H6M16 6H21"/><rect x="6" y="1" width="10" height="10" rx="2"/><path d="M8.5 6H13.5M11 3.5V8.5"/>',
+      declared: '<path d="M1 6H21" stroke-dasharray="4 3"/>',
+      firsthand: '<rect x="2" y="1.5" width="18" height="9" rx="2"/>',
+      blind: '<rect x="2" y="1.5" width="18" height="9" rx="2"/><path class="hatch" d="M2 7L7.5 1.5M2.5 10.5L11.5 1.5M6.5 10.5L15.5 1.5M10.5 10.5L19.5 1.5M14.5 10.5L20 5"/>',
+      notraffic: '<rect x="2" y="1.5" width="18" height="9" rx="2" stroke-dasharray="3 2.5"/>',
+    };
+    const HEALTH_GLYPH = {
+      healthy: '<rect x="-5" y="-5" width="10" height="10" rx="2"/>',
+      degraded: '<path d="M0,-6 L6,5 L-6,5 Z"/>',
+      failing: '<path d="M-5,-3 L-3,-5 L0,-2 L3,-5 L5,-3 L2,0 L5,3 L3,5 L0,2 L-3,5 L-5,3 L-2,0 Z"/>',
+    };
+    const grammarSVG = kind => {
+      const glyph = has(HEALTH_GLYPH, kind);
+      const s = sv('svg', glyph ? { viewBox: '-7 -7 14 14', width: '12', height: '12', fill: 'currentColor', class: 'gram', 'aria-hidden': 'true' }
+        : { viewBox: '0 0 22 12', width: '22', height: '12', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', class: 'gram', 'aria-hidden': 'true' });
+      s.innerHTML = glyph ? HEALTH_GLYPH[kind] : GRAMMAR[kind];
+      return s;
+    };
     const css = name => getComputedStyle(host).getPropertyValue(name).trim();
     const timeOf = iso => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const stored = (k, d) => { const v = store.get(k, null); return v == null ? d : v; };
@@ -1907,14 +1940,17 @@ button.label:hover { border-color: var(--accent); }
       .card { fill: var(--card); stroke: var(--line-2); stroke-width: 1; transition: fill .15s, stroke .15s; }
       .node { cursor: pointer; outline: none; }
       .node.nodiff .title { fill: var(--muted); }
-      .node.nodiff :is(.tile, .icon) { opacity: .55; }
+      .node.nodiff .icon { opacity: .55; }
       .node:hover .card, .node.sel .card, .node:focus-visible .card { fill: var(--card-hi); stroke: var(--accent); }
       .node.sel .card { stroke-width: 1.5; }
       .node:focus-visible .card { stroke-width: 2; }
-      .node.vis-partial .card { stroke-dasharray: 5 3; }
-      .node.vis-none .card { stroke-dasharray: 2 3; }
-      .node.vis-none { opacity: .8; }
-      .tile { fill: none; }
+      /* The map's grammar: a solid stroke is seen, a dashed one is only declared, a
+         hatched card is a blind spot (only its callers report it). Colour is health. */
+      .node .blind { fill: url(#teia-blind); pointer-events: none; display: none; }
+      .node.vis-partial .blind { display: inline; }
+      .blind-line { stroke: var(--ink); stroke-opacity: .13; stroke-width: 1.3; }
+      .node.vis-none .card { stroke-dasharray: 5 4; }
+      .node.vis-none .title { fill: var(--ink-2); }
       .h-degraded .card { stroke: var(--degraded); }
       .h-failing .card { stroke: var(--failing); stroke-width: 1.5; }
       .node .icon { color: var(--unknown); }
@@ -1925,7 +1961,7 @@ button.label:hover { border-color: var(--accent); }
       .glyph.warn path { fill: var(--degraded); } .glyph.fail path { fill: var(--failing); }
       .kind-group .card { stroke: var(--ink-2); stroke-width: 1.2; }
       .node .title { fill: var(--ink); font-weight: 600; font-size: 13.5px; }
-      .compact .node :is(.sub, .badges, .alert, .why-tag, .tile, .icon, .glyph),
+      .compact .node :is(.sub, .badges, .alert, .why-tag, .icon, .glyph, .blind),
       .compact :is(.value-tag, .why-tag, .elabel, .frame-stats, .lane-caption) { display: none; }
       .compact .h-degraded .card { stroke: var(--warn-text); stroke-width: 1.5; }
       .compact .h-failing .card { stroke: var(--err-text); stroke-width: 1.5; }
@@ -1969,7 +2005,7 @@ button.label:hover { border-color: var(--accent); }
       .port.degraded svg { color: var(--degraded); } .port.failing svg { color: var(--failing); }
       .port-line { fill: none; stroke: var(--muted); stroke-opacity: .55; stroke-width: 1.2; stroke-linejoin: round; }
       .port-line.degraded { stroke: var(--degraded); stroke-opacity: .9; } .port-line.failing { stroke: var(--failing); stroke-opacity: .9; }
-      .port-line.ghost { stroke-dasharray: 6 4; }
+      .port-line.stale { stroke-dasharray: 5 4; }
       .node.match .card { stroke: var(--accent); stroke-width: 2; }
       .node.enter { animation: enter .15s ease-out; }
       @keyframes enter { from { opacity: 0; } to { opacity: 1; } }
@@ -1978,8 +2014,7 @@ button.label:hover { border-color: var(--accent); }
       .edge.h-healthy path.line { stroke: color-mix(in srgb, var(--healthy) 55%, var(--edge)); } .edge.h-degraded path.line { stroke: var(--degraded); }
       .edge.h-failing path.line { stroke: var(--failing); } .edge.h-unknown path.line { stroke: var(--edge); }
       .edge path.line { stroke-opacity: .9; }
-      .edge.s-ghost path.line { stroke-dasharray: 6 5; }
-      .edge.s-stale path.line { stroke-dasharray: 1.5 5; stroke: var(--stale); stroke-opacity: .9; }
+      .edge.s-stale path.line { stroke-dasharray: 5 4; stroke: var(--stale); stroke-opacity: .9; }
       .edge.diff-added path.line { stroke: var(--healthy); stroke-width: 3; stroke-opacity: 1; }
       .edge.diff-removed path.line { stroke: var(--failing); stroke-width: 3; stroke-opacity: 1; stroke-dasharray: 7 5; }
       .edge.diff-changed path.line { stroke: var(--degraded); stroke-width: 3; stroke-opacity: 1; }
@@ -1990,19 +2025,19 @@ button.label:hover { border-color: var(--accent); }
       .arrow.healthy { fill: color-mix(in srgb, var(--healthy) 55%, var(--edge)); } .arrow.degraded { fill: var(--degraded); } .arrow.failing { fill: var(--failing); }
       .arrow.unknown { fill: var(--edge); } .arrow.ghost { fill: var(--stale); } .arrow.accent { fill: var(--accent); }
       .mark { cursor: pointer; }
-      .mark circle { fill: var(--card); stroke: var(--ghost); stroke-width: 1.2; }
-      .mark text { fill: var(--warn-text); font-size: 10px; font-weight: 700; text-anchor: middle; }
+      .mark rect { fill: var(--card); stroke: var(--ink-2); stroke-width: 1.2; }
+      .mark path { stroke: var(--ink); stroke-width: 1.6; stroke-linecap: round; }
+      .mark:hover rect { stroke: var(--accent); }
       .elabel rect { fill: var(--panel); stroke: var(--line-2); }
       .elabel text { fill: var(--ink); font-size: 11px; }
       .elabel, .particles { pointer-events: none; }
       .particles circle { fill: var(--particle); }
-      .particles circle.ghost { fill: var(--ghost); }
       .particles circle.err { fill: var(--failing); }
       .particles circle.faint { opacity: .5; }
       .dim { opacity: .35; transition: opacity .15s; }
       .node.dim { opacity: 1; }
       .node.dim .title { fill: var(--muted); }
-      .node.dim :is(.tile, .icon, .badges, .why-tag) { opacity: .45; }
+      .node.dim :is(.icon, .badges, .why-tag, .blind) { opacity: .45; }
       .node.dim .card { stroke: var(--line); }
       /* Comparison marks outrank the compact health stroke; selection and focus outrank them. */
       .node.diff-added:not(.sel):not(:focus-visible) .card { stroke: var(--healthy); stroke-width: 2.5; }
@@ -2024,6 +2059,10 @@ button.label:hover { border-color: var(--accent); }
         m.append(sv('path', { d: 'M0,1 L9,5 L0,9 z', class: 'arrow ' + h }));
         defs.append(m);
       }
+      // Blind spots are hatched, like unsurveyed ground on a map.
+      const hatch = sv('pattern', { id: 'teia-blind', width: '5', height: '5', patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' });
+      hatch.append(sv('path', { d: 'M0,0 V5', class: 'blind-line' }));
+      defs.append(hatch);
       const st = sv('style');
       st.textContent = SVG_CSS;
       defs.append(st);
@@ -2165,7 +2204,7 @@ button.label:hover { border-color: var(--accent); }
     function drawPort(c, fr) {
       const p = c.port, side = p.side === 'in' ? 1 : -1;
       const chipEdge = c.x - side * c.w / 2, frameEdge = side > 0 ? fr.x0 : fr.x1;
-      const edgeState = p.edges.length && p.edges.every(e => e.state === 'ghost') ? ' ghost' : '';
+      const edgeState = p.edges.length && p.edges.every(e => e.state === 'stale') ? ' stale' : '';
       for (const r of c.routes) {
         let pts;
         if (r.mode === 'direct') {
@@ -2212,7 +2251,7 @@ button.label:hover { border-color: var(--accent); }
       g.dataset.id = n.id;
       const halo = sv('rect', { class: 'halo', x: -NODE_W / 2, y: -NODE_H / 2, width: NODE_W, height: NODE_H, rx: 6, style: 'transform-box: fill-box; transform-origin: center' });
       const card = sv('rect', { class: 'card', x: -NODE_W / 2, y: -NODE_H / 2, width: NODE_W, height: NODE_H, rx: 6 });
-      const tile = sv('rect', { class: 'tile', x: -NODE_W / 2 + 10, y: -14, width: 28, height: 28, rx: 4 });
+      const blind = sv('rect', { class: 'blind', x: -NODE_W / 2, y: -NODE_H / 2, width: NODE_W, height: NODE_H, rx: 6 });
       // The category icon carries the health colour; the card stays neutral until something is wrong.
       const icon = sv('g', { class: 'icon', transform: `translate(${-NODE_W / 2 + 14},-10)` });
       // Health is never colour alone: a triangle for degraded, a cross for failing.
@@ -2227,7 +2266,7 @@ button.label:hover { border-color: var(--accent); }
       // The worst reason sits on the card's top edge, like a tab.
       const why = sv('g', { transform: `translate(${-NODE_W / 2 + 12},${-NODE_H / 2 - 2})` });
       const tip = sv('title');
-      g.append(halo, card, tile, icon, warn, fail, title, sub, badges, alert, why, tip);
+      g.append(halo, card, blind, icon, warn, fail, title, sub, badges, alert, why, tip);
       g._parts = { icon, title, sub, badges, alert, why, tip };
       g.addEventListener('pointerdown', ev => startNodeDrag(ev, g));
       g.addEventListener('mouseenter', () => { state.hover = g.dataset.id; applyHighlight(); });
@@ -2373,9 +2412,8 @@ button.label:hover { border-color: var(--accent); }
         if (g.style.display === 'none' || g._edge.state !== 'ghost') continue;
         const p = mid(g);
         const m = sv('g', { class: 'mark', transform: `translate(${p.x},${p.y})` });
-        const t = sv('text', { y: 3.5 }); t.textContent = '!';
-        const tt = sv('title'); tt.textContent = 'Observed but not declared in any flows file';
-        m.append(sv('circle', { r: 8 }), t, tt);
+        const tt = sv('title'); tt.textContent = 'Seen in traffic, not declared in any flows file';
+        m.append(sv('rect', { x: -7, y: -7, width: 14, height: 14, rx: 3 }), sv('path', { d: 'M-3.5,0H3.5M0,-3.5V3.5' }), tt);
         m.addEventListener('click', ev => { ev.stopPropagation(); select({ type: 'edge', id: g._edge.id }); });
         layerMarks.append(m);
       }
@@ -2400,6 +2438,8 @@ button.label:hover { border-color: var(--accent); }
         for (const c of fb.chips) obstacles.push({ x0: c.x - c.w / 2, x1: c.x + c.w / 2, y0: c.y - 13, y1: c.y + 13 });
       }
       const shown = [...edgeEls.values()].filter(g => g.style.display !== 'none');
+      // The "+" of a line seen but not declared keeps the middle of its line.
+      if (state.snap.drift) for (const g of shown) if (g._edge.state === 'ghost') { const p = mid(g); obstacles.push({ x0: p.x - 10, x1: p.x + 10, y0: p.y - 10, y1: p.y + 10 }); }
       const spotsOf = g => { const pts = samples(g); return [24, 20, 28, 16, 32, 12, 36, 8, 40, 5, 43].map(i => ({ x: pts[i][0], y: pts[i][1] })); };
       const pin = (tag, g, w, at) => {
         tag.setAttribute('transform', `translate(${at.x - w / 2},${at.y})`);
@@ -2497,7 +2537,7 @@ button.label:hover { border-color: var(--accent); }
       wake();
     }
     function paintParticle(p) {
-      p.el.setAttribute('class', (p.err ? 'err' : p.edge.state === 'ghost' && state.snap.drift ? 'ghost' : '') + (p.edge.requestRate > 0 ? '' : ' faint'));
+      p.el.setAttribute('class', (p.err ? 'err' : '') + (p.edge.requestRate > 0 ? '' : ' faint'));
     }
     function placeParticles() {
       for (const p of particles) {
@@ -2775,21 +2815,23 @@ button.label:hover { border-color: var(--accent); }
     // --------------------------------------------------------------- top bar
     function renderRings() {
       if (state.operation.id) { $('#rings').replaceChildren(el('span', { class: 'pill' }, 'Sample coverage unknown')); return; }
-      const c = state.snap.coverage;
+      // The plan line: where the declarations and the traffic agree, read like
+      // a diff, then teia's own blind spots. Each count shows only those.
       const internal = state.snap.nodes.filter(n => n.kind !== 'external');
-      const observed = state.snap.edges.filter(e => e.observed), declared = state.snap.edges.filter(e => e.declared);
-      // A readout per measure: the share, what it measures, the count behind it.
-      // Only a share below 80% takes a colour (amber, red below 50%).
-      const ring = (label, v, hint, numerator, denominator) => {
-        const level = !denominator || v >= 0.8 ? '' : v >= 0.5 ? ' mid' : ' low';
-        return el('div', { class: 'ring', title: hint }, el('b', { class: 'num' + level }, denominator ? pct(v) : '—'), el('span', {}, label), el('small', { class: 'num' }, `${numerator} of ${denominator}`));
-      };
-      const rings = [ring('visibility', c.visibility, 'Internal components seen first-hand', internal.filter(n => n.visibility === 'full').length, internal.length)];
+      const blind = internal.filter(n => n.visibility !== 'full').length;
+      const item = (kind, n, label, hint, pressed, onclick) => el('button', { type: 'button', class: 'ring', title: hint, 'aria-pressed': String(pressed), onclick },
+        grammarSVG(kind), el('b', { class: 'num' }, String(n)), el('span', {}, label));
+      const items = [];
       if (state.snap.drift) {
-        rings.push(ring('declared', c.declared, 'Observed communications declared in flows files', observed.filter(e => e.declared).length, observed.length));
-        rings.push(ring('observed', c.observed, 'Declared communications actually observed', declared.filter(e => e.observed).length, declared.length));
+        const count = st => state.snap.edges.filter(e => e.state === st).length;
+        const hint = { ok: 'A flows file declares them and traffic confirms them', ghost: 'Seen in traffic; no flows file declares them', stale: 'A flows file declares them; no traffic showed them while the caller was visible' };
+        for (const [st, kind] of [['ok', 'seen'], ['ghost', 'undeclared'], ['stale', 'declared']]) {
+          items.push(item(kind, count(st), STATE_LABEL[st], `${hint[st]}. Show only these communications`, soloEdge(st), () => soloEdgeState(st)));
+        }
       }
-      $('#rings').replaceChildren(...rings);
+      items.push(item('blind', blind, blind === 1 ? 'blind spot' : 'blind spots',
+        `${blind} of ${internal.length} internal components are not seen first-hand: only their callers report them, or nothing does. Show only these`, blindFilter(), toggleBlindSpots));
+      $('#rings').replaceChildren(...items);
     }
 
     function renderLive() {
@@ -2816,14 +2858,12 @@ button.label:hover { border-color: var(--accent); }
           iconSVG('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>'), 'Legend'));
         return;
       }
-      const sw = (color, label) => el('div', { class: 'lg' }, el('i', { class: 'sw', style: `background:${color}` }), label);
-      const ln = (style, label) => el('div', { class: 'lg' }, el('i', { class: 'ln', style }), label);
-      const bx = (style, label) => el('div', { class: 'lg' }, el('i', { class: 'bx', style }), label);
+      const lg = (kind, label) => el('div', { class: 'lg ' + kind }, grammarSVG(kind), label);
       const parts = [
         el('h4', {}, 'Health'), el('h4', {}, 'Communication'), el('h4', {}, 'Visibility'),
-        sw(css('--healthy'), 'healthy'), ln('', 'declared + seen'), bx('', 'first-hand'),
-        sw(css('--degraded'), '▲ degraded'), ln('border-top-style:dashed', 'not declared'), bx('border-style:dashed', 'via peers'),
-        sw(css('--failing'), '✕ failing'), ln('border-top-style:dotted', 'not seen'), bx('border-style:dotted', 'no traffic'),
+        lg('healthy', HEALTH_LABEL.healthy), lg('seen', STATE_LABEL.ok), lg('firsthand', VIS_LABEL.full),
+        lg('degraded', HEALTH_LABEL.degraded), lg('undeclared', STATE_LABEL.ghost), lg('blind', 'blind spot: only its callers report it'),
+        lg('failing', HEALTH_LABEL.failing), lg('declared', STATE_LABEL.stale), lg('notraffic', VIS_LABEL.none),
         el('h4', { class: 'span3' }, 'Why: the tag on a card or line'),
         el('div', { class: 'reasons' }, ...Object.values(REASON).map(r => el('span', { class: 'lg' }, iconSVG(r.icon), r.label))),
       ];
@@ -2974,6 +3014,15 @@ button.label:hover { border-color: var(--accent); }
       } else $('#filterBtn')?.focus();
     }
     function toggleEdgeState(st) { state.states[st] = !state.states[st]; store.set('states', state.states); renderAll(); if (filterPanelOpen()) renderFilterPanel(); }
+    // soloEdgeState shows only one kind of communication; again, all of them.
+    const soloEdge = st => Object.entries(state.states).every(([k, v]) => v === (k === st));
+    function soloEdgeState(st) {
+      const all = soloEdge(st);
+      state.states = { ok: all, ghost: all, stale: all, [st]: true };
+      store.set('states', state.states); renderAll(); if (filterPanelOpen()) renderFilterPanel();
+    }
+    const blindFilter = () => (state.filters.facets.visibility || []).length > 0;
+    const toggleBlindSpots = () => setFilters({ journeys: state.filters.journeys, facets: { ...state.filters.facets, visibility: blindFilter() ? [] : ['partial', 'none'] } });
     function toggleSignal(sg) {
       if (state.signals.has(sg)) state.signals.delete(sg); else state.signals.add(sg);
       store.set('signals', [...state.signals]); renderAll(); if (filterPanelOpen()) renderFilterPanel();
@@ -3016,7 +3065,7 @@ button.label:hover { border-color: var(--accent); }
       }
       if (state.snap.drift) {
         const count = st => state.snap.edges.filter(e => e.state === st).length;
-        const states = [['ok', 'declared and seen'], ['ghost', 'not declared'], ['stale', 'declared, not seen']].filter(([, l]) => !q || l.includes(q) || 'communication'.includes(q));
+        const states = ['ok', 'ghost', 'stale'].map(st => [st, STATE_LABEL[st]]).filter(([, l]) => !q || l.includes(q) || 'communication'.includes(q));
         if (states.length) advanced.push(el('section', {}, el('h5', {}, 'Communication'), el('div', { class: 'values' },
           ...states.map(([st, label]) => value(state.states[st], label, count(st), null, null, () => toggleEdgeState(st), 'state:' + st)))));
       }
