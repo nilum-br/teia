@@ -329,6 +329,28 @@ describe('provenanceText', () => {
   });
 });
 
+// The time line is read as sentences; " · " only separates data (docs/design.md).
+describe('temporalText', () => {
+  const { temporalText } = core;
+  const now = Date.parse('2026-10-18T12:00:30Z');
+  const timed = snap([node('a', { evidence: [{ source: 'prometheus', signal: 'traces', metrics: ['requestRate'], windowSeconds: 120 }, { source: 'tempo', signal: 'traces', metrics: ['latency'], windowSeconds: 600 }] })], [],
+    { generatedAt: '2026-10-18T12:00:00Z', observedAt: '2026-10-18T11:59:50Z', timeMode: 'current' });
+
+  it('says what time the map shows, in sentences', () => {
+    assert.equal(temporalText(timed, { mode: 'panel' }, now),
+      'Current state, updated 30 s ago, from sources looking back 2 min and 10 min. Original observation 40 s ago. The dashboard range does not change this snapshot.');
+    assert.equal(temporalText(sanitize({ ...timed, observedAt: '' }), { mode: 'page' }, now),
+      'Current state, updated 30 s ago, from sources looking back 2 min and 10 min. Original observation time unknown.');
+  });
+
+  it('keeps stored, frozen and sampled views apart', () => {
+    assert.match(temporalText(sanitize({ ...timed, timeMode: 'historical', history: { availability: 'stored-snapshot', id: 'h1', recordedAt: '2026-10-18T12:00:05Z' } }), {}, now),
+      /^Historical snapshot of 2026-10-18T12:00:00.000Z, recorded 2026-10-18T12:00:05Z: one observation, not continuous coverage. Live updates are paused.$/);
+    assert.match(temporalText(timed, { comparison: true }, now), /^Frozen capture of 2026-10-18T12:00:00.000Z \(current\): one observation, not continuous coverage.$/);
+    for (const opts of [{ mode: 'panel' }, { comparison: true }, {}]) assert.doesNotMatch(temporalText(timed, opts, now), / · /);
+  });
+});
+
 // A round that adds or drops a call must not rearrange the map someone is
 // reading; with the plain layered layout one call moved most of the cards.
 describe('steadyLayout', () => {
