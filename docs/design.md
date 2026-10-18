@@ -42,7 +42,8 @@ differs keeps a heavy outline; what did not change is muted. The "+" and the das
 - No decorative motion, glow, blur, gradients, dot-grid backgrounds, uppercase eyebrow labels, colored side
   stripes or icons in colored tiles. The traffic dots move only when **Flow** is on, and Flow starts off when the system asks for reduced motion.
 - Text says what, from where and since when. A blind spot is written as what teia cannot see, why, and how to
-  see it.
+  see it. In the details every value and every reason carries one line in one form, naming only the sources that
+  report it: "From prometheus (traces) and loki/access-logs (logs), the 2 min to 21:27:39."
 - Icons follow the [icon library](icons.md#drawing-a-new-icon) rules.
 - Check a change on the standalone page and in the Grafana panel, light and dark, desktop and mobile.
 

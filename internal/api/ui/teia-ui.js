@@ -296,6 +296,7 @@ details summary { cursor: pointer; color: var(--accent); font-size: 12px; margin
 .kv { display: grid; grid-template-columns: 130px 1fr; gap: 6px 10px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; word-break: break-word; }
+.kv dd small.from { display: block; color: var(--muted); font-size: 11.5px; margin-top: 1px; }
 .labels { display: flex; flex-wrap: wrap; gap: 5px; }
 .label { font: 11.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; border: 1px solid var(--line-2); border-radius: 4px; padding: 0 6px; background: transparent; color: var(--ink); }
 button.label { cursor: pointer; }
@@ -673,6 +674,31 @@ button.label:hover { border-color: var(--accent); }
     return `${subject}${e.source}${e.origin ? ` (${e.origin})` : ''} · ${e.signal || 'source'} · ${e.metrics.join(', ') || 'inventory'}${e.retained ? ' · retained topology' : ''}. ` +
       `Collected: ${e.collectedAt || 'unknown'}. ` + (e.evaluatedAt ? `Query evaluated: ${e.evaluatedAt}. ` : '') + observation +
       (e.windowSeconds > 0 ? `Query lookback: ${fmtSec(e.windowSeconds)}.` : 'Query lookback not supplied.');
+  }
+  // provenanceText says where a value comes from and when, in one form for
+  // every value the details show: "From prometheus (traces) and
+  // loki/access-logs (logs), the 2 min to 21:27:39." Only the sources that
+  // report that metric count (all of them when none is named); a source that
+  // gave no time says so instead of borrowing another's.
+  const clockTime = at => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  // teia names traffic and errors requestRate and errorRate; frames from other
+  // tools may say traffic and errors.
+  const METRIC_NAMES = { requestRate: ['requestRate', 'traffic'], errorRate: ['errorRate', 'errors'] };
+  function provenanceText(evidence, metric, clock = clockTime) {
+    const names = METRIC_NAMES[metric] || [metric];
+    const entries = (evidence || []).filter(e => !metric || names.some(name => e.metrics.includes(name)));
+    if (!entries.length) return 'Source not reported.';
+    const groups = new Map();
+    for (const e of entries) {
+      const end = e.evaluatedAt || e.observedAt || e.collectedAt;
+      const span = e.windowSeconds > 0 ? `the ${fmtSec(e.windowSeconds)} to ${clock(end)}` : `at ${clock(end)}`;
+      const when = e.retained ? 'kept from an earlier round: not current' : !end ? 'time unknown'
+        : e.sampleCount ? `${e.sampleCount} sampled calls ${e.windowSeconds > 0 ? 'in ' + span : 'to ' + clock(end)}` : span;
+      const name = e.source + (e.origin ? ` (${e.origin})` : e.signal && e.signal !== e.source ? ` (${e.signal})` : '');
+      if (!groups.has(when)) groups.set(when, new Set());
+      groups.get(when).add(name);
+    }
+    return 'From ' + [...groups].map(([when, names]) => `${[...names].join(' and ')}, ${when}`).join('; ') + '.';
   }
   function temporalText(snap, opts = {}, now = Date.now()) {
     if (!snap) return 'Waiting for time information';
@@ -1694,7 +1720,7 @@ button.label:hover { border-color: var(--accent); }
     } catch { return null; }
   }
 
-  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, steadyLayout, autoGroupKey, AUTO_GROUP_NODES, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, scopeSnapshot, scopePins, journeyWhy, journeyNames, scopeOf, facetsOf, facetValues, journeyKeyOf, JOURNEY_KEYS, filtersFromParams, filtersToParams, filterLabel, filtersActive, emptyFilters, journeyPorts, packColumn, frameLayout, scopeStats, TECH, CATEGORY, SIGNAL, REASON };
+  const core = { sanitize, signature, indexSnapshot, nodeSignals, labelKeys, buildView, matcher, layered, steadyLayout, provenanceText, autoGroupKey, AUTO_GROUP_NODES, particleBudget, safeApiBase, categoryOf, cardSubtitle, fmtMs, fmtSec, fmtBytes, reasonTag, compact, placeTag, parseJourney, journeyOf, scopeSnapshot, scopePins, journeyWhy, journeyNames, scopeOf, facetsOf, facetValues, journeyKeyOf, JOURNEY_KEYS, filtersFromParams, filtersToParams, filterLabel, filtersActive, emptyFilters, journeyPorts, packColumn, frameLayout, scopeStats, TECH, CATEGORY, SIGNAL, REASON };
   function operationsOf(value) {
     if (!value || value.version !== 1 || value.mode !== 'operation' || !Array.isArray(value.scopes) || !Array.isArray(value.sources)) return undefined;
     const scopes = value.scopes.filter(s => s && typeof s.id === 'string' && typeof s.operation === 'string' && typeof s.entryService === 'string' &&
@@ -3271,7 +3297,7 @@ button.label:hover { border-color: var(--accent); }
         el('strong', {}, r.summary || reasonTag(r)),
         el('p', { class: 'explain' }, r.via ? `Dependency signal from ${r.via}; this suggests a relationship, not proof of causation.` : `Measured ${r.what || REASON[r.cause].label.toLowerCase()}${r.subject ? ` on ${r.subject}` : ''}.`),
         el('p', {}, `${r.approximate ? 'Approximate ' : ''}value ${r.cause === 'latency' ? fmtMs(r.value) : fmtValue(r.value, r.unit)} · ${r.health} limit ${r.cause === 'latency' ? fmtMs(r.limit) : fmtValue(r.limit, r.unit)}${r.rule ? ` · rule ${r.rule}` : ''}`),
-        r.evidence?.length ? el('p', { class: 'explain' }, 'Sources: ' + [...new Set(r.evidence.map(e => e.source))].join(', ')) : null,
+        el('p', { class: 'explain' }, provenanceText(r.evidence, '')),
         r.via ? el('button', { type: 'button', class: 'btn', title: `Show ${r.via} on the map`, onclick: () => locate(r.via) }, 'Inspect ' + r.via) : null);
       return [el('h3', {}, 'Primary signal'), card(unique[0]),
         unique.length > 1 ? el('details', {}, el('summary', {}, `Other signals (${unique.length - 1})`), ...unique.slice(1).map(card)) : null];
@@ -3436,11 +3462,11 @@ button.label:hover { border-color: var(--accent); }
           }
           parts.push(el('p', { class: 'explain' }, VIS_EXPLAIN[n.visibility]));
           const kv = el('dl', { class: 'kv' });
-          const row = (k, v) => kv.append(el('dt', {}, k), el('dd', {}, v));
-          if (n.requestRate > 0) row(n.trafficDirection ? `${n.trafficDirection} calls` : 'traffic', `${fmtRate(n.requestRate)} req/s · ${errorText(n)}`);
-          if (n.latencyP95Ms > 0) row('latency', latencyText(n));
+          const row = (k, v, from) => kv.append(el('dt', {}, k), el('dd', {}, v, from ? el('small', { class: 'from' }, from) : null));
+          if (n.requestRate > 0) row(n.trafficDirection ? `${n.trafficDirection} calls` : 'traffic', `${fmtRate(n.requestRate)} req/s · ${errorText(n)}`, provenanceText(n.evidence, 'requestRate'));
+          if (n.latencyP95Ms > 0) row('latency', latencyText(n), provenanceText(n.evidence, 'latency'));
           row('component', `${CATEGORY[categoryOf(n)]?.label || n.kind}${n.tech ? ' · ' + techLabel(n) : ''}`);
-          for (const m of n.measures) row(m.what, measureText(m));
+          for (const m of n.measures) row(m.what, measureText(m), provenanceText(n.evidence, `${m.cause}: ${m.what}`));
           row('known from', n.sources.join(', ') || '—');
           if (n.addresses.length) row('addresses', n.addresses.join(', '));
           parts.push(kv);
@@ -3490,19 +3516,19 @@ button.label:hover { border-color: var(--accent); }
         }[e.state]));
       }
       const kv = el('dl', { class: 'kv' });
-      const row = (k, v) => kv.append(el('dt', {}, k), el('dd', {}, v));
+      const row = (k, v, from) => kv.append(el('dt', {}, k), el('dd', {}, v, from ? el('small', { class: 'from' }, from) : null));
       row('protocol', [e.protocol || '—', e.port ? ':' + e.port : ''].join(''));
       if (e.requestRate > 0) {
-        row('traffic', `${fmtRate(e.requestRate)} req/s`);
-        row('errors', errorText(e));
+        row('traffic', `${fmtRate(e.requestRate)} req/s`, provenanceText(e.evidence, 'requestRate'));
+        row('errors', errorText(e), provenanceText(e.evidence, 'errorRate'));
       }
-      if (e.latencyP95Ms > 0) row('latency', latencyText(e));
+      if (e.latencyP95Ms > 0) row('latency', latencyText(e), provenanceText(e.evidence, 'latency'));
       const edgeDims = {};
       for (const m of e.members) for (const [k, vs] of Object.entries(m.dimensions || {})) for (const v of strings(vs)) (edgeDims[k] ||= new Set()).add(v);
       if (state.snap.slice) row('measured', 'only calls with ' + sliceText(state.snap.slice.selector).replaceAll(',', ', '));
       else if (Object.keys(edgeDims).length) row('measured', 'all calls, every ' + Object.keys(edgeDims).sort().join(' and '));
       for (const [k, vs] of Object.entries(edgeDims).sort()) row(k, [...vs].sort().join(', '));
-      for (const m of e.measures) row(m.what, measureText(m));
+      for (const m of e.measures) row(m.what, measureText(m), provenanceText(e.evidence, `${m.cause}: ${m.what}`));
       if (state.snap.drift) row('reason', e.reason || (e.declared ? '—' : 'not declared'));
       row('seen by', e.signals.map(s => has(SIGNAL, s) ? SIGNAL[s].label : s).join(', ') || (e.observed ? '—' : 'nobody yet'));
       if (e.sources.length) row('sources', e.sources.join(', '));
