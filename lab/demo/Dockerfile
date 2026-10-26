@@ -1,5 +1,5 @@
 # Built from the repository root: docker build -f lab/demo/Dockerfile .
-FROM golang:1.27.2 AS build
+FROM golang:1.27.3 AS build
 COPY certs/ /usr/local/share/ca-certificates/extra/
 RUN update-ca-certificates >/dev/null 2>&1 || true
 WORKDIR /src

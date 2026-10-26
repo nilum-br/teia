@@ -1,6 +1,6 @@
 # Cross-compiles on the build machine's native platform, so multi-arch images
 # (linux/amd64, linux/arm64) build fast: docker buildx build --platform ...
-FROM --platform=$BUILDPLATFORM golang:1.27.2 AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.3 AS build
 # Optional extra CA certificates for networks with TLS inspection: drop *.crt
 # files in ./certs (they are gitignored). Harmless when the folder is empty.
 COPY certs/ /usr/local/share/ca-certificates/extra/
