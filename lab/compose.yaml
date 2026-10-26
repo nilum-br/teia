@@ -281,7 +281,7 @@ services:
   # Prometheus and puts them on catalog-cache, not on the exporter.
   catalog-cache-exporter:
     <<: *infra
-    image: oliver006/redis_exporter:v1.94.0
+    image: oliver006/redis_exporter:v1.95.0
     environment:
       REDIS_ADDR: redis://catalog-cache:6379
     depends_on: [catalog-cache]
@@ -289,14 +289,14 @@ services:
   # --- observability the platform already has -------------------------------
   otel-collector:
     <<: *infra
-    image: otel/opentelemetry-collector-contrib:0.162.0
+    image: otel/opentelemetry-collector-contrib:0.163.2
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
       - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
 
   prometheus:
     <<: *infra
-    image: prom/prometheus:v3.15.0
+    image: prom/prometheus:v3.15.1
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
@@ -304,7 +304,7 @@ services:
 
   tempo:
     <<: *infra
-    image: grafana/tempo:3.1.0
+    image: grafana/tempo:3.1.1
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     volumes:
       - ./tempo.yaml:/etc/tempo/tempo.yaml:ro
@@ -313,7 +313,7 @@ services:
 
   loki:
     <<: *infra
-    image: grafana/loki:3.7.8
+    image: grafana/loki:3.7.9
     command: ["-config.file=/etc/loki/loki.yaml"]
     volumes:
       - ./loki.yaml:/etc/loki/loki.yaml:ro
@@ -322,7 +322,7 @@ services:
 
   alloy:
     <<: *infra
-    image: grafana/alloy:v1.20.1
+    image: grafana/alloy:v1.21.2
     command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy/data"]
     environment:
       LAB_PROJECT: ${COMPOSE_PROJECT_NAME:-teia-lab}
@@ -352,7 +352,7 @@ services:
   # the checkout (dist/ and the synced src/teia/teia-ui.js) to the checkout's
   # owner, so no root-owned files are left behind on Linux.
   teia-panel:
-    image: node:26.12.0-trixie
+    image: node:26.12.1-trixie
     restart: "no"
     labels:
       teia.ignore: "true"
