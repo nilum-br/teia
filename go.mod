@@ -8,10 +8,10 @@ require (
 	github.com/Microsoft/go-winio v0.6.4
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	go.yaml.in/yaml/v3 v3.0.5
-	k8s.io/api v0.37.1
-	k8s.io/apimachinery v0.37.1
-	k8s.io/client-go v0.37.1
+	go.yaml.in/yaml/v3 v3.0.6
+	k8s.io/api v0.37.2
+	k8s.io/apimachinery v0.37.2
+	k8s.io/client-go v0.37.2
 )
 
 require (
